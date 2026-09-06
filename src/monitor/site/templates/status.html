@@ -2,5 +2,20 @@
 {% block title %}Data status — crypto monitor{% endblock %}
 {% block content %}
 <h2>Data-source status</h2>
-<div class="panel"><p>Freshness per table, the source that produced each number and the reason for any stale marker. See <a href="https://github.com/wernerhl/crypto-monitor/blob/main/docs/data_sources.md">docs/data_sources.md</a> for the verified endpoint list.</p></div>
+<div class="panel"><p>Freshness per processed table, the source that produced it and the stale marker. Endpoint verification dates: <a href="https://github.com/wernerhl/crypto-monitor/blob/main/docs/data_sources.md">docs/data_sources.md</a>.</p>
+<p class="meta" id="st-meta">loading data/status.json …</p></div>
+<div id="st-table"></div>
+<script>
+(async function(){
+  const r = await fetch('data/status.json', {cache:'no-store'});
+  if(!r.ok){ document.getElementById('st-meta').textContent = 'status.json unavailable (' + r.status + ')'; return; }
+  const d = await r.json();
+  document.getElementById('st-meta').textContent = 'generated ' + d.generated_at + ' · commit ' + d.git_sha.slice(0,12);
+  const cols = ['table','rows','latest','age_hours','max_age_hours','status','sources','reason'];
+  const tb = document.createElement('table');
+  tb.innerHTML = '<thead><tr>' + cols.map(c=>'<th>'+c+'</th>').join('') + '</tr></thead><tbody>' +
+    d.tables.map(x => '<tr class="'+(x.status==='fresh'?'':'stale')+'">' + cols.map(c => '<td>' + (x[c]==null?'':x[c]) + '</td>').join('') + '</tr>').join('') + '</tbody>';
+  document.getElementById('st-table').appendChild(tb);
+})();
+</script>
 {% endblock %}

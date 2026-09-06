@@ -13,7 +13,7 @@ build/
 *.egg-info/
 .DS_Store
 # generated site data is committed only by the bot from Actions; local renders are ignored
-site/data/*.json
+# site/data/*.json are committed by the bot (small, derived from processed parquet)
 !site/data/.gitkeep
 # duckdb scratch files
 *.duckdb

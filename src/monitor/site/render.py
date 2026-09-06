@@ -39,7 +39,7 @@ def render(out_dir: Path = SITE) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     SITE_DATA.mkdir(parents=True, exist_ok=True)
     (SITE_DATA / "build.json").write_text(json.dumps(ctx, indent=1))
-    for name in ("index.html", "methods.html", "status.html"):
+    for name in ("index.html", "universe.html", "methods.html", "status.html"):
         html = env.get_template(name).render(**ctx)
         (out_dir / name).write_text(html)
     (out_dir / ".nojekyll").touch()

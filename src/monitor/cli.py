@@ -34,22 +34,72 @@ def site_render() -> None:
 
 
 @universe_app.command("show")
-def universe_show() -> None:
-    """Print tiers with the metrics that placed each asset (phase 2)."""
-    typer.echo("universe not computed yet (phase 2)")
-    raise typer.Exit(code=2)
+def universe_show(
+    tier: int | None = typer.Option(None, help="only this tier"), excluded: bool = False
+) -> None:
+    """Print tiers with the metrics that placed each asset (as_of column included)."""
+    import polars as pl
+
+    from monitor import archive
+
+    uni = archive.read("universe")
+    if uni is None:
+        typer.echo("universe not computed yet; run `monitor fetch daily && monitor compute daily`")
+        raise typer.Exit(code=2)
+    latest = uni.filter(pl.col("as_of") == uni["as_of"].max())
+    if tier is not None:
+        latest = latest.filter(pl.col("tier") == tier)
+    if not excluded:
+        latest = latest.filter(pl.col("tier").is_not_null())
+    cols = [
+        "as_of",
+        "tier",
+        "symbol",
+        "id",
+        "rank",
+        "perp_venues",
+        "oi_median_usd",
+        "oi_window_days",
+        "depth_status",
+        "spot_venues",
+        "adv_30d_usd",
+        "adv_basis",
+        "excluded_reason",
+    ]
+    with pl.Config(tbl_rows=-1, tbl_cols=-1, tbl_width_chars=200, fmt_str_lengths=40):
+        typer.echo(str(latest.sort(["tier", "rank"]).select(cols)))
+    counts = latest.group_by("tier").len().sort("tier")
+    typer.echo(str(counts))
 
 
 @app.command()
-def fetch(job: str = typer.Argument("all", help="all|hourly|daily|weekly")) -> None:
-    """Fetch raw data for a job (phase 2+)."""
-    typer.echo(f"fetch {job}: no adapters yet (phase 2)")
+def fetch(
+    job: str = typer.Argument("all", help="all|daily|hourly|weekly"), force: bool = False
+) -> None:
+    """Fetch raw data for a job (idempotent per bucket; --force refetches)."""
+    import logging
+
+    from monitor import jobs
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if job in ("all", "daily"):
+        for k, v in jobs.fetch_daily(force=force).items():
+            typer.echo(f"{k}: {v}")
+    if job in ("hourly", "weekly"):
+        typer.echo(f"{job}: no datasets yet (phase 3)")
 
 
 @app.command()
-def compute(job: str = typer.Argument("all")) -> None:
-    """Recompute processed tables from raw files (phase 2+)."""
-    typer.echo(f"compute {job}: nothing to compute yet (phase 2)")
+def compute(
+    job: str = typer.Argument("all"),
+    rebuild: bool = typer.Option(False, help="replay every raw file"),
+) -> None:
+    """Recompute processed tables from raw files (no network)."""
+    from monitor import jobs
+
+    if job in ("all", "daily"):
+        for k, v in jobs.compute_daily(rebuild=rebuild or job == "all").items():
+            typer.echo(f"{k}: {v} rows")
 
 
 @app.command()

@@ -2450,5 +2450,82 @@
     }
    }
   }
+ },
+ {
+  "id": "binance.spot.exchangeInfo.full",
+  "url": "https://api.binance.com/api/v3/exchangeInfo",
+  "status": 200,
+  "bytes": 17563742,
+  "checked_at": "2026-09-06T06:29:58+00:00"
+ },
+ {
+  "id": "bybit.instruments.spot",
+  "url": "https://api.bybit.com/v5/market/instruments-info?category=spot&limit=1000",
+  "status": 200,
+  "bytes": 291637,
+  "checked_at": "2026-09-06T06:29:59+00:00"
+ },
+ {
+  "id": "okx.instruments.spot",
+  "url": "https://www.okx.com/api/v5/public/instruments?instType=SPOT",
+  "status": 200,
+  "bytes": 1499549,
+  "checked_at": "2026-09-06T06:29:59+00:00"
+ },
+ {
+  "id": "coinbase.products",
+  "url": "https://api.exchange.coinbase.com/products",
+  "status": 200,
+  "bytes": 352945,
+  "checked_at": "2026-09-06T06:30:00+00:00"
+ },
+ {
+  "id": "kraken.assetpairs",
+  "url": "https://api.kraken.com/0/public/AssetPairs",
+  "status": 200,
+  "bytes": 1146590,
+  "checked_at": "2026-09-06T06:30:00+00:00"
+ },
+ {
+  "id": "binance.spot.klines.1d",
+  "url": "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000",
+  "status": 200,
+  "bytes": 187400,
+  "checked_at": "2026-09-06T06:30:01+00:00"
+ },
+ {
+  "id": "bybit.spot.kline.1d",
+  "url": "https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=D&limit=1000",
+  "status": 200,
+  "bytes": 95164,
+  "checked_at": "2026-09-06T06:30:02+00:00"
+ },
+ {
+  "id": "okx.spot.candles.1d",
+  "url": "https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=1D&limit=300",
+  "status": 200,
+  "bytes": 36005,
+  "checked_at": "2026-09-06T06:30:03+00:00"
+ },
+ {
+  "id": "okx.spot.history_candles.1d",
+  "url": "https://www.okx.com/api/v5/market/history-candles?instId=BTC-USDT&bar=1D&limit=100&after=1700000000000",
+  "status": 200,
+  "bytes": 11989,
+  "checked_at": "2026-09-06T06:30:03+00:00"
+ },
+ {
+  "id": "okx.spot.candles.1Dutc",
+  "url": "https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=1Dutc&limit=5",
+  "status": 200,
+  "bytes": 629,
+  "checked_at": "2026-09-06T06:30:34+00:00"
+ },
+ {
+  "id": "coingecko.markets_by_category",
+  "url": "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=stablecoins&per_page=250&page=1&order=market_cap_desc",
+  "status": 200,
+  "bytes": 194266,
+  "checked_at": "2026-09-06T06:58:12+00:00"
  }
 ]

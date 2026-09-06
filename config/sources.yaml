@@ -3,7 +3,7 @@
 # against an entry older than `max_verification_age_days` unless FORCE_STALE_SOURCE=1.
 max_verification_age_days: 120
 sources:
-  coingecko:        {base: https://api.coingecko.com/api/v3, verified_on: 2026-09-06, min_interval_s: 6.5, key_env: COINGECKO_DEMO_KEY, key_header: x-cg-demo-api-key, history_limit_days: 365}
+  coingecko:        {base: https://api.coingecko.com/api/v3, verified_on: 2026-09-06, min_interval_s: 12.5, key_env: COINGECKO_DEMO_KEY, key_header: x-cg-demo-api-key, history_limit_days: 365}
   coinpaprika:      {base: https://api.coinpaprika.com/v1, verified_on: 2026-09-06, monthly_quota: 20000}
   binance_spot:     {base: https://api.binance.com, verified_on: 2026-09-06, weight_per_min: 6000}
   binance_usdm:     {base: https://fapi.binance.com, verified_on: 2026-09-06, weight_per_min: 2400}

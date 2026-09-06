@@ -29,10 +29,11 @@ explained below).
 | `coins/markets` | `GET https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page={1,2}&sparkline=false` → list of 250 per page (page 2 verified). Fields used: `id, symbol, name, current_price, market_cap, market_cap_rank, fully_diluted_valuation, total_volume, circulating_supply, total_supply, max_supply, last_updated`. |
 | `coins/{id}` | `GET .../coins/{id}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false` → `categories` (list of strings), `asset_platform_id`, `platforms`. Used once per asset to seed `sector_map` and to detect wrapped/LST tokens. |
 | `coins/categories/list` | 868 categories, fields `category_id, name`. |
+| `coins/markets?category=` | `?vs_currency=usd&category={stablecoins|wrapped-tokens|liquid-staking-tokens|liquid-restaking-tokens|tokenized-btc|bridged-tokens}&per_page=250&page=1` → same row shape as `coins/markets`, verified for `stablecoins` (250 rows: tether, usd-coin, usds, dai, …) and `wrapped-tokens` (wrapped-steth, wrapped-bitcoin, weth, …). One call per category gives the exclusion lists for every candidate on the first run; per-coin `coins/{id}` tags then refine sector seeding at 30 ids per day. |
 | `coins/{id}/market_chart` | `?vs_currency=usd&days=365&interval=daily` → `prices, market_caps, total_volumes` as `[ms, value]` pairs (366 rows). **`days=max` returns 401, error 10012: public users limited to 365 days.** Backfill beyond 365 days uses CoinPaprika / exchange klines / CoinMetrics. |
 | auth | none required. Optional demo key sent as header `x-cg-demo-api-key` (`COINGECKO_DEMO_KEY`); the key itself was not tested. |
-| rate limit (observed) | burst of 20 requests: 6 × 200 then 14 × **429 with `Retry-After: 60`**. No `x-ratelimit-*` headers. Adapter spaces calls ≥ 6 s apart (≤ 10/min) and sleeps 60 s on 429. |
-| sample | `coingecko.markets.json.gz`, `coingecko.coin.json.gz`, `coingecko.market_chart.json.gz`, `coingecko.market_chart_max.json.gz` (the 401 body) |
+| rate limit (observed) | burst of 20 requests: 6 × 200 then 14 × **429 with `Retry-After: 60`**. No `x-ratelimit-*` headers. Adapter spaces calls 12.5 s apart (≈ 5/min; a 429 still appeared at 6.5 s spacing during the first daily run on 2026-09-06) and sleeps `Retry-After` on 429. |
+| sample | `coingecko.markets.json.gz`, `coingecko.coin.json.gz`, `coingecko.market_chart.json.gz`, `coingecko.market_chart_max.json.gz` (the 401 body), `coingecko.markets_by_category.json.gz` |
 
 ### CoinPaprika (fallback aggregator) — verified 2026-09-06
 | item | value |
@@ -50,6 +51,10 @@ explained below).
 | OKX | `GET https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=1H&limit=300` and `.../history-candles` for older | `data[]` = `[ts, o,h,l,c, vol, volCcy, volCcyQuote, confirm]`, newest first | no headers; 40-request burst unthrottled |
 | Coinbase Exchange | `GET https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=3600` | `[time_s, low, high, open, close, volume]` (350 rows) | 15-request burst unthrottled |
 | Kraken | `GET https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=60` | `result.XXBTZUSD[]` = `[time_s, o,h,l,c, vwap, vol, count]` (721 rows) | 10-request burst unthrottled |
+
+Daily bars (verified 2026-09-06): Binance `interval=1d&limit=1000` (1000 rows, UTC days); Bybit `interval=D&limit=1000`; OKX `bar=1Dutc` (plain `1D` is aligned to UTC+8 — verified by timestamp — so `1Dutc` is used; `history-candles` for older); Coinbase `granularity=86400`; Kraken `interval=1440`.
+
+Listings (verified 2026-09-06): Binance `api/v3/exchangeInfo` (3692 symbols; `status`, `baseAsset`, `quoteAsset`, `isSpotTradingAllowed`) and `fapi/v1/exchangeInfo`; Bybit `instruments-info?category=spot` (538) and `linear` (855); OKX `instruments?instType=SPOT|SWAP|FUTURES` (1389 / 473 / 194; one swap had an empty `instFamily` and pre-open instruments carry an empty `ctVal` — both skipped); Coinbase `/products` (837; `status`, `trading_disabled`); Kraken `AssetPairs` (1446; `wsname`, `altname`, `status`).
 
 `ccxt` 4.5.77 released 2026-09-01 (PyPI verified) — maintained. Adapters call the REST
 endpoints above directly with `httpx` so that raw responses are stored verbatim; `ccxt`

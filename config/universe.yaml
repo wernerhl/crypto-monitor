@@ -6,23 +6,31 @@ candidate_universe:
   top_n_by_market_cap: 200
   pages: 2                     # 250 per page; we take the top 200 after exclusions
 exclusions:
-  # Stablecoins are kept in `stablecoins` below for Section 7; never in a tier.
-  stablecoin_categories: ["Stablecoins", "USD Stablecoin", "Fiat-backed Stablecoin", "Crypto-backed Stablecoin", "Algorithmic Stablecoin", "EUR Stablecoin", "Yield-bearing Stablecoins"]
-  wrapped_or_lst_categories: ["Wrapped-Tokens", "Liquid Staking Tokens", "Liquid Restaking Tokens", "Bridged-Tokens", "Tokenized BTC", "Liquid Staked ETH", "Liquid Staked SOL"]
+  # Category rules are regexes matched against CoinGecko category names (verified list,
+  # tests/fixtures/live_verification/coingecko.categories.json.gz). Stablecoins are kept in the
+  # `stablecoins` table for Section 7; never in a tier.
+  # Category membership lists fetched daily with one call each (`coins/markets?category=`),
+  # so exclusions are known for every candidate from the first run; the regexes below apply
+  # to the slower per-coin metadata and catch anything the lists miss.
+  stablecoin_category_ids: [stablecoins]
+  wrapped_or_lst_category_ids: [wrapped-tokens, liquid-staking-tokens, liquid-restaking-tokens, tokenized-btc, bridged-tokens]
+  stablecoin_category_regex: '^(?!Stablecoin Issuer$)(?!Stable Ecosystem$)(.* Stablecoin|Stablecoins)$'
+  wrapped_or_lst_category_regex: '^(Wrapped-Tokens|Tokenized BTC|Bridged-Tokens|Bridged .*|Liquid Staked .*|Liquid Restaked .*|Liquid Staking Tokens|Liquid Restaking Tokens)$'
   # exchange-internal tokens with no external markets (hand list, reviewed weekly)
   exchange_internal_ids: []
-  # explicit overrides after review (id -> reason)
+  # explicit overrides after review (coingecko id -> reason); reason "include" forces inclusion
   manual: {}
 tier_rules:
   tier1:
     perp_venues_required: 2                # of {binance, bybit, okx}
-    oi_30d_median_usd_min: 100_000_000     # aggregate across the three venues
+    oi_30d_median_usd_min: 150_000_000     # aggregate across the three venues
     depth_2pct_usd_min: 3_000_000          # intraday median of aggregated D(0.02)
     # Reasoning: the notes ask for 15–25 names with "real depth at 2 percent of several
-    # million USD". USD 100M median OI is roughly the 20th–25th rank on the three venues
-    # combined in 2025–26; USD 3M depth is the lower edge of "several million". Both are
-    # confirmed against live data in phase 2 and the resulting count recorded in
-    # docs/changelog.md. Changing them is a governance event (docs/changelog.md).
+    # million USD". On the first live run (2026-09-06, one day of OI) USD 100M aggregate OI
+    # admitted 30 names and USD 150M admitted 22, so 150M is the level that lands in the
+    # notes' range before the depth screen (which can only remove names). USD 3M depth is
+    # the lower edge of "several million". Changing either is a governance event recorded
+    # in docs/changelog.md; they are not tuned to any backtest.
   tier2:
     spot_venues_required: 2                # of {binance, bybit, okx, coinbase, kraken}
     adv_real_30d_usd_min: 10_000_000       # wash-filtered 30-day ADV

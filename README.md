@@ -8,12 +8,12 @@ context (venue risk, market state, scheduled supply, cross-sectional screens). I
 alpha engine**: there is no composite score, no ranking by expected return and no buy/sell
 language, for the reasons given in Section 1 of the notes.
 
-**Live page:** https://wernerhl.github.io/crypto-monitor/ (placeholder during phase 1)
+**Live page:** https://wernerhl.github.io/crypto-monitor/ (front-page panels fill in from phase 3; see the Universe and Data status pages)
 
 **NOTICE.** This system is a monitoring tool and not investment advice.
 
 ## Status
-Phase 1 (skeleton, CI, Pages placeholder). See `docs/changelog.md` for the phase log.
+Phase 2 (universe and prices) deployed; the three-day unattended-run acceptance is in progress. See `docs/changelog.md` for the phase log.
 
 ## Running it
 Requirements: Python 3.12 and [`uv`](https://docs.astral.sh/uv/). No paid subscription is needed;

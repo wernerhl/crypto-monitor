@@ -2,10 +2,12 @@ name: daily
 on:
   schedule:
     - cron: "25 1 * * *"
-  push:
-    branches: [main]
-    paths: ["src/monitor/site/**", ".github/workflows/daily.yml"]
   workflow_dispatch:
+    inputs:
+      force:
+        description: "refetch even if today's raw files exist"
+        type: boolean
+        default: false
 permissions:
   contents: write
   pages: write
@@ -13,10 +15,19 @@ permissions:
 concurrency:
   group: data-write
   cancel-in-progress: false
+env:
+  FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+  COINGECKO_DEMO_KEY: ${{ secrets.COINGECKO_DEMO_KEY }}
+  COINGLASS_API_KEY: ${{ secrets.COINGLASS_API_KEY }}
+  GLASSNODE_API_KEY: ${{ secrets.GLASSNODE_API_KEY }}
+  BEACONCHAIN_API_KEY: ${{ secrets.BEACONCHAIN_API_KEY }}
+  TALLY_API_KEY: ${{ secrets.TALLY_API_KEY }}
 jobs:
   daily:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,11 +38,28 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync --frozen
-      # Phase 1: placeholder site only. Fetch/compute steps are added in later phases.
+      - name: fetch daily datasets (idempotent per day)
+        run: uv run monitor fetch daily ${{ inputs.force && '--force' || '' }}
+      - name: compute processed tables from raw files
+        run: uv run monitor compute daily
+      - name: commit data as the bot
+        id: commit
+        run: |
+          git config user.name "crypto-monitor-bot"
+          git config user.email "crypto-monitor-bot@users.noreply.github.com"
+          git add data/ site/data/
+          if git diff --cached --quiet; then
+            echo "no data changes"
+          else
+            git commit -m "data: daily $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: render site
         run: uv run monitor site render
         env:
-          GIT_SHA: ${{ github.sha }}
+          GIT_SHA: ${{ steps.commit.outputs.sha }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -45,13 +73,15 @@ jobs:
     permissions:
       pages: write
       id-token: write
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
   verify-pages:
-    needs: deploy
+    needs: [daily, deploy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: check the live page carries this build's sha
-        run: bash scripts/verify_pages.sh "${{ needs.deploy.outputs.page_url || 'https://wernerhl.github.io/crypto-monitor/' }}" "${{ github.sha }}"
+        run: bash scripts/verify_pages.sh "${{ needs.deploy.outputs.page_url || 'https://wernerhl.github.io/crypto-monitor/' }}" "${{ needs.daily.outputs.sha }}"
