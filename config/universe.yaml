@@ -1,0 +1,37 @@
+# Universe and tiering (notes Section 2). Reviewed with the weekly job; membership history is stored.
+version: 1
+as_of: 2026-09-06
+candidate_universe:
+  source: coingecko            # fallback: coinpaprika
+  top_n_by_market_cap: 200
+  pages: 2                     # 250 per page; we take the top 200 after exclusions
+exclusions:
+  # Stablecoins are kept in `stablecoins` below for Section 7; never in a tier.
+  stablecoin_categories: ["Stablecoins", "USD Stablecoin", "Fiat-backed Stablecoin", "Crypto-backed Stablecoin", "Algorithmic Stablecoin", "EUR Stablecoin", "Yield-bearing Stablecoins"]
+  wrapped_or_lst_categories: ["Wrapped-Tokens", "Liquid Staking Tokens", "Liquid Restaking Tokens", "Bridged-Tokens", "Tokenized BTC", "Liquid Staked ETH", "Liquid Staked SOL"]
+  # exchange-internal tokens with no external markets (hand list, reviewed weekly)
+  exchange_internal_ids: []
+  # explicit overrides after review (id -> reason)
+  manual: {}
+tier_rules:
+  tier1:
+    perp_venues_required: 2                # of {binance, bybit, okx}
+    oi_30d_median_usd_min: 100_000_000     # aggregate across the three venues
+    depth_2pct_usd_min: 3_000_000          # intraday median of aggregated D(0.02)
+    # Reasoning: the notes ask for 15–25 names with "real depth at 2 percent of several
+    # million USD". USD 100M median OI is roughly the 20th–25th rank on the three venues
+    # combined in 2025–26; USD 3M depth is the lower edge of "several million". Both are
+    # confirmed against live data in phase 2 and the resulting count recorded in
+    # docs/changelog.md. Changing them is a governance event (docs/changelog.md).
+  tier2:
+    spot_venues_required: 2                # of {binance, bybit, okx, coinbase, kraken}
+    adv_real_30d_usd_min: 10_000_000       # wash-filtered 30-day ADV
+  tier3: remainder
+recompute: weekly                          # notes say monthly; build prompt says weekly (prompt wins on engineering)
+sector_map:
+  version: 1
+  reviewed_on: null                        # set when the aggregator seed is reviewed (phase 2)
+  sectors: [L1, L2, DeFi-lending, DEX, derivatives-protocol, oracle-infra, stablecoin, RWA, AI-compute, memecoin, gaming, exchange-token, payments, other]
+  assignments: {}                          # coingecko id -> sector, filled in phase 2
+stablecoins: []                            # filled from DefiLlama in phase 4
+symbol_map: {}                             # coingecko id -> {binance: BTCUSDT, bybit: BTCUSDT, okx: BTC-USDT, coinbase: BTC-USD, kraken: XBTUSD}

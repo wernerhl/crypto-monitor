@@ -1,0 +1,33 @@
+# Endpoint registry. `verified_on` is the last date a live request confirmed the endpoint,
+# fields and rate-limit behaviour (details in docs/data_sources.md). Adapters refuse to run
+# against an entry older than `max_verification_age_days` unless FORCE_STALE_SOURCE=1.
+max_verification_age_days: 120
+sources:
+  coingecko:        {base: https://api.coingecko.com/api/v3, verified_on: 2026-09-06, min_interval_s: 6.5, key_env: COINGECKO_DEMO_KEY, key_header: x-cg-demo-api-key, history_limit_days: 365}
+  coinpaprika:      {base: https://api.coinpaprika.com/v1, verified_on: 2026-09-06, monthly_quota: 20000}
+  binance_spot:     {base: https://api.binance.com, verified_on: 2026-09-06, weight_per_min: 6000}
+  binance_usdm:     {base: https://fapi.binance.com, verified_on: 2026-09-06, weight_per_min: 2400}
+  binance_coinm:    {base: https://dapi.binance.com, verified_on: 2026-09-06, weight_per_min: 2400}
+  bybit:            {base: https://api.bybit.com, verified_on: 2026-09-06, documented_limit: "600 req / 5 s per IP"}
+  okx:              {base: https://www.okx.com, verified_on: 2026-09-06, documented_limit: "20-40 req / 2 s per endpoint"}
+  coinbase:         {base: https://api.exchange.coinbase.com, verified_on: 2026-09-06, documented_limit: "10 req / s public"}
+  kraken:           {base: https://api.kraken.com, verified_on: 2026-09-06, depth_max: 500}
+  deribit:          {base: https://www.deribit.com/api/v2, verified_on: 2026-09-06, documented_limit: "20 req / s public"}
+  llama_stables:    {base: https://stablecoins.llama.fi, verified_on: 2026-09-06}
+  llama_api:        {base: https://api.llama.fi, verified_on: 2026-09-06, note: "emissions endpoints are paid (402); use llama_datasets"}
+  llama_datasets:   {base: https://defillama-datasets.llama.fi, verified_on: 2026-09-06}
+  fred_csv:         {base: https://fred.stlouisfed.org/graph/fredgraph.csv, verified_on: 2026-09-06, serial_only: true, min_interval_s: 1}
+  fred_api:         {base: https://api.stlouisfed.org/fred, verified_on: 2026-09-06, key_env: FRED_API_KEY, optional: true}
+  coinmetrics:      {base: https://community-api.coinmetrics.io/v4, verified_on: 2026-09-06}
+  blockchain_info:  {base: https://api.blockchain.info/charts, verified_on: 2026-09-06}
+  mempool_space:    {base: https://mempool.space/api/v1, verified_on: 2026-09-06}
+  ultrasound:       {base: https://ultrasound.money/api/v2, verified_on: 2026-09-06, unofficial: true}
+  beaconchain:      {base: https://beaconcha.in/api/v1, verified_on: 2026-09-06, key_env: BEACONCHAIN_API_KEY, optional: true}
+  snapshot:         {base: https://hub.snapshot.org/graphql, verified_on: 2026-09-06, limit: "100 req / 60 s"}
+  tally:            {base: https://api.tally.xyz/query, verified_on: 2026-09-06, key_env: TALLY_API_KEY, optional: true}
+  coinglass:        {base: https://open-api-v4.coinglass.com, verified_on: 2026-09-06, key_env: COINGLASS_API_KEY, optional: true}
+  glassnode:        {base: https://api.glassnode.com/v1, verified_on: 2026-09-06, key_env: GLASSNODE_API_KEY, optional: true}
+unavailable:
+  etf_flows: "no free official API found on 2026-09-06 (farside.co.uk is HTML; iShares download returns HTML)"
+  lth_sopr: "not in CoinMetrics community tier; Glassnode optional"
+  binance_bybit_liquidations_rest: "Binance allForceOrders removed (404); Bybit websocket only"

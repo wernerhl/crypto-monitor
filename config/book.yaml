@@ -1,0 +1,14 @@
+# ILLUSTRATIVE EXAMPLE BOOK. Replace with your own positions (docs/runbook.md, "Replacing the
+# example book"). Positions are shares of NAV; sign gives direction; venue is where the
+# position (or its short leg) sits.
+nav_usd: 10_000_000
+positions:
+  - {asset: bitcoin, weight: 0.30, venue: coinbase, instrument: spot}
+  - {asset: ethereum, weight: 0.15, venue: kraken, instrument: spot}
+  - {asset: solana, weight: 0.10, venue: binance, instrument: perp}
+  - {asset: bitcoin, weight: -0.10, venue: binance, instrument: perp, note: "funding-carry short leg"}
+  - {asset: chainlink, weight: 0.05, venue: okx, instrument: spot}
+collateral:
+  - {stablecoin: USDT, venue: binance, usd: 1_500_000}
+  - {stablecoin: USDC, venue: coinbase, usd: 1_000_000}
+recovery_assumption_on_halt: 0.40    # fraction of venue exposure marked recoverable

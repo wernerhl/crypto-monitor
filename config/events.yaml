@@ -1,0 +1,7 @@
+# Hand-maintained events (notes Section 12 event strip). Every entry needs a source URL.
+# A weekly Actions issue asks for review. Do not scrape news sites.
+reviewed_on: 2026-09-06
+snapshot_spaces: [aave.eth, uniswapgovernance.eth, arbitrumfoundation.eth, opcollective.eth, lido-snapshot.eth]
+events: []
+# example:
+# - {date: 2026-10-15, asset: ethereum, kind: upgrade, title: "Example hard fork", source: "https://..."}

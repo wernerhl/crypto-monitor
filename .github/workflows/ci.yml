@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["data/**", "site/data/**"]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.x"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run python scripts/check_secrets.py $(git ls-files)
+      - run: uv run pytest
+        env:
+          LIVE: "0"
+      - run: bash scripts/check_repo_size.sh

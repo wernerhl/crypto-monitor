@@ -1,0 +1,57 @@
+name: daily
+on:
+  schedule:
+    - cron: "25 1 * * *"
+  push:
+    branches: [main]
+    paths: ["src/monitor/site/**", ".github/workflows/daily.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: data-write
+  cancel-in-progress: false
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.x"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      # Phase 1: placeholder site only. Fetch/compute steps are added in later phases.
+      - name: render site
+        run: uv run monitor site render
+        env:
+          GIT_SHA: ${{ github.sha }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: daily
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+  verify-pages:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check the live page carries this build's sha
+        run: bash scripts/verify_pages.sh "${{ needs.deploy.outputs.page_url || 'https://wernerhl.github.io/crypto-monitor/' }}" "${{ github.sha }}"

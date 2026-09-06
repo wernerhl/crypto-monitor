@@ -1,0 +1,54 @@
+# Frozen rule thresholds (notes Sections 4.5, 5, 7 and 10.3). Rules read thresholds ONLY from
+# this file. Recalibration requires a written case that the mechanism changed; record it in
+# docs/changelog.md and update `calibrated_on`.
+calibrated_on: 2026-09-06
+recalibration_note: >
+  Initial values are the ones stated in the lecture notes (September 2026). They were not
+  tuned to any backtest. The phase-6 backfill reports their walk-forward hit rates but does
+  not change them.
+robust_z:
+  window_days_fragility: 250   # Definition 3.1
+  window_days_funding: 90      # eq. for z^FR
+  mad_scale: 1.4826
+rules:
+  crowded_long:                # Rule 4.1
+    z_fr_min: 2.0
+    oi_rel_percentile_min: 0.90
+    lambda_minus_kappa: 2.0
+    lambda_over_depth_min: 1.0
+  capitulation:                # Rule 4.2
+    z_fr_max: -2.0
+    oi_drop_5d_min: 0.20
+    long_liq_24h_percentile_min: 0.95
+  vol_underpricing:            # Rule 4.3
+    vrp_max: 0.0
+    phi_min: 1.0
+  cliff:                       # Rule 5.1
+    single_unlock_float_share_min: 0.01
+    single_unlock_days_of_volume_min: 2.0
+  gate:                        # Rule 7.1
+    participation_rate: 0.10
+    dtl_max_days: 3.0
+    impact_cost_share_of_net_return_max: 0.25
+supply:
+  # pi_c: fraction sold within the window by recipient class (notes Section 5). Conservative
+  # defaults, flagged on the dashboard until replaced by an on-chain estimate.
+  pi_c: {team: 0.5, investors: 0.7, public: 0.5, community: 0.6, ecosystem: 0.2, unknown: 0.7}
+  pi_c_source: "documented default; not estimated from tagged wallets"
+liquidity:
+  impact_Y: 0.75               # square-root law coefficient; notes: 0.5–1 typical
+  depth_delta: 0.02
+positioning:
+  liquidation_horizon_h_days: 1
+  # assumed leverage distribution per venue (share of OI at each leverage), used for lambda(p).
+  # Documented assumption; replace when a venue publishes its distribution.
+  leverage_distribution:
+    default: {5: 0.30, 10: 0.30, 20: 0.20, 25: 0.10, 50: 0.07, 100: 0.03}
+  maintenance_margin: 0.005
+carry:
+  funding_mean_window_days: 30
+  shrink_factor: 0.5
+sizing:
+  eta_fragility_tilt: 0.5
+  es_alpha: 0.05
+  student_t_df: 4

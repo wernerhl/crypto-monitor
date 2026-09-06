@@ -1,0 +1,4 @@
+# DefiLlama protocol slug -> coingecko token id, for fees/revenue and TVL where `gecko_id` is
+# missing on the DefiLlama side. Reviewed with the sector map.
+reviewed_on: 2026-09-06
+map: {}

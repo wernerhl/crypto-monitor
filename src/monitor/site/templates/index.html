@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+<p><strong>Phase {{ phase }} placeholder.</strong> The panels below are populated in later phases in the order fixed by the lecture notes (Section 12). Until a panel has data it is greyed and marked <span class="badge">unavailable</span>.</p>
+</div>
+{% for title in ["1. Venue and counterparty", "2. Book risk", "3. Market state", "4. Active triggers", "5. Trade structures", "6. Event strip (next four weeks)", "7. Tier 2/3 screens"] %}
+<h2>{{ title }}</h2>
+<div class="panel stale"><span class="badge">unavailable</span> <span class="meta">reason: not yet implemented (phase {{ phase }})</span></div>
+{% endfor %}
+{% endblock %}

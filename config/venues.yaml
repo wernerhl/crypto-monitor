@@ -1,0 +1,62 @@
+# Venue and counterparty inputs (notes Section 6). The score is a deterministic function of
+# these fields (src/monitor/compute/venue.py); reviewing this file IS the data entry.
+reviewed_on: 2026-09-06
+review_cadence: monthly
+score_weights: {licensing: 2, segregation: 2, proof_of_reserves: 2, withdrawal_history: 2, wash_share: 1, own_token_concentration: 1}
+exposure_limit_by_score: {A: 0.40, B: 0.25, C: 0.10, D: 0.00}   # x̄_v as share of NAV
+low_score_aggregate_limit: 0.15                                 # x̄_low
+low_score_threshold: C
+venues:
+  binance:
+    licensing: partial            # none | partial | full
+    segregation: claimed
+    proof_of_reserves: merkle_assets_only
+    withdrawal_halts_last_3y: 0
+    wash_share: null              # filled by the wash filter
+    own_token_concentration: high
+    sources: ["https://www.binance.com/en/proof-of-reserves"]
+  bybit:
+    licensing: partial
+    segregation: claimed
+    proof_of_reserves: merkle_assets_only
+    withdrawal_halts_last_3y: 0
+    wash_share: null
+    own_token_concentration: medium
+    sources: ["https://www.bybit.com/app/user/proof-of-reserves"]
+  okx:
+    licensing: partial
+    segregation: claimed
+    proof_of_reserves: merkle_assets_only
+    withdrawal_halts_last_3y: 0
+    wash_share: null
+    own_token_concentration: high
+    sources: ["https://www.okx.com/proof-of-reserves"]
+  coinbase:
+    licensing: full
+    segregation: regulated
+    proof_of_reserves: audited_financials
+    withdrawal_halts_last_3y: 0
+    wash_share: null
+    own_token_concentration: none
+    sources: ["https://www.coinbase.com/legal/licenses"]
+  kraken:
+    licensing: full
+    segregation: regulated
+    proof_of_reserves: merkle_with_liabilities
+    withdrawal_halts_last_3y: 0
+    wash_share: null
+    own_token_concentration: none
+    sources: ["https://www.kraken.com/proof-of-reserves"]
+  deribit:
+    licensing: partial
+    segregation: claimed
+    proof_of_reserves: none
+    withdrawal_halts_last_3y: 0
+    wash_share: null
+    own_token_concentration: none
+    sources: []
+systemic_exposures:            # hand-tracked list (notes 6.4), reviewed weekly
+  - {name: USDT, kind: stablecoin, note: "reserve attestations quarterly"}
+  - {name: USDC, kind: stablecoin, note: "monthly attestations"}
+  - {name: Aave, kind: lending, note: "collateral composition on-chain"}
+  - {name: WBTC, kind: wrapped, note: "custodial BTC bridge"}
