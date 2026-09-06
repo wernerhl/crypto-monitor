@@ -337,9 +337,28 @@ def table_status(now: datetime | None = None) -> list[dict]:
 def write_site_json(out: Path = SITE_DATA) -> None:
     """JSON the page reads (phase 2: universe, status, build info)."""
     out.mkdir(parents=True, exist_ok=True)
+    fs = archive.read("fetch_status")
+    fetches = []
+    if fs is not None and fs.height:
+        latest = (
+            fs.sort("ts")
+            .group_by("dataset")
+            .agg(
+                pl.col("ts").last(),
+                pl.col("ok").last(),
+                pl.col("reason").last(),
+                pl.col("job").last(),
+            )
+        )
+        fetches = latest.sort("ok", "dataset").to_dicts()
     (out / "status.json").write_text(
         json.dumps(
-            {"generated_at": utc_now().isoformat(), "git_sha": git_sha(), "tables": table_status()},
+            {
+                "generated_at": utc_now().isoformat(),
+                "git_sha": git_sha(),
+                "tables": table_status(),
+                "fetches": fetches,
+            },
             default=str,
         )
     )

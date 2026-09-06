@@ -189,6 +189,18 @@ Recipient classes map from `category`: `insiders → team`, `privateSale → inv
 ## 7. Venues
 `config/venues.yaml` only (qualitative inputs with `reviewed_on`). No live endpoint.
 
+## Runner reachability (probe workflow, 2026-09-06)
+`.github/workflows/probe.yml` curls every source host from a GitHub-hosted runner (US address):
+| host | status | consequence |
+|---|---|---|
+| api.binance.com, fapi.binance.com, dapi.binance.com | **451** (geo-blocked) | Binance derivatives (funding, OI, dated futures, long/short) are unavailable from Actions; the datasets are marked `unavailable this run` in `fetch_status` and the status page |
+| data-api.binance.vision | 200 | Binance **spot** market data (depth, trades, klines, exchangeInfo) — used as the spot base URL |
+| api.bybit.com, api.bytick.com, api.bybit.nl, api-testnet.bybit.com | **403** | Bybit unavailable from Actions |
+| OKX, Coinbase, Kraken, Deribit, CoinGecko, DefiLlama, FRED, CoinMetrics, blockchain.info, mempool.space, ultrasound.money, Snapshot | 200 | fine |
+Mode (a) on Actions therefore runs derivatives on OKX + Deribit and spot on four venues. The
+Binance-futures and Bybit datasets refresh whenever `scripts/collector.sh` (mode b) runs from a
+machine that can reach them; their raw buckets are idempotent, so the two paths never conflict.
+
 ## Raw-file size control (deviation from ground rule 0.4, documented)
 Hourly order books and trade lists are the only payloads that would break the repo-size
 budget (a full Coinbase L2 book is > 1 MB; the first untrimmed hourly bucket was 5.4 MB

@@ -71,3 +71,26 @@
 * Sector map seeded from CoinGecko categories (`monitor universe seed-sectors`); the hand
   review is pending and recorded here when done.
 * Cost assumptions (6 % stablecoin borrow, public taker fees) are documented defaults.
+
+## 2026-09-06 — Runner reachability and failure isolation
+* Probe workflow: Binance api/fapi/dapi return 451 and all Bybit hosts 403 from GitHub-hosted
+  runners; `data-api.binance.vision` serves Binance spot (200). Binance spot switched to the
+  mirror; Binance futures and Bybit are "unavailable this run" from Actions and refresh only
+  through `scripts/collector.sh` (mode b). Deviation from the source map: Actions-side
+  derivatives come from OKX + Deribit; the Tier 1 rule keeps its three-venue definition and
+  uses the last reachable listing snapshot with the fetch outcome visible on the status page.
+* Every fetch is isolated per dataset (`fetch_status` table); only the aggregator markets
+  dataset is critical.
+* Local quirk: a sync agent on the build machine creates "name 2.ext" duplicate copies during
+  rapid writes; they are git-ignored, deleted by `make clean-dups`, and the size check fails
+  if any is tracked. 1 363 such copies were removed from the tree on this date.
+
+## 2026-09-06 — Phase 6: backfill
+* `monitor backfill --start` pulls daily candles (Binance mirror `endTime` paging, OKX
+  `history-candles`), funding history (Binance `startTime` paging multi-year, Bybit `endTime`
+  paging, OKX ~3 months), 30-day OI history (Binance, OKX), 365-day market caps (CoinGecko
+  free cap) and recomputes walk-forward: daily OI-weighted funding, z^FR (90 d), OI change,
+  Rule 4.2 evaluations, fragility history from the three components available in history
+  (z_fr, z_dd, z_sc_neg). Depth cannot be backfilled: liquidity-gate history before go-live
+  is the volume proxy, flagged. Hit rates and screen ICs are computed by the weekly job on the
+  archive with sample sizes; thresholds were not touched (`calibrated_on` unchanged).

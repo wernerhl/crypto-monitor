@@ -6,6 +6,7 @@
 | `ci` | push / PR | ruff, pytest (live tests skipped), secret scan, repo-size check | 1 |
 | `daily` | 01:25 | fetch aggregator + listings + perps + daily candles → compute tables → bot commit `[skip ci]` → render site → deploy Pages → verify live sha | 2 |
 | `manual` | dispatch | `job` ∈ {daily, hourly, weekly, backfill}, `start_date` for backfills | 2 |
+| `probe` | dispatch | reachability of every source host from a runner (status codes) | 5 |
 | `hourly` | :07 | funding, OI, books, liquidations, options → positioning, liquidity, fragility, rules | 3 |
 | `weekly` | Sun 02:40 | tier freeze (`tier_history`), factor model, screen IC, rule hit rates, raw rotation to `data-archive`, size check, review issue | 5/7 |
 
@@ -38,6 +39,18 @@ job on the same day therefore costs no requests and cannot duplicate rows; pass 
 * **Local: `ModuleNotFoundError: monitor`** — macOS marks files in `.venv` hidden and Python
   3.12 skips hidden `.pth` files. `make sync` clears the flag; the Makefile also sets
   `PYTHONPATH=src`. In CI (Linux) this does not occur.
+
+## Geo-blocked venues on GitHub-hosted runners
+Binance (api/fapi/dapi) answers HTTP 451 and Bybit HTTP 403 from US addresses, which is
+where GitHub-hosted runners live (probe workflow, 2026-09-06). Binance spot uses the public
+mirror `data-api.binance.vision` (200). Binance futures and Bybit datasets are recorded as
+unavailable per run (`fetch_status`, status page) and the derived tables use OKX + Deribit
+until a collector refreshes them. To get the full three-venue derivatives set, run
+`scripts/collector.sh hourly` from a machine that can reach the venues (a small VPS outside
+the US, or a workstation) on a cron; it fetches, computes, commits as the bot and pushes, and
+the raw buckets are idempotent so it coexists with the Actions jobs. The mode-(b) websocket
+collector for Binance `forceOrder` / Bybit `allLiquidation` liquidation streams is the same
+script's natural home and is not implemented in this repository.
 
 ## Re-running by hand
 ```bash

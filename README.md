@@ -8,12 +8,19 @@ context (venue risk, market state, scheduled supply, cross-sectional screens). I
 alpha engine**: there is no composite score, no ranking by expected return and no buy/sell
 language, for the reasons given in Section 1 of the notes.
 
-**Live page:** https://wernerhl.github.io/crypto-monitor/ (front-page panels fill in from phase 3; see the Universe and Data status pages)
+**Live page:** https://wernerhl.github.io/crypto-monitor/ (all seven panels populated; secondary pages: Universe, On-chain, Methods, Data status)
 
 **NOTICE.** This system is a monitoring tool and not investment advice.
 
 ## Status
-Phase 2 (universe and prices) deployed; the three-day unattended-run acceptance is in progress. See `docs/changelog.md` for the phase log.
+Phases 1–6 built and deployed on 2026-09-06; phase 7 hardening in progress. The run-based
+acceptance tests (three unattended daily runs, 48 hourly runs) accrue over the coming days.
+See `docs/changelog.md` for the phase log and deviations.
+
+**Runner limitation.** GitHub-hosted runners are US addresses: Binance futures (451) and Bybit
+(403) are geo-blocked there, Binance spot works through `data-api.binance.vision`. The Actions
+jobs therefore run derivatives on OKX + Deribit; `scripts/collector.sh` refreshes the Binance
+futures and Bybit feeds from any machine that can reach them (docs/runbook.md).
 
 ## Running it
 Requirements: Python 3.12 and [`uv`](https://docs.astral.sh/uv/). No paid subscription is needed;
