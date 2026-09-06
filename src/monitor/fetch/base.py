@@ -221,7 +221,7 @@ class RawStore:
 
     def latest(self, name: str, before: datetime | None = None) -> Path | None:
         """Most recent raw file for `<source>_<dataset>`; optionally not after `before`."""
-        files = sorted(self.root.glob(f"*/*/*/{name}_*.json.gz"))
+        files = sorted(self.root.glob(f"*/*/*/{name}_[0-9][0-9][0-9][0-9].json.gz"))
         if before is not None:
             day, hhmm = bucket_for(before, "hourly")
             cutoff = self.root / day / f"{name}_{hhmm}.json.gz"
@@ -229,7 +229,7 @@ class RawStore:
         return files[-1] if files else None
 
     def all(self, name: str) -> list[Path]:
-        return sorted(self.root.glob(f"*/*/*/{name}_*.json.gz"))
+        return sorted(self.root.glob(f"*/*/*/{name}_[0-9][0-9][0-9][0-9].json.gz"))
 
 
 def run_dataset(
