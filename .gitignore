@@ -21,3 +21,6 @@ build/
 # generated html
 site/*.html
 site/.nojekyll
+
+# macOS / sync-agent duplicate copies ("name 2.ext") must never enter the repo
+* [0-9].*

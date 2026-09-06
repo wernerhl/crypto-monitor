@@ -8,7 +8,6 @@ page shows it, and every table that depends on it goes stale instead of silently
 from __future__ import annotations
 
 import logging
-import traceback
 from collections.abc import Callable
 from datetime import datetime
 
@@ -77,4 +76,4 @@ def _reason(e: Exception) -> str:
         return f"HTTP {code} from {host}"
     if isinstance(e, httpx.TransportError):
         return f"network error: {type(e).__name__}"
-    return f"{type(e).__name__}: {str(e)[:200]}" or traceback.format_exc()[-200:]
+    return f"{type(e).__name__}: {str(e)[:200]}"

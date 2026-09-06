@@ -40,5 +40,8 @@ verify-sources:               ## re-verify every endpoint in docs/data_sources.m
 size-check:
 	bash scripts/check_repo_size.sh
 
+clean-dups:                   ## delete macOS/sync-agent duplicate copies ("name 2.ext") outside .git/.venv
+	find . -path ./.git -prune -o -path ./.venv -prune -o -name '* [0-9].*' -print -delete | wc -l
+
 clean:
 	rm -rf .venv .pytest_cache .ruff_cache site/*.html site/data/*.json
