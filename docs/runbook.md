@@ -29,6 +29,9 @@ job on the same day therefore costs no requests and cannot duplicate rows; pass 
   should prevent it. Re-run the workflow; the fetch step is free (raw files exist).
 * **`verify-pages` fails** — Pages propagation lag (the step retries for 5 minutes). Re-run the
   workflow. If `data-build-sha` still differs, check that the Pages source is "GitHub Actions".
+* **CI did not run on a push** — GitHub skips workflows when the commit message contains
+  `[skip ci]` anywhere, including the body. Only the bot's data commits should carry it.
+  `ci.yml` also has `workflow_dispatch` so it can be run by hand.
 * **CI secret scan fails** — the named line looks like a key. Move it to an environment variable;
   for a false positive add `# not-a-secret` to the line.
 * **Repo-size check fails** — rotate raw files (below).
