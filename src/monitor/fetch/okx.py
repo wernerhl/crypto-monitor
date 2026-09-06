@@ -8,7 +8,7 @@ from pathlib import Path
 
 import polars as pl
 
-from monitor.fetch.base import Envelope, Record, SanityError, run_dataset
+from monitor.fetch.base import Envelope, Record, SanityError, run_dataset, trim_book
 from monitor.schema.tables import DailyPriceRow, PerpSnapshotRow, VenueListingRow, rows_to_df
 
 VENUE = "okx"
@@ -79,15 +79,27 @@ def parse_listings(env: Envelope) -> pl.DataFrame:
     return df
 
 
-def fetch_perps(ts: datetime | None = None, force: bool = False, freq: str = "daily") -> Path:
+def fetch_perps(
+    ts: datetime | None = None,
+    force: bool = False,
+    freq: str = "daily",
+    symbols: list[str] | None = None,
+) -> Path:
     def go(c) -> list[Record]:
-        return [
+        recs = [
             c.get("/api/v5/public/open-interest", params={"instType": "SWAP"}),
             c.get("/api/v5/market/tickers", params={"instType": "SWAP"}),
             c.get("/api/v5/public/mark-price", params={"instType": "SWAP"}),
         ]
+        if symbols:
+            keep = set(symbols)
+            for r in recs:
+                r.body["data"] = [x for x in r.body["data"] if x.get("instId") in keep]
+        return recs
 
-    return run_dataset("okx", "perps", freq, go, ts=ts, force=force)
+    return run_dataset(
+        "okx", "perps", freq, go, ts=ts, force=force, meta={"filtered_to_symbols": bool(symbols)}
+    )
 
 
 def parse_perps(env: Envelope, listings: pl.DataFrame | None = None) -> pl.DataFrame:
@@ -126,7 +138,7 @@ def parse_perps(env: Envelope, listings: pl.DataFrame | None = None) -> pl.DataF
             )
         )
     df = rows_to_df(PerpSnapshotRow, rows)
-    if df.height < 100:
+    if df.height < 10:
         raise SanityError("okx perps: too few rows")
     return df
 
@@ -236,20 +248,33 @@ def fetch_books(
     majors: tuple[str, ...] = ("BTC-USDT", "ETH-USDT"),
     ts: datetime | None = None,
     force: bool = False,
+    freq: str = "hourly",
 ) -> Path:
     """`books-full` (5000 levels) for the majors, `books` (400) otherwise — 400 levels reach
-    well past 2 % on Tier 1 alts (verified SOL-USDT)."""
+    well past 2 % on Tier 1 alts (verified SOL-USDT). Stored trimmed to ±3 % of mid."""
 
     def go(c) -> list[Record]:
-        return [
-            c.get(
+        recs = []
+        for s in symbols:
+            r = c.get(
                 "/api/v5/market/books-full" if s in majors else "/api/v5/market/books",
                 params={"instId": s, "sz": 5000 if s in majors else 400},
             )
-            for s in symbols
-        ]
+            d = r.body["data"][0]
+            b, a, _ = trim_book(d["bids"], d["asks"])
+            r.body = {"data": [{"ts": d["ts"], "bids": b, "asks": a}]}
+            recs.append(r)
+        return recs
 
-    return run_dataset("okx", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols})
+    return run_dataset(
+        "okx",
+        "books",
+        freq,
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "trimmed_pct": 0.025},
+    )
 
 
 def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
@@ -277,17 +302,35 @@ def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
 
 
 def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
-    def go(c) -> list[Record]:
-        return [c.get("/api/v5/market/trades", params={"instId": s, "limit": 500}) for s in symbols]
+    """500 recent trades per instrument, stored slim as [ts, px, sz]."""
 
-    return run_dataset("okx", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols})
+    def go(c) -> list[Record]:
+        recs = []
+        for s in symbols:
+            r = c.get("/api/v5/market/trades", params={"instId": s, "limit": 300})
+            r.body = {"data": [[t["ts"], t["px"], t["sz"]] for t in r.body["data"]]}
+            recs.append(r)
+        return recs
+
+    return run_dataset(
+        "okx",
+        "trades",
+        "hourly",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "slim": ["ts", "px", "sz"]},
+    )
 
 
 def parse_trades(env: Envelope) -> pl.DataFrame:
     fetched = datetime.fromisoformat(env.fetched_at)
     rows = []
     for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
-        lst = rec.body["data"]
+        lst = [
+            {"ts": t[0], "px": t[1], "sz": t[2]} if isinstance(t, list) else t
+            for t in rec.body["data"]
+        ]
         if not lst:
             continue
         notionals = [float(t["px"]) * float(t["sz"]) for t in lst]

@@ -7,7 +7,7 @@
 | `daily` | 01:25 | fetch aggregator + listings + perps + daily candles → compute tables → bot commit `[skip ci]` → render site → deploy Pages → verify live sha | 2 |
 | `manual` | dispatch | `job` ∈ {daily, hourly, weekly, backfill}, `start_date` for backfills | 2 |
 | `hourly` | :07 | funding, OI, books, liquidations, options → positioning, liquidity, fragility, rules | 3 |
-| `weekly` | Sun 02:40 | tiers, factor model, IC, hit rates, raw rotation, size check, review issue | 2/7 |
+| `weekly` | Sun 02:40 | tier freeze (`tier_history`), factor model, screen IC, rule hit rates, raw rotation to `data-archive`, size check, review issue | 5/7 |
 
 Every fetch is idempotent per bucket: `data/raw/YYYY/MM/DD/<source>_<dataset>_<HHMM>.json.gz`
 is reused if it exists (daily bucket `0000`, hourly bucket the floored hour). Re-running a
@@ -47,9 +47,13 @@ make site                  # render ./site
 uv run monitor universe show --tier 1
 ```
 
-## Rotating raw files
-Phase 7. The weekly job moves raw files older than 90 days into a monthly tarball on the
-`data-archive` orphan branch and repartitions processed parquet by month.
+## Raw retention and rotation
+Daily raw files stay in the repo for 90 days; hourly raw files (books, trades, perps,
+liquidations, options) stay for 14 days — at ≈ 0.7 MB per hourly bucket that is ≈ 240 MB,
+which keeps the repo under the 800 MB check. Older files are moved by the weekly job into
+monthly tarballs on the `data-archive` orphan branch (phase 7), so every processed row stays
+traceable to its raw file. Processed parquet keeps a rolling 90–120-day window for hourly
+tables and everything for daily tables; the monthly archive partitions keep everything.
 
 ## Adding a venue
 1. Verify the endpoints live (`scripts/verify_sources.py`, add the entries, run it, commit the
@@ -68,7 +72,10 @@ symbol that the automatic resolver gets wrong, add `symbol_map: {<coingecko id>:
 Record the change in `docs/changelog.md`.
 
 ## Replacing the example book
-Edit `config/book.yaml`; positions are shares of NAV with the venue where each sits.
+Edit `config/book.yaml`: `nav_usd`, `positions` (coingecko id, signed weight as a share of NAV,
+venue, instrument), `collateral` (stablecoin, venue, usd) and `recovery_assumption_on_halt`.
+The next daily run recomputes the venue panel, book risk and gate reference sizes; nothing
+else reads the book. Keep the file out of public forks if the positions are real.
 
 ## Rate-limit budget (daily job, phase 2)
 | source | requests per run | observed / documented limit | headroom |

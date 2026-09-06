@@ -1,0 +1,59 @@
+name: weekly
+on:
+  schedule:
+    - cron: "40 2 * * 0"
+  workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
+  pages: write
+  id-token: write
+concurrency:
+  group: data-write
+  cancel-in-progress: false
+env:
+  COINGECKO_DEMO_KEY: ${{ secrets.COINGECKO_DEMO_KEY }}
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.x"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - name: tier freeze, factor model, screen IC, hit rates
+        run: uv run monitor compute weekly
+      - name: rotate raw files older than the retention windows to the data-archive branch
+        run: bash scripts/rotate_raw.sh
+      - name: repo-size check
+        run: bash scripts/check_repo_size.sh
+      - name: commit data as the bot
+        run: |
+          git config user.name "crypto-monitor-bot"
+          git config user.email "crypto-monitor-bot@users.noreply.github.com"
+          git add -A data/ site/data/
+          git diff --cached --quiet || (git commit -m "data: weekly $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]" && git pull --rebase origin main && git push origin HEAD:main)
+      - name: open the weekly review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/weekly_issue.sh
+      - run: uv run monitor site render
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: weekly
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

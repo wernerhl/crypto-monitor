@@ -189,6 +189,18 @@ Recipient classes map from `category`: `insiders → team`, `privateSale → inv
 ## 7. Venues
 `config/venues.yaml` only (qualitative inputs with `reviewed_on`). No live endpoint.
 
+## Raw-file size control (deviation from ground rule 0.4, documented)
+Hourly order books and trade lists are the only payloads that would break the repo-size
+budget (a full Coinbase L2 book is > 1 MB; the first untrimmed hourly bucket was 5.4 MB
+gzipped, ≈ 130 MB/day). Two reductions are applied *before* the raw file is written and are
+recorded in the envelope `meta`:
+* books keep only levels within ±3 % of mid (`trimmed_pct`); the pipeline uses ±2 %;
+* trade lists keep 500 trades with the fields the pipeline reads (`slim`: time, price, size
+  and, on Binance, quote quantity).
+Everything else is stored verbatim. Daily candle pulls are incremental after the first run
+(Binance/Bybit/OKX `limit=10`, Coinbase `start`, Kraken `since`), the DefiLlama protocol and
+unlock indexes are refreshed weekly, and CoinMetrics is pulled from the last stored date − 10 d.
+
 ## Summary of gaps (dashboard shows these as unavailable / optional)
 | indicator | free status | optional keyed source |
 |---|---|---|

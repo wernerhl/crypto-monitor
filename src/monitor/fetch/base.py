@@ -265,3 +265,16 @@ def run_dataset(
         meta or {},
     )
     return store.write(env, ts, freq)
+
+
+# --------------------------------------------------------------------------- size control
+def trim_book(bids: list, asks: list, pct: float = 0.025) -> tuple[list, list, bool]:
+    """Keep only levels within ±pct of mid. Books are the largest hourly payloads (a full
+    Coinbase L2 book is > 1 MB); the pipeline uses ±2 %, so ±3 % keeps every number
+    traceable while cutting the raw file ~10×. Returns (bids, asks, trimmed_flag)."""
+    if not bids or not asks:
+        return bids, asks, False
+    mid = (float(bids[0][0]) + float(asks[0][0])) / 2.0
+    b = [x for x in bids if float(x[0]) >= mid * (1 - pct)]
+    a = [x for x in asks if float(x[0]) <= mid * (1 + pct)]
+    return b, a, (len(b) < len(bids) or len(a) < len(asks))

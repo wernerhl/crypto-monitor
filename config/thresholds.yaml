@@ -48,7 +48,12 @@ positioning:
 carry:
   funding_mean_window_days: 30
   shrink_factor: 0.5
+  stablecoin_borrow_ann: 0.06     # financing cost of the spot leg (documented assumption; replace with the fund's rate)
 sizing:
   eta_fragility_tilt: 0.5
   es_alpha: 0.05
   student_t_df: 4
+  covariance_window_days: 250
+  vol_target_ann: 0.20
+  kelly_shrink: 0.5
+  kelly_cap: 0.25

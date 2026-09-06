@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}On-chain BTC/ETH — crypto monitor{% endblock %}
+{% block content %}
+<h2>On-chain holder metrics (BTC and ETH only)</h2>
+<div class="panel"><p>Retained for the two assets where the realised-cap concept is meaningful (notes §5). Sources: CoinMetrics community API (MVRV, exchange supply and flows, active addresses, hash rate), ultrasound.money (ETH staked, unofficial). Long-term-holder SOPR and realised cap are <span class="badge">unavailable</span> in free tiers; an optional Glassnode adapter activates with a key.</p>
+<p class="meta" id="oc-meta">loading data/daily.json …</p></div>
+<div id="oc"></div>
+<script>
+(async function(){
+  const d = await (await fetch('data/daily.json',{cache:'no-store'})).json();
+  document.getElementById('oc-meta').textContent = 'daily data ' + d.generated_at;
+  const cols = ['asset','date','mvrv','exchange_supply_ntv','exchange_supply_30d_change','flow_in_usd','flow_out_usd','active_addresses','hash_rate','status','source','lth_sopr_note'];
+  const el = document.getElementById('oc');
+  el.innerHTML = '<table><thead><tr>' + cols.map(c=>'<th>'+c+'</th>').join('') + '</tr></thead><tbody>' + d.onchain.map(r => '<tr>' + cols.map(c => '<td>' + (r[c]==null ? '—' : (typeof r[c]==='number' ? r[c].toLocaleString(undefined,{maximumFractionDigits:3}) : r[c])) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
+  if (d.eth_staking && d.eth_staking.length) { const s = d.eth_staking[0]; el.innerHTML += '<p>ETH staked ' + (s.staked_eth/1e6).toFixed(2) + 'M of ' + (s.supply_eth/1e6).toFixed(2) + 'M supply → staking ratio ' + (100*s.staking_ratio).toFixed(1) + '% (' + s.source + ', ' + s.date + ')</p>'; }
+})();
+</script>
+{% endblock %}

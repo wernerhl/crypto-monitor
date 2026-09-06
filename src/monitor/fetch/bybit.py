@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from monitor.fetch.base import Envelope, Record, SanityError, run_dataset
+from monitor.fetch.base import Envelope, Record, SanityError, run_dataset, trim_book
 from monitor.fetch.symbols import split_multiplier
 from monitor.schema.tables import DailyPriceRow, PerpSnapshotRow, VenueListingRow, rows_to_df
 
@@ -88,11 +88,30 @@ def parse_listings(env: Envelope) -> pl.DataFrame:
     return df
 
 
-def fetch_perps(ts: datetime | None = None, force: bool = False, freq: str = "daily") -> Path:
-    def go(c) -> list[Record]:
-        return [c.get("/v5/market/tickers", params={"category": "linear"})]
+def fetch_perps(
+    ts: datetime | None = None,
+    force: bool = False,
+    freq: str = "daily",
+    symbols: list[str] | None = None,
+) -> Path:
+    """All linear tickers in one call; when `symbols` is given the stored payload keeps only
+    those plus dated futures (recorded in the envelope meta)."""
 
-    return run_dataset("bybit", "perps", freq, go, ts=ts, force=force)
+    def go(c) -> list[Record]:
+        r = c.get("/v5/market/tickers", params={"category": "linear"})
+        if symbols:
+            keep = set(symbols)
+            lst = r.body["result"]["list"]
+            r.body["result"]["list"] = [
+                t
+                for t in lst
+                if t.get("symbol") in keep or t.get("deliveryTime", "0") not in ("0", 0, "")
+            ]
+        return [r]
+
+    return run_dataset(
+        "bybit", "perps", freq, go, ts=ts, force=force, meta={"filtered_to_symbols": bool(symbols)}
+    )
 
 
 def parse_perps(env: Envelope, listings: pl.DataFrame | None = None) -> pl.DataFrame:
@@ -132,7 +151,7 @@ def parse_perps(env: Envelope, listings: pl.DataFrame | None = None) -> pl.DataF
             )
         )
     df = rows_to_df(PerpSnapshotRow, rows)
-    if df.height < 100:
+    if df.height < 10:
         raise SanityError("bybit perps: too few rows")
     return df
 
@@ -199,15 +218,29 @@ from monitor.schema.tables import (  # noqa: E402
 )
 
 
-def fetch_books(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+def fetch_books(
+    symbols: list[str], ts: datetime | None = None, force: bool = False, freq: str = "hourly"
+) -> Path:
     def go(c) -> list[Record]:
-        return [
-            c.get("/v5/market/orderbook", params={"category": "spot", "symbol": s, "limit": 1000})
-            for s in symbols
-        ]
+        recs = []
+        for s in symbols:
+            r = c.get(
+                "/v5/market/orderbook", params={"category": "spot", "symbol": s, "limit": 1000}
+            )
+            res = r.body["result"]
+            b, a, _ = trim_book(res["b"], res["a"])
+            r.body = {"result": {"s": res.get("s"), "ts": res["ts"], "b": b, "a": a}}
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "bybit", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "bybit",
+        "books",
+        freq,
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "trimmed_pct": 0.025},
     )
 
 
@@ -237,19 +270,31 @@ def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
 
 
 def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
-    """Spot recent trades are capped at 60 rows (verified); the linear perp gives 1000, so the
-    Benford sample uses the perp market on Bybit."""
+    """Spot recent trades are capped at 60 rows (verified); the linear perp gives up to 1000, so
+    the Benford sample uses the perp market. 500 trades, stored slim as [time, price, size]."""
 
     def go(c) -> list[Record]:
-        return [
-            c.get(
-                "/v5/market/recent-trade", params={"category": "linear", "symbol": s, "limit": 1000}
+        recs = []
+        for s in symbols:
+            r = c.get(
+                "/v5/market/recent-trade", params={"category": "linear", "symbol": s, "limit": 300}
             )
-            for s in symbols
-        ]
+            r.body = {
+                "result": {
+                    "list": [[t["time"], t["price"], t["size"]] for t in r.body["result"]["list"]]
+                }
+            }
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "bybit", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "bybit",
+        "trades",
+        "hourly",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "slim": ["time", "price", "size"]},
     )
 
 
@@ -257,7 +302,10 @@ def parse_trades(env: Envelope) -> pl.DataFrame:
     fetched = datetime.fromisoformat(env.fetched_at)
     rows = []
     for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
-        lst = rec.body["result"]["list"]
+        lst = [
+            {"time": t[0], "price": t[1], "size": t[2]} if isinstance(t, list) else t
+            for t in rec.body["result"]["list"]
+        ]
         if not lst:
             continue
         base, _ = split_multiplier(sym.removesuffix("USDT"))

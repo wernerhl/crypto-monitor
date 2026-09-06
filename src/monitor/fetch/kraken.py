@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from monitor.fetch.base import Envelope, Record, SanityError, run_dataset
+from monitor.fetch.base import Envelope, Record, SanityError, run_dataset, trim_book
 from monitor.fetch.symbols import kraken_base
 from monitor.schema.tables import DailyPriceRow, VenueListingRow, rows_to_df
 
@@ -47,12 +47,28 @@ def parse_listings(env: Envelope) -> pl.DataFrame:
     return df
 
 
-def fetch_klines_1d(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+def fetch_klines_1d(
+    symbols: list[str],
+    ts: datetime | None = None,
+    force: bool = False,
+    since: datetime | None = None,
+) -> Path:
+    """Daily OHLC (720 rows by default); with `since` (verified) only rows after that time."""
+
     def go(c) -> list[Record]:
-        return [c.get("/0/public/OHLC", params={"pair": s, "interval": 1440}) for s in symbols]
+        params = {"interval": 1440}
+        if since is not None:
+            params["since"] = int(since.timestamp())
+        return [c.get("/0/public/OHLC", params={**params, "pair": s}) for s in symbols]
 
     return run_dataset(
-        "kraken", "klines_1d", "daily", go, ts=ts, force=force, meta={"symbols": symbols}
+        "kraken",
+        "klines_1d",
+        "daily",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "since": str(since) if since else None},
     )
 
 
@@ -92,12 +108,28 @@ from monitor.compute.liquidity import benford_stats, depth_from_levels  # noqa: 
 from monitor.schema.tables import HourlyPriceRow, OrderBookDepthRow, TradeStatsRow  # noqa: E402
 
 
-def fetch_books(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+def fetch_books(
+    symbols: list[str], ts: datetime | None = None, force: bool = False, freq: str = "hourly"
+) -> Path:
     def go(c) -> list[Record]:
-        return [c.get("/0/public/Depth", params={"pair": s, "count": 500}) for s in symbols]
+        recs = []
+        for s in symbols:
+            r = c.get("/0/public/Depth", params={"pair": s, "count": 300})
+            res = r.body["result"]
+            key = next(iter(res))
+            b, a, _ = trim_book(res[key]["bids"], res[key]["asks"])
+            r.body = {"result": {key: {"bids": b, "asks": a}}}
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "kraken", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "kraken",
+        "books",
+        freq,
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "trimmed_pct": 0.025},
     )
 
 
@@ -127,11 +159,28 @@ def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
 
 
 def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    """500 recent trades (`count=500` verified), stored slim as [price, vol, time]."""
+
     def go(c) -> list[Record]:
-        return [c.get("/0/public/Trades", params={"pair": s}) for s in symbols]
+        recs = []
+        for s in symbols:
+            r = c.get("/0/public/Trades", params={"pair": s, "count": 300})
+            res = r.body["result"]
+            key = next(k for k in res if k != "last")
+            r.body = {
+                "result": {key: [[t[0], t[1], t[2]] for t in res[key]], "last": res.get("last")}
+            }
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "kraken", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "kraken",
+        "trades",
+        "hourly",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "slim": ["price", "vol", "time"]},
     )
 
 

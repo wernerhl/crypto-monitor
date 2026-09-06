@@ -33,6 +33,17 @@ def site_render() -> None:
     typer.echo(f"rendered {out}")
 
 
+@universe_app.command("seed-sectors")
+def universe_seed_sectors() -> None:
+    """Seed sector_map.assignments in config/universe.yaml from CoinGecko categories (then review by hand)."""
+    from collections import Counter
+
+    from monitor.jobs_risk import seed_sectors
+
+    out = seed_sectors(write=True)
+    typer.echo(str(Counter(out.values())))
+
+
 @universe_app.command("show")
 def universe_show(
     tier: int | None = typer.Option(None, help="only this tier"), excluded: bool = False
@@ -115,6 +126,18 @@ def compute(
 
         for k, v in jobs_hourly.compute_hourly(rebuild=rebuild or job == "all").items():
             typer.echo(f"{k}: {v} rows")
+    if job in ("all", "daily"):
+        from monitor import jobs_risk
+
+        out = jobs_risk.compute_all_risk()
+        typer.echo(
+            f"risk: venues {len(out['venue']['venues'])}, trades {len(out['trades'])}, screens {len(out['screens'])}"
+        )
+    if job in ("all", "weekly"):
+        from monitor import jobs_weekly
+
+        for k, v in jobs_weekly.compute_weekly().items():
+            typer.echo(f"{k}: {v}")
 
 
 @app.command()

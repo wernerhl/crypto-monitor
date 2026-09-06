@@ -1,45 +1,312 @@
-# Universe and tiering (notes Section 2). Reviewed with the weekly job; membership history is stored.
 version: 1
 as_of: 2026-09-06
 candidate_universe:
-  source: coingecko            # fallback: coinpaprika
+  source: coingecko
   top_n_by_market_cap: 200
-  pages: 2                     # 250 per page; we take the top 200 after exclusions
+  pages: 2
 exclusions:
-  # Category rules are regexes matched against CoinGecko category names (verified list,
-  # tests/fixtures/live_verification/coingecko.categories.json.gz). Stablecoins are kept in the
-  # `stablecoins` table for Section 7; never in a tier.
-  # Category membership lists fetched daily with one call each (`coins/markets?category=`),
-  # so exclusions are known for every candidate from the first run; the regexes below apply
-  # to the slower per-coin metadata and catch anything the lists miss.
-  stablecoin_category_ids: [stablecoins]
-  wrapped_or_lst_category_ids: [wrapped-tokens, liquid-staking-tokens, liquid-restaking-tokens, tokenized-btc, bridged-tokens]
-  stablecoin_category_regex: '^(?!Stablecoin Issuer$)(?!Stable Ecosystem$)(.* Stablecoin|Stablecoins)$'
-  wrapped_or_lst_category_regex: '^(Wrapped-Tokens|Tokenized BTC|Bridged-Tokens|Bridged .*|Liquid Staked .*|Liquid Restaked .*|Liquid Staking Tokens|Liquid Restaking Tokens)$'
-  # exchange-internal tokens with no external markets (hand list, reviewed weekly)
+  stablecoin_category_ids:
+  - stablecoins
+  wrapped_or_lst_category_ids:
+  - wrapped-tokens
+  - liquid-staking-tokens
+  - liquid-restaking-tokens
+  - tokenized-btc
+  - bridged-tokens
+  stablecoin_category_regex: ^(?!Stablecoin Issuer$)(?!Stable Ecosystem$)(.* Stablecoin|Stablecoins)$
+  wrapped_or_lst_category_regex: ^(Wrapped-Tokens|Tokenized BTC|Bridged-Tokens|Bridged .*|Liquid Staked .*|Liquid Restaked
+    .*|Liquid Staking Tokens|Liquid Restaking Tokens)$
   exchange_internal_ids: []
-  # explicit overrides after review (coingecko id -> reason); reason "include" forces inclusion
   manual: {}
 tier_rules:
   tier1:
-    perp_venues_required: 2                # of {binance, bybit, okx}
-    oi_30d_median_usd_min: 150_000_000     # aggregate across the three venues
-    depth_2pct_usd_min: 3_000_000          # intraday median of aggregated D(0.02)
-    # Reasoning: the notes ask for 15–25 names with "real depth at 2 percent of several
-    # million USD". On the first live run (2026-09-06, one day of OI) USD 100M aggregate OI
-    # admitted 30 names and USD 150M admitted 22, so 150M is the level that lands in the
-    # notes' range before the depth screen (which can only remove names). USD 3M depth is
-    # the lower edge of "several million". Changing either is a governance event recorded
-    # in docs/changelog.md; they are not tuned to any backtest.
+    perp_venues_required: 2
+    oi_30d_median_usd_min: 150000000
+    depth_2pct_usd_min: 3000000
   tier2:
-    spot_venues_required: 2                # of {binance, bybit, okx, coinbase, kraken}
-    adv_real_30d_usd_min: 10_000_000       # wash-filtered 30-day ADV
+    spot_venues_required: 2
+    adv_real_30d_usd_min: 10000000
   tier3: remainder
-recompute: weekly                          # notes say monthly; build prompt says weekly (prompt wins on engineering)
+recompute: weekly
 sector_map:
   version: 1
-  reviewed_on: null                        # set when the aggregator seed is reviewed (phase 2)
-  sectors: [L1, L2, DeFi-lending, DEX, derivatives-protocol, oracle-infra, stablecoin, RWA, AI-compute, memecoin, gaming, exchange-token, payments, other]
-  assignments: {}                          # coingecko id -> sector, filled in phase 2
-stablecoins: []                            # filled from DefiLlama in phase 4
-symbol_map: {}                             # coingecko id -> {binance: BTCUSDT, bybit: BTCUSDT, okx: BTC-USDT, coinbase: BTC-USD, kraken: XBTUSD}
+  reviewed_on: null
+  sectors:
+  - L1
+  - L2
+  - DeFi-lending
+  - DEX
+  - derivatives-protocol
+  - oracle-infra
+  - stablecoin
+  - RWA
+  - AI-compute
+  - memecoin
+  - gaming
+  - exchange-token
+  - payments
+  - other
+  assignments:
+    1inch: DEX
+    a7a5: stablecoin
+    aave: DeFi-lending
+    aerodrome-finance: DEX
+    agora-dollar: stablecoin
+    akash-network: AI-compute
+    akedo: AI-compute
+    algorand: L1
+    alpha-bulgaria-warrants: RWA
+    antfun: other
+    ape-and-pepe: memecoin
+    apecoin: gaming
+    apenft: gaming
+    aptos: L1
+    apxusd: stablecoin
+    apyusd: stablecoin
+    arbitrum: L2
+    artificial-inu-3: memecoin
+    arweave: L1
+    aster-2: derivatives-protocol
+    astherus-usdf: stablecoin
+    avalanche-2: L1
+    avant-usd: stablecoin
+    axie-infinity: gaming
+    backpack: exchange-token
+    beldex: L1
+    bfusd: stablecoin
+    bianrensheng: memecoin
+    binancecoin: L1
+    bitcoin: L1
+    bitcoin-cash: L1
+    bitcoin-cash-sv: other
+    bitget-token: exchange-token
+    bittensor: L1
+    bittorrent: oracle-infra
+    bitway: other
+    blackrock-usd-institutional-digital-liquidity-fund: RWA
+    blockchain-capital: RWA
+    blockstack: L2
+    bnb48-club-token: other
+    bonk: memecoin
+    btse-token: exchange-token
+    build-on: memecoin
+    canton-network: L1
+    cardano: L1
+    cash-4: stablecoin
+    cash-cat: memecoin
+    celestia: L1
+    chain-2: L1
+    chainlink: oracle-infra
+    cheems-token: memecoin
+    chiliz: L1
+    chip-2: other
+    circle-internet-group-ondo-tokenized-stock: RWA
+    coco-2: memecoin
+    collector-crypt: RWA
+    compound-governance-token: DeFi-lending
+    conflux-token: other
+    convex-finance: other
+    cosmos: other
+    crvusd: stablecoin
+    crypto-com-chain: L1
+    curve-dao-token: DEX
+    dai: stablecoin
+    dash: other
+    decentraland: gaming
+    decred: L1
+    derive: derivatives-protocol
+    dgrid-ai: other
+    dog-go-to-the-moon-rune: memecoin
+    dogecoin: memecoin
+    dogwifcoin: memecoin
+    doublezero: oracle-infra
+    ecash: L1
+    edgex: DEX
+    eigenlayer: oracle-infra
+    elrond-erd-2: L1
+    ethena: other
+    ethena-usde: stablecoin
+    ether-fi: other
+    ethereum: L1
+    ethereum-classic: L1
+    ethereum-name-service: gaming
+    euro-coin: stablecoin
+    eutbl: RWA
+    falcon-finance: stablecoin
+    falcon-finance-ff: DEX
+    fartcoin: memecoin
+    fetch-ai: AI-compute
+    figure-heloc: RWA
+    filecoin: L1
+    first-digital-usd: stablecoin
+    flare-networks: L1
+    frax: stablecoin
+    frax-usd: stablecoin
+    gatechain-token: exchange-token
+    gho: stablecoin
+    global-dollar: stablecoin
+    gmt-token: gaming
+    gnosis: DEX
+    golem: AI-compute
+    grass: AI-compute
+    grx-chain: exchange-token
+    gusd: stablecoin
+    hash-2: L1
+    hashnote-usyc: RWA
+    havven: derivatives-protocol
+    hedera-hashgraph: L1
+    helium: AI-compute
+    htx-dao: exchange-token
+    humanity: oracle-infra
+    hyperliquid: derivatives-protocol
+    immutable-x: L2
+    injective-protocol: L1
+    internet-computer: L1
+    iota: L1
+    janus-henderson-anemoy-aaa-clo-fund: RWA
+    janus-henderson-anemoy-treasury-fund: RWA
+    jasmycoin: AI-compute
+    jito-governance-token: other
+    jpysc: stablecoin
+    jupiter-exchange-solana: derivatives-protocol
+    just: other
+    kaia: L1
+    kamino: DeFi-lending
+    kaspa: L1
+    kinesis-gold: RWA
+    kinesis-silver: RWA
+    kite-2: L1
+    kucoin-shares: exchange-token
+    layerzero: oracle-infra
+    leo-token: exchange-token
+    lido-dao: oracle-infra
+    lighter: derivatives-protocol
+    litecoin: L1
+    mantle: L2
+    marscoin-4: memecoin
+    melania-meme: memecoin
+    memecore: memecoin
+    meta-2-2: other
+    meteora: DEX
+    midnight-3: L1
+    monad: L1
+    monero: L1
+    morpho: DeFi-lending
+    mx-token: exchange-token
+    near: L1
+    neo: other
+    nexo: exchange-token
+    non-playable-coin: memecoin
+    official-trump: memecoin
+    okb: L2
+    olympus: DeFi-lending
+    ondo-finance: RWA
+    ondo-us-dollar-yield: stablecoin
+    onyc: stablecoin
+    optimism: L2
+    origintrail: oracle-infra
+    ousg: RWA
+    ozone-chain: L1
+    pancakeswap-token: derivatives-protocol
+    pax-gold: RWA
+    paypal-usd: stablecoin
+    pendle: derivatives-protocol
+    pepe: memecoin
+    permacast: AI-compute
+    pi-network: L1
+    pieverse: AI-compute
+    plasma: L1
+    polkadot: other
+    polygon-ecosystem-token: L2
+    pons: other
+    pudgy-penguins: memecoin
+    pump-fun: memecoin
+    pyth-network: oracle-infra
+    quack-ai: AI-compute
+    quant-network: oracle-infra
+    railgun: oracle-infra
+    rain: derivatives-protocol
+    raydium: derivatives-protocol
+    re-protocol-reusd: stablecoin
+    reallink: other
+    render-token: AI-compute
+    ribbita-by-virtuals: memecoin
+    ripple: L1
+    ripple-usd: stablecoin
+    rollbit-coin: gaming
+    safecoin: exchange-token
+    safepal: other
+    safo: RWA
+    seeker: oracle-infra
+    sei-network: L1
+    shiba-inu: memecoin
+    shuffle-2: other
+    sky: other
+    societe-generale-forge-eurcv: stablecoin
+    sofiusd: stablecoin
+    solana: L1
+    sonic-3: L1
+    spiko-amundi-overnight-swap-fund-eur: RWA
+    spiko-us-t-bills-money-market-fund: RWA
+    spx6900: memecoin
+    stable-2: L1
+    starknet: L2
+    stellar: L1
+    stonk-3: other
+    stp-network: derivatives-protocol
+    strategy-pp-variable-xstock: RWA
+    sui: L1
+    sun-token: other
+    superstate-short-duration-us-government-securities-fund-ustb: RWA
+    swissborg: other
+    syrup: DeFi-lending
+    telcoin: L1
+    terra-luna: other
+    tether: stablecoin
+    tether-gold: RWA
+    tezos: L1
+    the-graph: oracle-infra
+    the-open-network: L1
+    the-sandbox: gaming
+    theo-short-duration-us-treasury-fund: RWA
+    theta-token: L1
+    thorchain: DEX
+    tradable-apac-diversified-finance-provider-sstn: RWA
+    tradable-latam-fintech-sstn: RWA
+    tradable-na-rent-financing-platform-sstn: RWA
+    tron: L1
+    true-usd: stablecoin
+    trust-wallet-token: other
+    ultima: L1
+    unibase: oracle-infra
+    unifai-network: AI-compute
+    uniswap: DEX
+    united-stables: stablecoin
+    usa: stablecoin
+    usd-coin: stablecoin
+    usd1-wlfi: stablecoin
+    usdai: stablecoin
+    usdd: stablecoin
+    usdgo: stablecoin
+    usds: stablecoin
+    usdtb: stablecoin
+    useless-3: memecoin
+    usual-usd: stablecoin
+    usx: stablecoin
+    vaulta: L1
+    vechain: L1
+    venice-token: AI-compute
+    virtual-protocol: AI-compute
+    vision-3: other
+    whitebit: exchange-token
+    world-liberty-financial: other
+    worldcoin-wld: other
+    xdce-crowd-sale: L1
+    ylds: stablecoin
+    zama: oracle-infra
+    zcash: L1
+    zebec-network: RWA
+    zencash: other
+  seeded_on: '2026-09-06'
+stablecoins: []
+symbol_map: {}

@@ -83,8 +83,14 @@ def fetch_hourly(
     # derivatives, Tier 1
     b1 = _syms(sm, (1,), "perp", "binance")
     out["binance_perps"] = str(binance.fetch_perps(b1, ts=ts, force=force, freq="hourly"))
-    out["bybit_perps"] = str(bybit.fetch_perps(ts=ts, force=force, freq="hourly"))
-    out["okx_perps"] = str(okx.fetch_perps(ts=ts, force=force, freq="hourly"))
+    out["bybit_perps"] = str(
+        bybit.fetch_perps(
+            ts=ts, force=force, freq="hourly", symbols=_syms(sm, (1, 2), "perp", "bybit")
+        )
+    )
+    out["okx_perps"] = str(
+        okx.fetch_perps(ts=ts, force=force, freq="hourly", symbols=_syms(sm, (1, 2), "perp", "okx"))
+    )
     out["okx_funding"] = str(okx.fetch_funding(_syms(sm, (1,), "perp", "okx"), ts=ts, force=force))
     out["binance_long_short"] = str(binance.fetch_long_short(b1, ts=ts, force=force))
     out["binance_coinm"] = str(binance.fetch_coinm_marks(ts=ts, force=force))
@@ -110,7 +116,7 @@ def fetch_hourly(
         ("coinbase", coinbase),
         ("kraken", kraken),
     ):
-        syms = _syms(sm, (1, 2), "spot", venue)
+        syms = _syms(sm, (1,), "spot", venue)  # Tier 2 books are taken once a day (daily job)
         if syms:
             out[f"{venue}_books"] = str(mod.fetch_books(syms, ts=ts, force=force))
         check()
@@ -133,10 +139,21 @@ def fetch_hourly(
 
 
 def fetch_hourly_klines(ts: datetime | None = None, force: bool = False) -> dict[str, str]:
-    """Daily dataset: 7 days of hourly bars for Tier 1+2 on every venue (wash-filter input)."""
+    """Daily dataset: 7 days of hourly bars for Tier 1+2 on every venue (wash-filter input),
+    plus one Tier 2 order-book snapshot per venue (the liquidity gate for Tier 2)."""
     ts = ts or utc_now()
     sm = _symbol_map()
     out = {}
+    for venue, mod in (
+        ("binance", binance),
+        ("bybit", bybit),
+        ("okx", okx),
+        ("coinbase", coinbase),
+        ("kraken", kraken),
+    ):
+        syms = _syms(sm, (2,), "spot", venue)
+        if syms:
+            out[f"{venue}_books_t2"] = str(mod.fetch_books(syms, ts=ts, force=force, freq="daily"))
     for venue, mod in (("binance", binance), ("bybit", bybit), ("okx", okx)):
         syms = _syms(sm, (1, 2), "spot", venue)
         if syms:

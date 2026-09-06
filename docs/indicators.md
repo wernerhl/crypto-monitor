@@ -57,4 +57,36 @@ the unit test whose comments carry the hand-computed expected value.
 |---|---|---|
 | 4.1 crowded long, 4.2 capitulation, 4.3 vol underpricing, 5.1 cliff, 7.1 gate | `monitor.rules.*` (thresholds only from `config/thresholds.yaml`) | `test_state_rules.py::test_rules_fire_and_report_unavailable_inputs` |
 
-_(Sections 5, 6, 8 and 9 of the notes are added in phases 4–5.)_
+## Scheduled supply (notes Section 5)
+| indicator | notes ref | formula | source table | function | test |
+|---|---|---|---|---|---|
+| `esp_float` | eq. 5.1 | Σ_{τ∈(t,t+h]} Σ_c π_c U_{τ,c} / Float; π_c from `thresholds.yaml → supply.pi_c` (documented defaults; `pi_default_used` flags the `unknown` class) | `unlock_events`, `markets` | `supply.esp` | `test_supply_context.py::test_esp_float_and_days_of_volume` (0.009) |
+| `esp_days_of_volume` | eq. 5.2 | P × Σ π_c U / ADV_real (falls back to reported ADV, flagged `adv_is_reported`) | + `liquidity` | `supply.esp` | same (6.0) |
+| `dilution` | §5 | (Float_{t+365} − Float_t)/Float_t from scheduled unlocks + emissions | `unlock_events`, `markets` | `supply.dilution` | `test_dilution` (0.1005) |
+| cliff inputs | Rule 5.1 | per cliff date: share of float, days of real volume | `unlock_events` | `supply.cliffs` | `test_cliffs_rule_inputs` |
+| linear tranches | adapter | DefiLlama index gives (start, total); spread evenly over 400 d until the per-protocol detail is fetched | `unlock_events` | `supply.expand_linear` | `test_expand_linear_spreads_tranche_evenly` |
+
+## Context (notes §3.3, §12)
+| indicator | notes ref | formula | source table | function | test |
+|---|---|---|---|---|---|
+| `net_liquidity` and 4-week changes | §3.3 | WALCL/1e3 − WTREGEN/1e3 − RRPONTSYD; change vs the observation ≥ 28 d earlier | `macro` (FRED CSV) | `context.macro_table` | `test_macro_table_net_liquidity_and_changes` (5768.594, −26.406) |
+| `growth_30d` | Def. 3.1 (z^{SC−} input) | total USD stablecoin supply / 30 d earlier − 1 | `stablecoin_total` | `context.stablecoin_growth` | `test_stablecoin_growth` |
+| event strip | §12 item 6 | cliffs, governance ends, manual events, options expiries within 28 d | `cliffs`, `proposals`, `events.yaml`, `options` | `context.event_strip` | `test_event_strip_orders_and_filters` |
+| MVRV, exchange supply/flows, staking ratio | §5 | as reported (CoinMetrics community; ultrasound.money) | `onchain`, `eth_staking` | adapters | (fixture) |
+
+## Trade structures, venue, sizing, cross-section (notes Sections 5, 6, 8, 9)
+| indicator | notes ref | formula | source table | function | test |
+|---|---|---|---|---|---|
+| basis `gross_ann` | eq. 5.1 | (F − P)/P × 365/(T − t); cost = stablecoin borrow + 4 fees × 365/days | `futures_marks`, `prices_daily` | `trades.basis_table` | `test_risk.py::test_annualised_basis_and_table` (0.125 / 0.066) |
+| funding carry | §5.2 | shrink × mean₃₀(funding_ann); cost = borrow + fees per monthly round trip | `funding_daily` | `trades.funding_carry` | `test_funding_carry_shrinks_trailing_mean` (0.05) |
+| vol selling | §5.3 | IV₁ₘ − √RV²₃₀; FORBIDDEN when Rule 4.3 fires | `options_metrics`, `rule_fires` | `trades.vol_premium` | `test_vol_premium_forbidden_when_rule_43_fires` |
+| unlock short | §5.4 | flagged cliffs 14–28 d ahead on Tier 1/2; cost = −funding if negative + fees; crowded-short warning z^FR < −1 | `cliffs`, `rule_fires`, `funding_daily` | `trades.unlock_short` | (integration) |
+| venue score / limits | §6.1–6.2 | weighted points → grade A–D → x̄_v; X_v vs limits; low-score aggregate | `config/venues.yaml`, `wash_filters` | `venue.score_venue`, `exposure_table` | `test_venue_score_and_limits` (18 → A, breach) |
+| stress covariance | eq. 8.2 | ξ Σ_high + (1−ξ) Σ_low + η Φ⁺ (Σ_high − Σ_low), Ledoit–Wolf state-weighted | `prices_daily`, `vol_state`, `fragility` | `covariance.stress_covariance` | `test_stress_covariance_tilt_and_fallbacks` (4.0) |
+| `n_eff` | Prop. 2.1 | (Σ|w_i|σ_i)² / (w′Σw) | book | `covariance.effective_bets` | `test_effective_bets_matches_proposition_2_1` (1.6) |
+| `es_1d` | §8.4 | 5 % ES by simulation, multivariate Student-t (df 4) with the stress covariance | book | `es.simulate_es` | `test_es_simulation_scales_with_vol` |
+| cascade / halt / systemic P&L | §8.4 | √-law move on Λ⁻/D(0.02) capped at κσ; (1 − recovery) × venue exposure; 50 % × (direct + collateral) | `positioning`, `book.yaml` | `scenarios.*` | `test_cascade_and_halt_scenarios` (−0.04, −0.24, −0.10) |
+| sector-relative z | eq. 9.1 | (x − median_sector)/(1.4826·MAD), winsorised ±3; small sectors fall back to the cross-section | `screens` | `crosssection.sector_standardise` | `test_sector_standardise_and_ic` |
+| factors, betas | eq. 9.2 | MKT (cap-weighted), tercile long-shorts SMB/MOM/LIQ, sector minus market; WLS betas over 26 weeks, half-life 8 | `factor_returns`, `factor_betas` | `crosssection.factor_returns`, `rolling_betas` | `test_ew_weights_half_life` |
+| screen IC | §9.4 | mean over 52 weeks of Spearman(screen, next-week return), s.e. = sd/√n | `screen_ic` | `crosssection.spearman_ic` | `test_sector_standardise_and_ic` (IC 1.0) |
+| rule hit rates | §4.5, §10 | share of fired evaluations whose forward outcome matched the rule's action; n reported | `hit_rates` | `hitrates.hit_rates` | (integration; backfill) |

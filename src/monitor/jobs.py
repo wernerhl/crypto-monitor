@@ -99,9 +99,15 @@ def fetch_daily(ts: datetime | None = None, force: bool = False) -> dict[str, st
     for venue, mod in (("binance", binance), ("bybit", bybit), ("okx", okx)):
         syms = [s[venue] for s in symap["spot"].to_list() if s and s.get(venue)]
         out[f"{venue}_klines"] = str(mod.fetch_klines_1d(syms, limit=limit, ts=ts, force=force))
-    for venue, mod in (("coinbase", coinbase), ("kraken", kraken)):
-        syms = [s[venue] for s in symap["spot"].to_list() if s and s.get(venue)]
-        out[f"{venue}_klines"] = str(mod.fetch_klines_1d(syms, ts=ts, force=force))
+    since = (ts - timedelta(days=10)) if limit == 10 else None
+    syms = [s["coinbase"] for s in symap["spot"].to_list() if s and s.get("coinbase")]
+    out["coinbase_klines"] = str(coinbase.fetch_klines_1d(syms, ts=ts, force=force, start=since))
+    syms = [s["kraken"] for s in symap["spot"].to_list() if s and s.get("kraken")]
+    out["kraken_klines"] = str(kraken.fetch_klines_1d(syms, ts=ts, force=force, since=since))
+    # 6. context datasets (stablecoins, macro, unlocks, fees, on-chain, governance)
+    from monitor.jobs_daily_ctx import fetch_context
+
+    out.update({f"ctx_{k}": v for k, v in fetch_context(ts=ts, force=force).items()})
     return out
 
 
@@ -198,6 +204,9 @@ def compute_daily(as_of: date | None = None, rebuild: bool = False) -> dict[str,
 
     # universe
     counts["universe"] = compute_universe(as_of=as_of).height
+    from monitor.jobs_daily_ctx import compute_context
+
+    counts.update(compute_context(as_of=as_of, rebuild=rebuild))
     for t in (
         "markets",
         "coin_meta",

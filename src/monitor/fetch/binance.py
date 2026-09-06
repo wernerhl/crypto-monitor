@@ -8,7 +8,7 @@ from pathlib import Path
 
 import polars as pl
 
-from monitor.fetch.base import Envelope, Record, SanityError, run_dataset
+from monitor.fetch.base import Envelope, Record, SanityError, run_dataset, trim_book
 from monitor.fetch.symbols import split_multiplier
 from monitor.schema.tables import DailyPriceRow, PerpSnapshotRow, VenueListingRow, rows_to_df
 
@@ -88,18 +88,30 @@ def parse_listings(spot_env: Envelope, fut_env: Envelope, git_sha: str) -> pl.Da
 def fetch_perps(
     symbols: list[str], ts: datetime | None = None, force: bool = False, freq: str = "daily"
 ) -> Path:
+    """premiumIndex / fundingInfo / ticker24h are full-market payloads (≈ 900 symbols); the
+    stored copy keeps the requested symbols plus dated futures (basis), recorded in meta."""
+
     def go(c) -> list[Record]:
+        keep = set(symbols)
         recs = [
             c.get("/fapi/v1/premiumIndex"),
             c.get("/fapi/v1/fundingInfo"),
             c.get("/fapi/v1/ticker/24hr"),
         ]
+        for r in recs:
+            r.body = [x for x in r.body if x.get("symbol") in keep or "_" in x.get("symbol", "")]
         for s in symbols:
             recs.append(c.get("/fapi/v1/openInterest", params={"symbol": s}))
         return recs
 
     return run_dataset(
-        "binance_usdm", "perps", freq, go, ts=ts, force=force, meta={"symbols": symbols}
+        "binance_usdm",
+        "perps",
+        freq,
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "filtered_to_symbols": True},
     )
 
 
@@ -219,17 +231,28 @@ def fetch_books(
     majors: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
     ts: datetime | None = None,
     force: bool = False,
+    freq: str = "hourly",
 ) -> Path:
-    """`api/v3/depth`: 5000 levels for the majors (weight 250), 1000 otherwise (weight 50)."""
+    """`api/v3/depth`: 5000 levels for the majors (weight 250), 1000 otherwise (weight 50).
+    Stored trimmed to ±3 % of mid (`trim_book`); the envelope records `trimmed_pct`."""
 
     def go(c) -> list[Record]:
-        return [
-            c.get("/api/v3/depth", params={"symbol": s, "limit": 5000 if s in majors else 1000})
-            for s in symbols
-        ]
+        recs = []
+        for s in symbols:
+            r = c.get("/api/v3/depth", params={"symbol": s, "limit": 5000 if s in majors else 1000})
+            b, a, _ = trim_book(r.body["bids"], r.body["asks"])
+            r.body = {"lastUpdateId": r.body["lastUpdateId"], "bids": b, "asks": a}
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "binance_spot", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "binance_spot",
+        "books",
+        freq,
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "trimmed_pct": 0.025},
     )
 
 
@@ -260,11 +283,24 @@ def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
 
 
 def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    """500 recent trades per symbol, stored slim as [time, price, qty, quoteQty]."""
+
     def go(c) -> list[Record]:
-        return [c.get("/api/v3/trades", params={"symbol": s, "limit": 1000}) for s in symbols]
+        recs = []
+        for s in symbols:
+            r = c.get("/api/v3/trades", params={"symbol": s, "limit": 300})
+            r.body = [[t["time"], t["price"], t["qty"], t["quoteQty"]] for t in r.body]
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "binance_spot", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "binance_spot",
+        "trades",
+        "hourly",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "slim": ["time", "price", "qty", "quoteQty"]},
     )
 
 
@@ -306,8 +342,14 @@ def parse_trades(env: Envelope) -> pl.DataFrame:
     rows = []
     for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
         base, _ = split_multiplier(sym.removesuffix("USDT"))
-        notionals = [float(t["quoteQty"]) for t in rec.body]
-        times = [int(t["time"]) for t in rec.body]
+        body = [
+            {"time": t[0], "price": t[1], "qty": t[2], "quoteQty": t[3]}
+            if isinstance(t, list)
+            else t
+            for t in rec.body
+        ]
+        notionals = [float(t["quoteQty"]) for t in body]
+        times = [int(t["time"]) for t in body]
         if notionals:
             rows.append(
                 _trade_stats(
@@ -319,7 +361,7 @@ def parse_trades(env: Envelope) -> pl.DataFrame:
                     fetched,
                     env.git_sha,
                     "binance_spot",
-                    [float(t["qty"]) for t in rec.body],
+                    [float(t["qty"]) for t in body],
                 )
             )
     return rows_to_df(TradeStatsRow, rows)

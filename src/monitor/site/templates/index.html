@@ -52,8 +52,54 @@ function csvLink(rows, name) {
     const rows = h.liquidity.map(r => ({tier:r.tier, base:r.base, depth_2pct_usd:r.depth_2pct_usd, lower_bound:r.depth_lower_bound?'≥':'', adv_real_usd:r.adv_real_usd, adv_reported_usd:r.adv_reported_usd, venues_passing:r.venues_passing, dtl_days:r.dtl_days, gate:r.gate_pass==null?'n/a':(r.gate_pass?'open':'CLOSED'), note:r.gate_note||''}));
     setPanel('screens', '<p>Liquidity gate (Rule 7.1) at the reference size (book position or 1 % NAV); depth is Σ venues D(0.02) intraday median, "≥" marks a truncated book. Screens with IC arrive with the weekly job.</p>' + table(['tier','base','depth_2pct_usd','lower_bound','adv_real_usd','adv_reported_usd','venues_passing','dtl_days','gate','note'], rows) + csvLink(rows,'liquidity'), 'source: ' + h.liquidity[0].source + ' · ' + h.liquidity[0].date, false, null);
   }
-  for (const [id, key] of [['venue','venue'],['book','book'],['trades','trades'],['events','events']]) {
-    if (d && d[key] && d[key].html) setPanel(id, d[key].html, d[key].meta || '', d[key].stale, d[key].reason);
+  // 6. event strip
+  if (d && d.events && d.events.rows && d.events.rows.length) {
+    const rows = d.events.rows.map(r => ({date:r.date, kind:r.kind, asset:r.asset, title:r.title, detail:r.detail||'', source:r.source}));
+    const ageD = (new Date() - new Date(d.generated_at)) / 864e5;
+    setPanel('events', '<p>Next four weeks: unlock cliffs (share of float, days of real volume), governance votes ending, hand-maintained upgrades / listings / regulatory dates (config/events.yaml), large options expiries.</p>' + table(['date','kind','asset','title','detail','source'], rows) + csvLink(rows,'events'), 'as of ' + d.events.as_of + ' · daily data ' + d.generated_at, ageD > 1.5, ageD > 1.5 ? 'stale: daily data older than 36 h' : null);
+  }
+  let rk = null;
+  try { rk = await (await fetch('data/risk.json',{cache:'no-store'})).json(); } catch(e) { rk = null; }
+  if (rk) {
+    const ageR = (new Date() - new Date(rk.generated_at)) / 36e5, staleR = ageR > 36;
+    // 1. venue and counterparty
+    const v = rk.venue;
+    let html = '<p>Example book (config/book.yaml, NAV ' + fmt(v.nav_usd) + ') — replace with your own. Scores are a function of config/venues.yaml (reviewed ' + v.reviewed_on + ').</p>';
+    html += '<h3>Exposure by venue vs limits</h3>' + table(['venue','grade','exposure_usd','share_nav','limit_share_nav','utilisation','breach'], v.exposure, {share_nav:pct, limit_share_nav:pct, utilisation:v=>v==null?'—':(100*v).toFixed(0)+'%', breach:b=>b?'<strong>BREACH</strong>':'ok'});
+    html += '<p>Low-score venues (grade ≥ ' + 'C' + ') aggregate: ' + pct(v.low_score.share_nav) + ' of NAV vs limit ' + pct(v.low_score.limit_share_nav) + (v.low_score.breach ? ' — <strong>BREACH</strong>' : ' — ok') + '</p>';
+    html += '<h3>Venue scores</h3>' + table(['venue','grade','score_points','limit_share_nav','wash_share'], v.venues, {limit_share_nav:pct, wash_share:x=>x==null?'n/a':pct(x)});
+    html += '<h3>Stablecoin exposure</h3>' + table(['stablecoin','exposure_usd','share_nav','discount_to_par','peg_mechanism'], v.stablecoins, {share_nav:pct, discount_to_par:x=>x==null?'—':(1e4*x).toFixed(1)+' bp'});
+    html += '<h3>Systemic exposures (hand-tracked)</h3>' + table(['name','kind','direct_exposure_usd','collateral_usd','discount_to_par','note'], v.systemic, {discount_to_par:x=>x==null?'—':(1e4*x).toFixed(1)+' bp'});
+    setPanel('venue', html + csvLink(v.exposure,'venue_exposure'), 'source: config/venues.yaml, config/book.yaml, stablecoins (DefiLlama), wash filters · ' + rk.generated_at, staleR, staleR?'stale':null);
+    // 2. book risk
+    const b = rk.book;
+    html = '<p>Gross ' + pct(b.gross) + ', net ' + pct(b.net) + ' of NAV. Covariance: state-weighted Ledoit–Wolf with the fragility tilt (' + b.n_obs + ' daily observations' + (b.notes.length? '; ' + b.notes.join('; ') : '') + ').</p>';
+    html += table(['metric','value'], [
+      {metric:'annualised vol (stress covariance)', value: pct(b.vol_ann_stress)}, {metric:'annualised vol (current covariance)', value: pct(b.vol_ann_current)},
+      {metric:'effective number of bets (stress / current)', value: fmt(b.n_eff_stress) + ' / ' + fmt(b.n_eff_current)},
+      {metric:'1-day expected shortfall 5 % (Student-t, stress cov)', value: pct(b.es_1d)}, {metric:'1-day VaR 5 %', value: pct(b.var_1d)},
+      {metric:'gross scalar to hit the vol target', value: fmt(b.gross_scalar_for_vol_target)},
+      {metric:'liquidation-cascade P&L (Λ⁻ within 2σ)', value: b.cascade.total_share_nav==null?'—':pct(b.cascade.total_share_nav) + (b.cascade.rows.some(r=>r.move==null)?' (some positions lack a liquidation density yet)':'')}
+    ]);
+    html += '<h3>Factor exposure w′B</h3>' + (b.factor_exposure ? table(['factor','exposure'], Object.entries(b.factor_exposure).map(([k,v])=>({factor:k, exposure:v})), {exposure:x=>fmt(x,3)}) + '<p class="meta">betas as of week ' + b.factor_week + '</p>' : '<p class="stale"><span class="badge">unavailable</span> factor betas need ≥ 100 weekly observations (weekly job after the backfill)</p>');
+    html += '<h3>Venue-halt P&L</h3>' + table(['venue','exposure_usd','recovery','pnl_share_nav'], b.venue_halt, {pnl_share_nav:pct});
+    html += '<h3>Systemic 50 % drawdown P&L</h3>' + table(['exposure','kind','direct_usd','collateral_usd','pnl_share_nav'], b.systemic, {pnl_share_nav:pct});
+    setPanel('book', html, 'source: prices_daily, vol_state, fragility, positioning, book.yaml · ' + rk.generated_at, staleR, staleR?'stale':null);
+    // 5. trade structures
+    if (rk.trades && rk.trades.length) {
+      const rows = rk.trades.map(r=>({structure:r.structure, asset:r.asset, instrument:r.instrument, venue:r.venue + ' (' + (r.venue_score||'?') + ')', days:r.days, gross_ann:r.gross_ann, cost_ann:r.cost_ann, net_ann:r.net_ann, dominant_risk:r.dominant_risk}));
+      rows.sort((a,b)=>(b.net_ann??-9)-(a.net_ann??-9));
+      setPanel('trades', '<p>Gross, estimated cost and net annualised rates with the execution venue and its score. Cost assumptions in config/thresholds.yaml (stablecoin borrow) and config/venues.yaml (fees). Net carry is compared against the venue score where the short leg sits.</p>' + table(['structure','asset','instrument','venue','days','gross_ann','cost_ann','net_ann','dominant_risk'], rows, {gross_ann:pct, cost_ann:pct, net_ann:pct, days:x=>x==null?'—':x.toFixed(0)}) + csvLink(rows,'trades'), 'source: futures_marks, funding_daily, options_metrics, cliffs · ' + rk.generated_at, staleR, staleR?'stale':null);
+    }
+    // 7. screens (append to the liquidity gate panel)
+    if (rk.screens && rk.screens.length) {
+      const ic = JSON.parse(rk.screens[0].ic_json || '{}');
+      const icTxt = Object.keys(ic).length ? Object.entries(ic).map(([k,v])=>k + ': IC ' + (v.ic==null?'n/a':v.ic.toFixed(3)) + ' ± ' + (v.ic_se==null?'n/a':v.ic_se.toFixed(3)) + ' (n=' + v.n_weeks + ' weeks)').join('; ') : 'IC not yet estimated (weekly job after the backfill)';
+      const rows = rk.screens.map(r=>({tier:r.tier, symbol:r.symbol, sector:r.sector, mom_4w_skip1_z:r.mom_4w_skip1_z, float_ratio:r.float_ratio, float_ratio_z:r.float_ratio_z, esp_days_of_volume_13:r.esp_days_of_volume, dilution:r.dilution, gate:r.gate_pass==null?'n/a':(r.gate_pass?'open':'CLOSED')}));
+      rows.sort((a,b)=>(a.tier-b.tier)||((b.mom_4w_skip1_z??-9)-(a.mom_4w_skip1_z??-9)));
+      const el = document.getElementById('panel-screens');
+      el.innerHTML += '<h3>Weekly screens, Tier 2/3 (sector-relative z, winsorised ±3)</h3><p class="meta">Screens condition attention; they are not forecasts. Trailing 52-week Spearman IC vs next-week return: ' + icTxt + '</p>' + table(['tier','symbol','sector','mom_4w_skip1_z','float_ratio','float_ratio_z','esp_days_of_volume_13','dilution','gate'], rows, {float_ratio:x=>fmt(x,2), dilution:x=>x==null?'unknown':pct(x)}) + csvLink(rows,'screens');
+    }
   }
 })();
 </script>

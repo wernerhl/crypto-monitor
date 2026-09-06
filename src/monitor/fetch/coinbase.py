@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from monitor.fetch.base import Envelope, Record, SanityError, run_dataset
+from monitor.fetch.base import Envelope, Record, SanityError, run_dataset, trim_book
 from monitor.schema.tables import DailyPriceRow, VenueListingRow, rows_to_df
 
 VENUE = "coinbase"
@@ -44,12 +44,34 @@ def parse_listings(env: Envelope) -> pl.DataFrame:
     return df
 
 
-def fetch_klines_1d(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+def fetch_klines_1d(
+    symbols: list[str],
+    ts: datetime | None = None,
+    force: bool = False,
+    start: datetime | None = None,
+) -> Path:
+    """Daily candles; with `start` (verified `start`/`end` params) only the recent window is
+    pulled, which keeps the daily raw file small after the first run."""
+
     def go(c) -> list[Record]:
-        return [c.get(f"/products/{s}/candles", params={"granularity": 86400}) for s in symbols]
+        params = {"granularity": 86400}
+        if start is not None:
+            params.update(
+                {
+                    "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end": (ts or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
+        return [c.get(f"/products/{s}/candles", params=params) for s in symbols]
 
     return run_dataset(
-        "coinbase", "klines_1d", "daily", go, ts=ts, force=force, meta={"symbols": symbols}
+        "coinbase",
+        "klines_1d",
+        "daily",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "start": str(start) if start else None},
     )
 
 
@@ -87,12 +109,33 @@ from monitor.compute.liquidity import benford_stats, depth_from_levels  # noqa: 
 from monitor.schema.tables import HourlyPriceRow, OrderBookDepthRow, TradeStatsRow  # noqa: E402
 
 
-def fetch_books(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+def fetch_books(
+    symbols: list[str], ts: datetime | None = None, force: bool = False, freq: str = "hourly"
+) -> Path:
+    """Level-2 book is the full aggregated book (> 1 MB for BTC); stored trimmed to ±3 % of mid."""
+
     def go(c) -> list[Record]:
-        return [c.get(f"/products/{s}/book", params={"level": 2}) for s in symbols]
+        recs = []
+        for s in symbols:
+            r = c.get(f"/products/{s}/book", params={"level": 2})
+            b, a, _ = trim_book(r.body["bids"], r.body["asks"])
+            r.body = {
+                "time": r.body.get("time"),
+                "sequence": r.body.get("sequence"),
+                "bids": b,
+                "asks": a,
+            }
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "coinbase", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "coinbase",
+        "books",
+        freq,
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "trimmed_pct": 0.025},
     )
 
 
@@ -126,11 +169,24 @@ def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
 
 
 def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    """500 recent trades (`limit=500` verified), stored slim as [time, price, size]."""
+
     def go(c) -> list[Record]:
-        return [c.get(f"/products/{s}/trades", params={"limit": 1000}) for s in symbols]
+        recs = []
+        for s in symbols:
+            r = c.get(f"/products/{s}/trades", params={"limit": 300})
+            r.body = [[t["time"], t["price"], t["size"]] for t in r.body]
+            recs.append(r)
+        return recs
 
     return run_dataset(
-        "coinbase", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+        "coinbase",
+        "trades",
+        "hourly",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "slim": ["time", "price", "size"]},
     )
 
 
@@ -138,7 +194,10 @@ def parse_trades(env: Envelope) -> pl.DataFrame:
     fetched = datetime.fromisoformat(env.fetched_at)
     rows = []
     for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
-        lst = rec.body
+        lst = [
+            {"time": t[0], "price": t[1], "size": t[2]} if isinstance(t, list) else t
+            for t in rec.body
+        ]
         if not lst:
             continue
         notionals = [float(t["price"]) * float(t["size"]) for t in lst]

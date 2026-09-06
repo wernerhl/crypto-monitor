@@ -40,7 +40,7 @@ jobs:
       - run: uv sync --frozen
       - name: fetch daily datasets (idempotent per day)
         run: uv run monitor fetch daily ${{ inputs.force && '--force' || '' }}
-      - name: compute processed tables from raw files (daily + hourly derived)
+      - name: compute processed tables from raw files (daily + hourly derived + risk)
         run: uv run monitor compute daily
       - name: commit data as the bot
         id: commit

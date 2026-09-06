@@ -2,6 +2,13 @@
 # these fields (src/monitor/compute/venue.py); reviewing this file IS the data entry.
 reviewed_on: 2026-09-06
 review_cadence: monthly
+fees:                      # taker fee per leg, fraction of notional (public schedules, reviewed with the venues)
+  binance: {taker: 0.0005}
+  bybit: {taker: 0.00055}
+  okx: {taker: 0.0005}
+  coinbase: {taker: 0.0006}
+  kraken: {taker: 0.0004}
+  deribit: {taker: 0.0003}
 score_weights: {licensing: 2, segregation: 2, proof_of_reserves: 2, withdrawal_history: 2, wash_share: 1, own_token_concentration: 1}
 exposure_limit_by_score: {A: 0.40, B: 0.25, C: 0.10, D: 0.00}   # x̄_v as share of NAV
 low_score_aggregate_limit: 0.15                                 # x̄_low
