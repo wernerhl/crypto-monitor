@@ -162,6 +162,7 @@ def fetch_hourly_klines(ts: datetime | None = None, force: bool = False) -> dict
     ts = ts or utc_now()
     sm = _symbol_map()
     out = {}
+    fr = FetchRun("daily-hourly-klines", ts)
     for venue, mod in (
         ("binance", binance),
         ("bybit", bybit),

@@ -141,10 +141,18 @@ def compute(
 
 
 @app.command()
-def backfill(start: str = typer.Option(..., "--start", help="YYYY-MM-DD")) -> None:
-    """Backfill history from each source as far back as it allows (phase 6)."""
-    typer.echo(f"backfill from {start}: not implemented (phase 6)")
-    raise typer.Exit(code=2)
+def backfill(
+    start: str = typer.Option(..., "--start", help="YYYY-MM-DD"), force: bool = False
+) -> None:
+    """Backfill history from each source as far back as it allows, then recompute walk-forward."""
+    import logging
+    from datetime import date
+
+    from monitor.backfill import backfill as run_backfill
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    for k, v in run_backfill(date.fromisoformat(start), force=force).items():
+        typer.echo(f"{k}: {v}")
 
 
 if __name__ == "__main__":  # pragma: no cover
