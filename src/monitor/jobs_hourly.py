@@ -21,6 +21,7 @@ from monitor.compute import positioning as pos
 from monitor.compute import state as state_mod
 from monitor.fetch import binance, bybit, coinbase, deribit, kraken, okx
 from monitor.fetch.base import RawStore
+from monitor.fetch.resilient import FetchRun
 from monitor.meta import git_sha, utc_now
 from monitor.paths import CONFIG, SITE_DATA
 
@@ -81,20 +82,27 @@ def fetch_hourly(
             )
 
     # derivatives, Tier 1
+    fr = FetchRun("hourly", ts)
     b1 = _syms(sm, (1,), "perp", "binance")
-    out["binance_perps"] = str(binance.fetch_perps(b1, ts=ts, force=force, freq="hourly"))
-    out["bybit_perps"] = str(
-        bybit.fetch_perps(
+    fr.run("binance_perps", lambda: binance.fetch_perps(b1, ts=ts, force=force, freq="hourly"))
+    fr.run(
+        "bybit_perps",
+        lambda: bybit.fetch_perps(
             ts=ts, force=force, freq="hourly", symbols=_syms(sm, (1, 2), "perp", "bybit")
-        )
+        ),
     )
-    out["okx_perps"] = str(
-        okx.fetch_perps(ts=ts, force=force, freq="hourly", symbols=_syms(sm, (1, 2), "perp", "okx"))
+    fr.run(
+        "okx_perps",
+        lambda: okx.fetch_perps(
+            ts=ts, force=force, freq="hourly", symbols=_syms(sm, (1, 2), "perp", "okx")
+        ),
     )
-    out["okx_funding"] = str(okx.fetch_funding(_syms(sm, (1,), "perp", "okx"), ts=ts, force=force))
-    out["binance_long_short"] = str(binance.fetch_long_short(b1, ts=ts, force=force))
-    out["binance_coinm"] = str(binance.fetch_coinm_marks(ts=ts, force=force))
-    out["okx_futures"] = str(okx.fetch_futures_marks(ts=ts, force=force))
+    fr.run(
+        "okx_funding", lambda: okx.fetch_funding(_syms(sm, (1,), "perp", "okx"), ts=ts, force=force)
+    )
+    fr.run("binance_long_short", lambda: binance.fetch_long_short(b1, ts=ts, force=force))
+    fr.run("binance_coinm", lambda: binance.fetch_coinm_marks(ts=ts, force=force))
+    fr.run("okx_futures", lambda: okx.fetch_futures_marks(ts=ts, force=force))
     check()
     # liquidations (OKX, mode a): page back to the previous hour's fetch
     prev = archive.read("liquidations")
@@ -104,9 +112,11 @@ def fetch_hourly(
         else int((ts - timedelta(hours=6)).timestamp() * 1000)
     )
     ulys = [s.replace("-SWAP", "") for s in _syms(sm, (1,), "perp", "okx")]
-    out["okx_liquidations"] = str(okx.fetch_liquidations(ulys, since_ms=since, ts=ts, force=force))
+    fr.run(
+        "okx_liquidations", lambda: okx.fetch_liquidations(ulys, since_ms=since, ts=ts, force=force)
+    )
     # options
-    out["deribit_options"] = str(deribit.fetch_options(ts=ts, force=force))
+    fr.run("deribit_options", lambda: deribit.fetch_options(ts=ts, force=force))
     check()
     # order books, Tier 1 + 2, five venues
     for venue, mod in (
@@ -118,7 +128,10 @@ def fetch_hourly(
     ):
         syms = _syms(sm, (1,), "spot", venue)  # Tier 2 books are taken once a day (daily job)
         if syms:
-            out[f"{venue}_books"] = str(mod.fetch_books(syms, ts=ts, force=force))
+            fr.run(
+                f"{venue}_books",
+                lambda mod=mod, syms=syms: mod.fetch_books(syms, ts=ts, force=force),
+            )
         check()
     # recent trades, Tier 1 only
     for venue, mod in (
@@ -129,11 +142,16 @@ def fetch_hourly(
     ):
         syms = _syms(sm, (1,), "spot", venue)
         if syms:
-            out[f"{venue}_trades"] = str(mod.fetch_trades(syms, ts=ts, force=force))
+            fr.run(
+                f"{venue}_trades",
+                lambda mod=mod, syms=syms: mod.fetch_trades(syms, ts=ts, force=force),
+            )
     bsy = _syms(sm, (1,), "perp", "bybit")
     if bsy:
-        out["bybit_trades"] = str(bybit.fetch_trades(bsy, ts=ts, force=force))
+        fr.run("bybit_trades", lambda: bybit.fetch_trades(bsy, ts=ts, force=force))
     check()
+    fr.flush()
+    out.update(fr.out)
     out["_elapsed_s"] = f"{time.monotonic() - t0:.1f}"
     return out
 
@@ -153,17 +171,26 @@ def fetch_hourly_klines(ts: datetime | None = None, force: bool = False) -> dict
     ):
         syms = _syms(sm, (2,), "spot", venue)
         if syms:
-            out[f"{venue}_books_t2"] = str(mod.fetch_books(syms, ts=ts, force=force, freq="daily"))
+            fr.run(
+                f"{venue}_books_t2",
+                lambda mod=mod, syms=syms: mod.fetch_books(syms, ts=ts, force=force, freq="daily"),
+            )
     for venue, mod in (("binance", binance), ("bybit", bybit), ("okx", okx)):
         syms = _syms(sm, (1, 2), "spot", venue)
         if syms:
-            out[f"{venue}_klines_1h"] = str(
-                mod.fetch_klines_1h(syms, limit=168, ts=ts, force=force)
+            fr.run(
+                f"{venue}_klines_1h",
+                lambda mod=mod, syms=syms: mod.fetch_klines_1h(syms, limit=168, ts=ts, force=force),
             )
     for venue, mod in (("coinbase", coinbase), ("kraken", kraken)):
         syms = _syms(sm, (1, 2), "spot", venue)
         if syms:
-            out[f"{venue}_klines_1h"] = str(mod.fetch_klines_1h(syms, ts=ts, force=force))
+            fr.run(
+                f"{venue}_klines_1h",
+                lambda mod=mod, syms=syms: mod.fetch_klines_1h(syms, ts=ts, force=force),
+            )
+    fr.flush()
+    out.update(fr.out)
     return out
 
 

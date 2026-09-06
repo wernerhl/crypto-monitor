@@ -5,10 +5,10 @@ max_verification_age_days: 120
 sources:
   coingecko:        {base: https://api.coingecko.com/api/v3, verified_on: 2026-09-06, min_interval_s: 12.5, key_env: COINGECKO_DEMO_KEY, key_header: x-cg-demo-api-key, history_limit_days: 365}
   coinpaprika:      {base: https://api.coinpaprika.com/v1, verified_on: 2026-09-06, monthly_quota: 20000}
-  binance_spot:     {base: https://api.binance.com, verified_on: 2026-09-06, weight_per_min: 6000}
-  binance_usdm:     {base: https://fapi.binance.com, verified_on: 2026-09-06, weight_per_min: 2400}
-  binance_coinm:    {base: https://dapi.binance.com, verified_on: 2026-09-06, weight_per_min: 2400}
-  bybit:            {base: https://api.bybit.com, verified_on: 2026-09-06, documented_limit: "600 req / 5 s per IP"}
+  binance_spot:     {base: https://data-api.binance.vision, verified_on: 2026-09-06, weight_per_min: 6000, note: "public market-data mirror of api.binance.com; api.binance.com returns HTTP 451 from GitHub-hosted (US) runners, the mirror returns 200 (probe workflow 2026-09-06)"}
+  binance_usdm:     {base: https://fapi.binance.com, verified_on: 2026-09-06, weight_per_min: 2400, geo_blocked_on_actions: true}
+  binance_coinm:    {base: https://dapi.binance.com, verified_on: 2026-09-06, weight_per_min: 2400, geo_blocked_on_actions: true}
+  bybit:            {base: https://api.bybit.com, verified_on: 2026-09-06, documented_limit: "600 req / 5 s per IP", geo_blocked_on_actions: true}
   okx:              {base: https://www.okx.com, verified_on: 2026-09-06, documented_limit: "20-40 req / 2 s per endpoint"}
   coinbase:         {base: https://api.exchange.coinbase.com, verified_on: 2026-09-06, documented_limit: "10 req / s public"}
   kraken:           {base: https://api.kraken.com, verified_on: 2026-09-06, depth_max: 500}

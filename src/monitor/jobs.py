@@ -19,6 +19,7 @@ from monitor import archive
 from monitor.compute import universe as uni_mod
 from monitor.fetch import binance, bybit, coinbase, coingecko, coinpaprika, kraken, okx
 from monitor.fetch.base import RawStore, SanityError
+from monitor.fetch.resilient import FetchRun
 from monitor.meta import git_sha, utc_now
 from monitor.paths import CONFIG, SITE_DATA
 
@@ -79,35 +80,47 @@ def fetch_daily(ts: datetime | None = None, force: bool = False) -> dict[str, st
         out["coin_meta"] = str(mod.fetch_coin_meta(need, ts=ts, force=force))
 
     # 3. venue listings
-    out["binance_listings"] = str(binance.fetch_listings(ts=ts, force=force))
-    out["bybit_listings"] = str(bybit.fetch_listings(ts=ts, force=force))
-    out["okx_listings"] = str(okx.fetch_listings(ts=ts, force=force))
-    out["coinbase_listings"] = str(coinbase.fetch_listings(ts=ts, force=force))
-    out["kraken_listings"] = str(kraken.fetch_listings(ts=ts, force=force))
+    fr = FetchRun("daily", ts)
+    fr.run("binance_listings", lambda: binance.fetch_listings(ts=ts, force=force))
+    fr.run("bybit_listings", lambda: bybit.fetch_listings(ts=ts, force=force))
+    fr.run("okx_listings", lambda: okx.fetch_listings(ts=ts, force=force))
+    fr.run("coinbase_listings", lambda: coinbase.fetch_listings(ts=ts, force=force))
+    fr.run("kraken_listings", lambda: kraken.fetch_listings(ts=ts, force=force))
     listings = _parse_listings(store, ts)
     symap = uni_mod.resolve_symbols(cands, listings, cfg.get("symbol_map") or {})
 
     # 4. perps (OI) — Binance needs per-symbol calls; Bybit/OKX one call each
     bsyms = [s["binance"] for s in symap["perp"].to_list() if s and s.get("binance")]
-    out["binance_perps"] = str(binance.fetch_perps(bsyms, ts=ts, force=force))
-    out["bybit_perps"] = str(bybit.fetch_perps(ts=ts, force=force))
-    out["okx_perps"] = str(okx.fetch_perps(ts=ts, force=force))
+    fr.run("binance_perps", lambda: binance.fetch_perps(bsyms, ts=ts, force=force))
+    fr.run("bybit_perps", lambda: bybit.fetch_perps(ts=ts, force=force))
+    fr.run("okx_perps", lambda: okx.fetch_perps(ts=ts, force=force))
 
     # 5. daily spot candles for every candidate on every venue that lists it
     have_prices = archive.read("prices_daily")
     limit = 120 if have_prices is None or not have_prices.height else 10
     for venue, mod in (("binance", binance), ("bybit", bybit), ("okx", okx)):
         syms = [s[venue] for s in symap["spot"].to_list() if s and s.get(venue)]
-        out[f"{venue}_klines"] = str(mod.fetch_klines_1d(syms, limit=limit, ts=ts, force=force))
+        fr.run(
+            f"{venue}_klines",
+            lambda mod=mod, syms=syms: mod.fetch_klines_1d(syms, limit=limit, ts=ts, force=force),
+        )
     since = (ts - timedelta(days=10)) if limit == 10 else None
     syms = [s["coinbase"] for s in symap["spot"].to_list() if s and s.get("coinbase")]
-    out["coinbase_klines"] = str(coinbase.fetch_klines_1d(syms, ts=ts, force=force, start=since))
+    fr.run(
+        "coinbase_klines",
+        lambda syms=syms: coinbase.fetch_klines_1d(syms, ts=ts, force=force, start=since),
+    )
     syms = [s["kraken"] for s in symap["spot"].to_list() if s and s.get("kraken")]
-    out["kraken_klines"] = str(kraken.fetch_klines_1d(syms, ts=ts, force=force, since=since))
+    fr.run(
+        "kraken_klines",
+        lambda syms=syms: kraken.fetch_klines_1d(syms, ts=ts, force=force, since=since),
+    )
     # 6. context datasets (stablecoins, macro, unlocks, fees, on-chain, governance)
     from monitor.jobs_daily_ctx import fetch_context
 
     out.update({f"ctx_{k}": v for k, v in fetch_context(ts=ts, force=force).items()})
+    fr.flush()
+    out.update(fr.out)
     return out
 
 

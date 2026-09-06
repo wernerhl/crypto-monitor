@@ -18,6 +18,9 @@ jobs:
             "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT" \
             "https://dapi.binance.com/dapi/v1/ping" \
             "https://api.bybit.com/v5/market/time" \
+            "https://api.bytick.com/v5/market/time" \
+            "https://api.bybit.nl/v5/market/time" \
+            "https://api-testnet.bybit.com/v5/market/time" \
             "https://www.okx.com/api/v5/public/time" \
             "https://api.exchange.coinbase.com/time" \
             "https://api.kraken.com/0/public/Time" \
