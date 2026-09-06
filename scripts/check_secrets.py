@@ -11,8 +11,10 @@ import sys
 from pathlib import Path
 
 PATTERNS = [
+    # key-like assignment whose value contains at least one digit (a sector label such as
+    # "pancakeswap-token: derivatives-protocol" must not match)
     re.compile(
-        r"(?i)(api[_-]?key|secret|token|passwd|password)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{16,}"
+        r"(?i)(api[_-]?key|secret|token|passwd|password)\s*[:=]\s*['\"]?(?=[A-Za-z0-9_\-]*\d)[A-Za-z0-9_\-]{16,}"
     ),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),  # GitHub tokens
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}\b"),
