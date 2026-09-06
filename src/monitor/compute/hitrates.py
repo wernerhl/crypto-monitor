@@ -13,7 +13,7 @@ from datetime import date, timedelta
 import numpy as np
 import polars as pl
 
-HORIZONS = {"4.1": 5, "4.2": 5, "4.3": 30, "5.1": 14}
+HORIZONS = {"4.1": 5, "4.1p": 5, "4.2": 5, "4.2p": 5, "4.3": 30, "5.1": 14}
 
 
 def forward_return(prices: pl.DataFrame, base: str, d: date, h: int) -> float | None:
@@ -74,7 +74,7 @@ def hit_rates(
             else:
                 fr = forward_return(prices, r["asset"], r["d"], h)
                 if fr is not None:
-                    outcomes.append(fr < 0 if rid == "4.1" else fr > 0)
+                    outcomes.append(fr < 0 if rid.startswith("4.1") else fr > 0)
         n = len(outcomes)
         rows.append(
             {

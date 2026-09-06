@@ -94,3 +94,25 @@
   (z_fr, z_dd, z_sc_neg). Depth cannot be backfilled: liquidity-gate history before go-live
   is the volume proxy, flagged. Hit rates and screen ICs are computed by the weekly job on the
   archive with sample sizes; thresholds were not touched (`calibrated_on` unchanged).
+* The full Rules 4.1–4.3 cannot be evaluated over history (no liquidation density, depth,
+  liquidation volume or options chains before go-live), so the methods page reports the
+  partial-input variants 4.1p (z^FR and OI percentile) and 4.2p (z^FR and 5-day OI drop),
+  labelled as such, whose OI leg only exists for the 30 days the venues' OI history covers.
+  Result on 2026-09-06: 4.2p 4 hits of 7, 4.1p n = 5; 4.3 and 5.1 have no elapsed horizons.
+* Weekly factor model on 428 weeks (2018–2026 from Kraken/Coinbase/Binance/OKX candles):
+  screen ICs over 52 weeks are small with standard errors of the same order (momentum
+  0.02 ± 0.03, size 0.08 ± 0.02, Amihud −0.01 ± 0.01), which is the notes' point.
+
+## 2026-09-06 — Phase 7: hardening
+* Weekly job: tier freeze, factor model, IC, hit rates, raw rotation (`scripts/rotate_raw.sh`
+  → `data-archive` orphan branch, hourly raw kept 10 days, daily 90), repo-size check with
+  duplicate-file guard, review issue (`scripts/weekly_issue.sh`).
+* Fresh-clone reproduction (recorded here as the build prompt asks): cloned
+  `wernerhl/crypto-monitor` at `2bda8ab` into an empty directory on the build machine,
+  `make sync` (uv, pinned lock), `make compute` (replayed every raw file: all processed tables
+  rebuilt, 260 universe rows, 20 positioning rows, 51 liquidity rows), `make site` (five pages),
+  `make test` (67 passed), size check 89 MB. Deviation: no container runtime is installed on
+  the build machine (no docker/podman), so the test ran in a clean directory with the same uv
+  toolchain rather than in a container; CI performs the same steps on a fresh Ubuntu runner.
+* Deviation: the README has no screenshot file — the page is live at the URL and the build
+  environment cannot save a browser capture to disk; add one by hand from the live site.

@@ -36,8 +36,12 @@ def aggregate_funding(perps: pl.DataFrame) -> pl.DataFrame:
     excluded from the weighted mean but counted in OI."""
     p = perps.filter(pl.col("oi_usd").is_not_null() & (pl.col("oi_usd") > 0)).with_columns(
         annualise(pl.col("funding_rate"), pl.col("funding_interval_h")).alias("fr_ann"),
+        pl.col("ts").alias("ts_orig"),
         pl.col("ts").dt.truncate("1h").alias("ts"),  # venues are polled seconds apart
     )
+    # one row per venue-symbol per hour bucket (forced re-fetches write several snapshots)
+    key = ["ts", "venue", "symbol"] if "symbol" in p.columns else ["ts", "venue", "base"]
+    p = p.sort("ts_orig").unique(subset=key, keep="last").drop("ts_orig")
     return p.group_by("ts", "base").agg(
         (
             (pl.col("fr_ann") * pl.col("oi_usd")).filter(pl.col("fr_ann").is_not_null()).sum()

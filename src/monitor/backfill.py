@@ -292,7 +292,7 @@ def parse_funding_history(env, venue: str) -> pl.DataFrame:
                 "funding_rate": pl.Float64,
             }
         )
-    return pl.DataFrame(rows).unique(subset=["ts", "venue", "symbol"])
+    return pl.DataFrame(rows, infer_schema_length=None).unique(subset=["ts", "venue", "symbol"])
 
 
 def fetch_oi_history(
@@ -441,7 +441,7 @@ def rebuild_history() -> dict:
                     }
                 )
     if oi_rows:
-        o = pl.DataFrame(oi_rows).with_columns(
+        o = pl.DataFrame(oi_rows, infer_schema_length=None).with_columns(
             pl.lit("oi_history").alias("source"),
             pl.lit(now).alias("fetched_at"),
             pl.lit(sha).alias("git_sha"),
@@ -465,7 +465,7 @@ def rebuild_history() -> dict:
                 )
     if mc_rows:
         m = (
-            pl.DataFrame(mc_rows)
+            pl.DataFrame(mc_rows, infer_schema_length=None)
             .unique(subset=["date", "id"])
             .with_columns(
                 pl.lit("coingecko").alias("source"),
@@ -573,16 +573,45 @@ def walk_forward() -> dict:
                 }
             )
             if not np.isnan(z[i]):
-                f = rules_mod.capitulation(
-                    base,
-                    datetime.combine(d, datetime.min.time(), tzinfo=UTC),
-                    float(z[i]),
-                    oi_chg,
-                    None,
-                    th["rules"],
+                when = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
+                # full rules need liquidation data / depth that do not exist in history: evaluate the
+                # partial-input variants (funding and OI legs only), labelled 4.1p / 4.2p on the page
+                oi_pct = pos.percentile_rank(oi[: i + 1], 90) if i >= 30 and oi[i] else None
+                t41, t42 = th["rules"]["crowded_long"], th["rules"]["capitulation"]
+                f41 = rules_mod.RuleFire(
+                    rule_id="4.1p",
+                    asset=base,
+                    ts=when,
+                    fired=(
+                        bool(z[i] > t41["z_fr_min"] and oi_pct >= t41["oi_rel_percentile_min"])
+                        if oi_pct is not None
+                        else None
+                    ),
+                    inputs={"z_fr": float(z[i]), "oi_pctile": oi_pct},
+                    thresholds={
+                        "z_fr_min": t41["z_fr_min"],
+                        "oi_rel_percentile_min": t41["oi_rel_percentile_min"],
+                    },
+                    note="partial: no liquidation density / depth in history",
                 )
-                fires.append(f)
-    hist = pl.DataFrame(rows).with_columns(
+                f42 = rules_mod.RuleFire(
+                    rule_id="4.2p",
+                    asset=base,
+                    ts=when,
+                    fired=(
+                        bool(z[i] < t42["z_fr_max"] and oi_chg <= -t42["oi_drop_5d_min"])
+                        if oi_chg is not None
+                        else None
+                    ),
+                    inputs={"z_fr": float(z[i]), "oi_change_5d": oi_chg},
+                    thresholds={
+                        "z_fr_max": t42["z_fr_max"],
+                        "oi_drop_5d_min": t42["oi_drop_5d_min"],
+                    },
+                    note="partial: no liquidation volume in history",
+                )
+                fires.extend([f41, f42])
+    hist = pl.DataFrame(rows, infer_schema_length=None).with_columns(
         pl.lit("walk_forward").alias("source"),
         pl.lit(now).alias("fetched_at"),
         pl.lit(sha).alias("git_sha"),
@@ -640,7 +669,7 @@ def walk_forward() -> dict:
     if frag_rows:
         archive.upsert(
             "fragility_history",
-            pl.DataFrame(frag_rows).with_columns(
+            pl.DataFrame(frag_rows, infer_schema_length=None).with_columns(
                 pl.lit("walk_forward (3 of 5 components available in history)").alias("source"),
                 pl.lit(now).alias("fetched_at"),
                 pl.lit(sha).alias("git_sha"),
@@ -657,7 +686,8 @@ def walk_forward() -> dict:
                     "thresholds": json.dumps(f.thresholds),
                 }
                 for f in fires
-            ]
+            ],
+            infer_schema_length=None,
         ).with_columns(
             pl.lit("rules-walk-forward").alias("source"),
             pl.lit(now).alias("fetched_at"),
