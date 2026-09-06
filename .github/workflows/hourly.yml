@@ -1,0 +1,59 @@
+name: hourly
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: data-write
+  cancel-in-progress: false
+env:
+  COINGECKO_DEMO_KEY: ${{ secrets.COINGECKO_DEMO_KEY }}
+jobs:
+  hourly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.x"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - name: fetch hourly datasets (Tier 1 derivatives, Tier 1+2 books)
+        run: timeout 600 uv run monitor fetch hourly || { echo "::error::hourly fetch exceeded 10 minutes — reduce scope (docs/runbook.md)"; exit 1; }
+      - name: compute positioning, liquidity, fragility, rules
+        run: uv run monitor compute hourly
+      - name: commit data as the bot
+        id: commit
+        run: |
+          git config user.name "crypto-monitor-bot"
+          git config user.email "crypto-monitor-bot@users.noreply.github.com"
+          git add data/ site/data/
+          if ! git diff --cached --quiet; then
+            git commit -m "data: hourly $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: render site (templates only; the page reads the refreshed JSON)
+        run: uv run monitor site render
+        env:
+          GIT_SHA: ${{ steps.commit.outputs.sha }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: hourly
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

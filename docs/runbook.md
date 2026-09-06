@@ -81,4 +81,18 @@ Edit `config/book.yaml`; positions are shares of NAV with the venue where each s
 | OKX | 3 instruments + 3 perps + ~150 candles, 0.15 s spacing | 20 / 2 s documented per endpoint; 40 burst OK | > 50 % |
 | Coinbase | 1 products + ~80 candles | 10 / s documented | > 80 % |
 | Kraken | 1 AssetPairs + ~80 OHLC | ~1 / s documented; 10 burst OK | > 80 % |
-The hourly budget is documented in phase 3.
+## Rate-limit budget (hourly job)
+Measured on the first live hourly run (2026-09-06, Tier 1 = 22, Tier 2 = 29): ~450 requests in
+under 3 minutes, all 200.
+| source | requests per run | limit | headroom |
+|---|---|---|---|
+| Binance spot | 51 books (BTC/ETH 5000 levels = weight 250 each, others 1000 = 50) ≈ 2 950 weight + 22 trades × 25 = 550 → ≈ 3 500 / min worst case | 6 000 / min | ≥ 40 % (books are spread over ~30 s) |
+| Binance USDT-M | premiumIndex 10 + fundingInfo 1 + ticker 40 + 22 OI + 22 long/short (separate limit) | 2 400 / min | > 90 % |
+| Binance COIN-M | 2 | 2 400 / min | — |
+| Bybit | 1 tickers + 51 books + 22 trades, 0.15 s spacing | 600 / 5 s documented | > 80 % |
+| OKX | 3 perps + 22 funding + 51 books (2 books-full) + 22 trades + ≤ 110 liquidation pages + 2 futures | 20–40 / 2 s per endpoint | > 50 % |
+| Coinbase | 51 books + 22 trades | 10 / s documented | > 80 % |
+| Kraken | 51 books + 22 trades, 0.15 s spacing | ~1 / s documented | ≈ 50 % (Kraken is the slowest leg) |
+| Deribit | 10 | 20 / s | > 95 % |
+If the run exceeds 10 minutes the workflow fails with a scope message: drop Tier 2 books
+first (they only feed the liquidity gate), then reduce trade sampling to three venues.

@@ -157,3 +157,108 @@ def rows_to_df(model: type[BaseModel], rows: list[BaseModel]) -> pl.DataFrame:
         return pl.DataFrame(schema=schema)
     dumped = [r.model_dump() for r in rows]
     return pl.DataFrame({name: [d[name] for d in dumped] for name in schema}, schema=schema)
+
+
+# --------------------------------------------------------------------------- phase 3 tables
+class OrderBookDepthRow(Provenance):
+    """D_v(δ) for one venue-symbol snapshot (notes Definition 7.1) plus coverage flags."""
+
+    ts: datetime
+    venue: str
+    symbol: str
+    base: str
+    mid: float
+    spread_bps: float
+    bid_depth_usd: float  # Σ p·q for bids within δ of mid
+    ask_depth_usd: float
+    depth_usd: float  # bid + ask
+    delta: float  # δ used (0.02)
+    coverage_bid_pct: float  # how far the book actually reached below mid (%)
+    coverage_ask_pct: float
+    truncated: bool  # book ended before δ on either side -> depth is a lower bound
+    levels: int
+
+
+class TradeStatsRow(Provenance):
+    """Recent-trade statistics per venue-symbol for the wash filters (notes §7)."""
+
+    ts: datetime
+    venue: str
+    symbol: str
+    base: str
+    n_trades: int
+    span_s: float
+    notional_usd: float
+    median_size_usd: float
+    benford_chi2: float
+    benford_p: float
+    first_digit_shares: list[str]  # nine shares as strings d1..d9 (kept human-readable)
+
+
+class LiquidationRow(Provenance):
+    """One force-closed order (OKX `liquidation-orders`, mode a). `side_closed` is the
+    position side that was liquidated: long -> forced sell, short -> forced buy."""
+
+    ts: datetime
+    venue: str
+    symbol: str
+    base: str
+    side_closed: str
+    price: float
+    size_base: float
+    notional_usd: float
+
+
+class OptionRow(Provenance):
+    """Deribit option book summary row with an estimated delta (Black-76 from mark_iv)."""
+
+    ts: datetime
+    currency: str
+    instrument: str
+    expiry: datetime
+    strike: float
+    option_type: str
+    mark_iv: float | None
+    bid_iv: float | None = None
+    ask_iv: float | None = None
+    open_interest: float | None
+    underlying_price: float | None
+    mark_price: float | None
+    delta_est: float | None
+    t_years: float
+
+
+class FuturesMarkRow(Provenance):
+    """Dated futures mark vs spot/index for basis (notes §5.1)."""
+
+    ts: datetime
+    venue: str
+    symbol: str
+    base: str
+    expiry: datetime
+    mark_price: float
+    index_price: float | None
+    settle_ccy: str
+
+
+class HourlyPriceRow(Provenance):
+    ts: datetime
+    venue: str
+    symbol: str
+    base: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume_base: float
+    volume_quote: float | None
+
+
+class LongShortRow(Provenance):
+    """Binance top-trader long/short position ratio (context; long share for λ)."""
+
+    ts: datetime
+    venue: str
+    symbol: str
+    base: str
+    long_share: float

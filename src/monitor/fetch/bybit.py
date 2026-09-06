@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -187,3 +187,181 @@ def parse_klines_1d(env: Envelope) -> pl.DataFrame:
                 )
             )
     return rows_to_df(DailyPriceRow, rows)
+
+
+# ---------- hourly ----------
+from monitor.compute.liquidity import benford_stats, depth_from_levels  # noqa: E402
+from monitor.schema.tables import (  # noqa: E402
+    FuturesMarkRow,
+    HourlyPriceRow,
+    OrderBookDepthRow,
+    TradeStatsRow,
+)
+
+
+def fetch_books(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    def go(c) -> list[Record]:
+        return [
+            c.get("/v5/market/orderbook", params={"category": "spot", "symbol": s, "limit": 1000})
+            for s in symbols
+        ]
+
+    return run_dataset(
+        "bybit", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        r = rec.body["result"]
+        bids = [(float(p), float(q)) for p, q in r["b"]]
+        asks = [(float(p), float(q)) for p, q in r["a"]]
+        if not bids or not asks:
+            continue
+        base, _ = split_multiplier(sym.removesuffix("USDT"))
+        rows.append(
+            OrderBookDepthRow(
+                ts=_ms(r["ts"]),
+                venue=VENUE,
+                symbol=sym,
+                base=base,
+                **depth_from_levels(bids, asks, delta),
+                source="bybit",
+                fetched_at=fetched,
+                git_sha=env.git_sha,
+            )
+        )
+    return rows_to_df(OrderBookDepthRow, rows)
+
+
+def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    """Spot recent trades are capped at 60 rows (verified); the linear perp gives 1000, so the
+    Benford sample uses the perp market on Bybit."""
+
+    def go(c) -> list[Record]:
+        return [
+            c.get(
+                "/v5/market/recent-trade", params={"category": "linear", "symbol": s, "limit": 1000}
+            )
+            for s in symbols
+        ]
+
+    return run_dataset(
+        "bybit", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def parse_trades(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        lst = rec.body["result"]["list"]
+        if not lst:
+            continue
+        base, _ = split_multiplier(sym.removesuffix("USDT"))
+        notionals = [float(t["price"]) * float(t["size"]) for t in lst]
+        times = [int(t["time"]) for t in lst]
+        bs = benford_stats([float(t["size"]) for t in lst])  # trade sizes in base units
+        srt = sorted(notionals)
+        rows.append(
+            TradeStatsRow(
+                ts=_ms(max(times)),
+                venue=VENUE,
+                symbol=sym,
+                base=base,
+                n_trades=len(notionals),
+                span_s=(max(times) - min(times)) / 1000,
+                notional_usd=sum(notionals),
+                median_size_usd=srt[len(srt) // 2],
+                benford_chi2=bs["chi2"],
+                benford_p=bs["p"] if bs["p"] is not None else float("nan"),
+                first_digit_shares=[f"{s:.4f}" for s in bs["shares"]],
+                source="bybit",
+                fetched_at=fetched,
+                git_sha=env.git_sha,
+            )
+        )
+    return rows_to_df(TradeStatsRow, rows)
+
+
+def fetch_klines_1h(
+    symbols: list[str], limit: int = 168, ts: datetime | None = None, force: bool = False
+) -> Path:
+    def go(c) -> list[Record]:
+        return [
+            c.get(
+                "/v5/market/kline",
+                params={"category": "spot", "symbol": s, "interval": "60", "limit": limit},
+            )
+            for s in symbols
+        ]
+
+    return run_dataset(
+        "bybit",
+        "klines_1h",
+        "daily",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "limit": limit},
+    )
+
+
+def parse_klines_1h(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        base, _ = split_multiplier(sym.removesuffix("USDT"))
+        for k in rec.body["result"]["list"]:
+            start = _ms(k[0])
+            if start + timedelta(hours=1) > fetched:
+                continue
+            rows.append(
+                HourlyPriceRow(
+                    ts=start,
+                    venue=VENUE,
+                    symbol=sym,
+                    base=base,
+                    open=float(k[1]),
+                    high=float(k[2]),
+                    low=float(k[3]),
+                    close=float(k[4]),
+                    volume_base=float(k[5]),
+                    volume_quote=float(k[6]),
+                    source="bybit",
+                    fetched_at=fetched,
+                    git_sha=env.git_sha,
+                )
+            )
+    return rows_to_df(HourlyPriceRow, rows)
+
+
+def parse_futures_marks(env: Envelope) -> pl.DataFrame:
+    """LinearFutures rows in `tickers?category=linear` carry `deliveryTime` > 0."""
+    fetched = datetime.fromisoformat(env.fetched_at)
+    body = env.records[0].body
+    ts = _ms(body["time"])
+    rows = []
+    for t in body["result"]["list"]:
+        if t.get("deliveryTime", "0") in ("0", 0, "") or not t.get("markPrice"):
+            continue
+        sym = t["symbol"]
+        base, _ = split_multiplier(sym.split("-")[0].removesuffix("USDT"))
+        rows.append(
+            FuturesMarkRow(
+                ts=ts,
+                venue=VENUE,
+                symbol=sym,
+                base=base,
+                expiry=_ms(t["deliveryTime"]),
+                mark_price=float(t["markPrice"]),
+                index_price=float(t["indexPrice"]) if t.get("indexPrice") else None,
+                settle_ccy="USDT",
+                source="bybit",
+                fetched_at=fetched,
+                git_sha=env.git_sha,
+            )
+        )
+    return rows_to_df(FuturesMarkRow, rows)

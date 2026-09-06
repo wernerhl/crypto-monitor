@@ -201,3 +201,279 @@ def parse_klines_1d(env: Envelope) -> pl.DataFrame:
                 )
             )
     return rows_to_df(DailyPriceRow, rows)
+
+
+# ---------- hourly: order books, trades, 1h klines, long/short ratio, dated futures ----------
+from monitor.compute.liquidity import benford_stats, depth_from_levels  # noqa: E402
+from monitor.schema.tables import (  # noqa: E402
+    FuturesMarkRow,
+    HourlyPriceRow,
+    LongShortRow,
+    OrderBookDepthRow,
+    TradeStatsRow,
+)
+
+
+def fetch_books(
+    symbols: list[str],
+    majors: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
+    ts: datetime | None = None,
+    force: bool = False,
+) -> Path:
+    """`api/v3/depth`: 5000 levels for the majors (weight 250), 1000 otherwise (weight 50)."""
+
+    def go(c) -> list[Record]:
+        return [
+            c.get("/api/v3/depth", params={"symbol": s, "limit": 5000 if s in majors else 1000})
+            for s in symbols
+        ]
+
+    return run_dataset(
+        "binance_spot", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        b = rec.body
+        bids = [(float(p), float(q)) for p, q in b["bids"]]
+        asks = [(float(p), float(q)) for p, q in b["asks"]]
+        if not bids or not asks:
+            continue
+        d = depth_from_levels(bids, asks, delta)
+        base, _ = split_multiplier(sym.removesuffix("USDT"))
+        rows.append(
+            OrderBookDepthRow(
+                ts=datetime.fromisoformat(rec.fetched_at),
+                venue=VENUE,
+                symbol=sym,
+                base=base,
+                **d,
+                source="binance_spot",
+                fetched_at=fetched,
+                git_sha=env.git_sha,
+            )
+        )
+    return rows_to_df(OrderBookDepthRow, rows)
+
+
+def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    def go(c) -> list[Record]:
+        return [c.get("/api/v3/trades", params={"symbol": s, "limit": 1000}) for s in symbols]
+
+    return run_dataset(
+        "binance_spot", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def _trade_stats(
+    rec_ts: datetime,
+    sym: str,
+    base: str,
+    notionals: list[float],
+    times_ms: list[int],
+    fetched: datetime,
+    sha: str,
+    source: str,
+    sizes: list[float] | None = None,
+) -> TradeStatsRow:
+    bs = benford_stats(sizes if sizes is not None else notionals)  # notes: trade-size digits
+    span = (max(times_ms) - min(times_ms)) / 1000 if len(times_ms) > 1 else 0.0
+    srt = sorted(notionals)
+    med = srt[len(srt) // 2] if srt else 0.0
+    return TradeStatsRow(
+        ts=rec_ts,
+        venue=VENUE if source.startswith("binance") else source,
+        symbol=sym,
+        base=base,
+        n_trades=len(notionals),
+        span_s=span,
+        notional_usd=sum(notionals),
+        median_size_usd=med,
+        benford_chi2=bs["chi2"],
+        benford_p=bs["p"] if bs["p"] is not None else float("nan"),
+        first_digit_shares=[f"{s:.4f}" for s in bs["shares"]],
+        source=source,
+        fetched_at=fetched,
+        git_sha=sha,
+    )
+
+
+def parse_trades(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        base, _ = split_multiplier(sym.removesuffix("USDT"))
+        notionals = [float(t["quoteQty"]) for t in rec.body]
+        times = [int(t["time"]) for t in rec.body]
+        if notionals:
+            rows.append(
+                _trade_stats(
+                    datetime.fromisoformat(rec.fetched_at),
+                    sym,
+                    base,
+                    notionals,
+                    times,
+                    fetched,
+                    env.git_sha,
+                    "binance_spot",
+                    [float(t["qty"]) for t in rec.body],
+                )
+            )
+    return rows_to_df(TradeStatsRow, rows)
+
+
+def fetch_klines_1h(
+    symbols: list[str], limit: int = 168, ts: datetime | None = None, force: bool = False
+) -> Path:
+    def go(c) -> list[Record]:
+        return [
+            c.get("/api/v3/klines", params={"symbol": s, "interval": "1h", "limit": limit})
+            for s in symbols
+        ]
+
+    return run_dataset(
+        "binance_spot",
+        "klines_1h",
+        "daily",
+        go,
+        ts=ts,
+        force=force,
+        meta={"symbols": symbols, "limit": limit},
+    )
+
+
+def parse_klines_1h(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        base, _ = split_multiplier(sym.removesuffix("USDT"))
+        for k in rec.body:
+            if _ms(k[6]) > fetched:
+                continue
+            rows.append(
+                HourlyPriceRow(
+                    ts=_ms(k[0]),
+                    venue=VENUE,
+                    symbol=sym,
+                    base=base,
+                    open=float(k[1]),
+                    high=float(k[2]),
+                    low=float(k[3]),
+                    close=float(k[4]),
+                    volume_base=float(k[5]),
+                    volume_quote=float(k[7]),
+                    source="binance_spot",
+                    fetched_at=fetched,
+                    git_sha=env.git_sha,
+                )
+            )
+    return rows_to_df(HourlyPriceRow, rows)
+
+
+def fetch_long_short(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    def go(c) -> list[Record]:
+        return [
+            c.get(
+                "/futures/data/topLongShortPositionRatio",
+                params={"symbol": s, "period": "1h", "limit": 1},
+            )
+            for s in symbols
+        ]
+
+    return run_dataset(
+        "binance_usdm", "long_short", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def parse_long_short(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        for r in rec.body:
+            base, _ = split_multiplier(sym.removesuffix("USDT"))
+            rows.append(
+                LongShortRow(
+                    ts=_ms(r["timestamp"]),
+                    venue=VENUE,
+                    symbol=sym,
+                    base=base,
+                    long_share=float(r["longAccount"]),
+                    source="binance_usdm",
+                    fetched_at=fetched,
+                    git_sha=env.git_sha,
+                )
+            )
+    return rows_to_df(LongShortRow, rows)
+
+
+def parse_futures_marks(perps_env: Envelope, listings: pl.DataFrame) -> pl.DataFrame:
+    """Dated USDT-M contracts (`BTCUSDT_261225`) appear in `premiumIndex`; expiry from listings."""
+    fetched = datetime.fromisoformat(perps_env.fetched_at)
+    exp = {
+        r["symbol"]: r["delivery"]
+        for r in listings.filter((pl.col("venue") == VENUE) & (pl.col("market") == "future"))
+        .select("symbol", "delivery")
+        .to_dicts()
+    }
+    rows = []
+    for p in perps_env.records[0].body:
+        if "_" in p["symbol"] and p["symbol"] in exp and exp[p["symbol"]] is not None:
+            base, _ = split_multiplier(p["symbol"].split("_")[0].removesuffix("USDT"))
+            rows.append(
+                FuturesMarkRow(
+                    ts=_ms(p["time"]),
+                    venue=VENUE,
+                    symbol=p["symbol"],
+                    base=base,
+                    expiry=exp[p["symbol"]],
+                    mark_price=float(p["markPrice"]),
+                    index_price=float(p["indexPrice"]),
+                    settle_ccy="USDT",
+                    source="binance_usdm",
+                    fetched_at=fetched,
+                    git_sha=perps_env.git_sha,
+                )
+            )
+    return rows_to_df(FuturesMarkRow, rows)
+
+
+def fetch_coinm_marks(ts: datetime | None = None, force: bool = False) -> Path:
+    return run_dataset(
+        "binance_coinm",
+        "marks",
+        "hourly",
+        lambda c: [c.get("/dapi/v1/premiumIndex"), c.get("/dapi/v1/exchangeInfo")],
+        ts=ts,
+        force=force,
+    )
+
+
+def parse_coinm_marks(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    exp = {
+        s["symbol"]: _ms(s["deliveryDate"])
+        for s in env.records[1].body["symbols"]
+        if s["contractType"] != "PERPETUAL"
+    }
+    rows = []
+    for p in env.records[0].body:
+        if p["symbol"] in exp:
+            rows.append(
+                FuturesMarkRow(
+                    ts=_ms(p["time"]),
+                    venue=VENUE,
+                    symbol=p["symbol"],
+                    base=p["pair"].removesuffix("USD"),
+                    expiry=exp[p["symbol"]],
+                    mark_price=float(p["markPrice"]),
+                    index_price=float(p["indexPrice"]),
+                    settle_ccy="COIN",
+                    source="binance_coinm",
+                    fetched_at=fetched,
+                    git_sha=env.git_sha,
+                )
+            )
+    return rows_to_df(FuturesMarkRow, rows)

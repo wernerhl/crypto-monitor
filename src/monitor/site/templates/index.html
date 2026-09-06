@@ -1,10 +1,60 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="panel">
-<p><strong>Phase {{ phase }} placeholder.</strong> The panels below are populated in later phases in the order fixed by the lecture notes (Section 12). Until a panel has data it is greyed and marked <span class="badge">unavailable</span>.</p>
-</div>
-{% for title in ["1. Venue and counterparty", "2. Book risk", "3. Market state", "4. Active triggers", "5. Trade structures", "6. Event strip (next four weeks)", "7. Tier 2/3 screens"] %}
+<div class="panel meta" id="fp-meta">loading data/hourly.json …</div>
+{% for pid, title in [("venue","1. Venue and counterparty"),("book","2. Book risk"),("state","3. Market state"),("triggers","4. Active triggers"),("trades","5. Trade structures"),("events","6. Event strip (next four weeks)"),("screens","7. Tier 2/3 screens")] %}
 <h2>{{ title }}</h2>
-<div class="panel stale"><span class="badge">unavailable</span> <span class="meta">reason: not yet implemented (phase {{ phase }})</span></div>
+<div class="panel stale" id="panel-{{ pid }}"><span class="badge">unavailable</span> <span class="meta">reason: not yet computed</span></div>
 {% endfor %}
+<script>
+const fmt = (v, d=2) => v==null || Number.isNaN(v) ? '—' : (typeof v==='number' ? (Math.abs(v)>=1e9 ? (v/1e9).toFixed(2)+'B' : Math.abs(v)>=1e6 ? (v/1e6).toFixed(1)+'M' : Math.abs(v)>=1e3 ? (v/1e3).toFixed(1)+'k' : v.toFixed(d)) : v);
+const pct = v => v==null ? '—' : (100*v).toFixed(1)+'%';
+function table(cols, rows, render={}) {
+  return '<table><thead><tr>' + cols.map(c=>'<th>'+c+'</th>').join('') + '</tr></thead><tbody>' +
+    rows.map(r => '<tr>' + cols.map(c => '<td>' + (render[c] ? render[c](r[c], r) : fmt(r[c])) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
+}
+function setPanel(id, html, meta, stale, reason) {
+  const el = document.getElementById('panel-'+id);
+  el.className = 'panel' + (stale ? ' stale' : '');
+  el.innerHTML = (stale ? '<span class="badge">'+(reason||'stale')+'</span> ' : '') + '<div class="meta">' + meta + '</div>' + html;
+}
+function csvLink(rows, name) {
+  if (!rows.length) return '';
+  const cols = Object.keys(rows[0]);
+  const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => JSON.stringify(r[c]==null?'':r[c])).join(','))).join('\n');
+  return '<p><a download="'+name+'.csv" href="data:text/csv;charset=utf-8,'+encodeURIComponent(csv)+'">Download CSV</a></p>';
+}
+(async function(){
+  let h, d;
+  try { h = await (await fetch('data/hourly.json',{cache:'no-store'})).json(); } catch(e) { document.getElementById('fp-meta').textContent = 'hourly.json unavailable: ' + e; return; }
+  try { d = await (await fetch('data/daily.json',{cache:'no-store'})).json(); } catch(e) { d = null; }
+  const ageH = (new Date() - new Date(h.generated_at)) / 36e5;
+  document.getElementById('fp-meta').textContent = 'hourly data generated ' + h.generated_at + ' (' + ageH.toFixed(1) + ' h ago) · commit ' + h.git_sha.slice(0,12) + (d ? ' · daily data ' + d.generated_at : ' · daily data unavailable');
+  const staleH = ageH > 3;
+  // 3. market state
+  if (h.fragility && h.fragility.length) {
+    const f = h.fragility[0];
+    const comps = ['z_fr','z_oi','z_vrp_neg','z_dd','z_sc_neg'].map(c => ({component:c, z: f[c], n: f[c+'_n']}));
+    let html = '<p><strong>Fragility index Φ = ' + fmt(f.phi) + '</strong> from ' + f.n_components + ' of 5 components (250-day robust z; a component needs ≥ 30 prior days).</p>' + table(['component','z','n'], comps);
+    if (h.options && h.options.length) html += '<h3>Options (Deribit)</h3>' + table(['currency','iv_1w','iv_1m','iv_3m','term_slope','rr25_1m','vrp','dvol','n_instruments'], h.options, {iv_1w:pct, iv_1m:pct, iv_3m:pct, term_slope:pct, rr25_1m:pct, vrp:v=>fmt(v,4)});
+    if (h.vol_state && h.vol_state.length) { const v = h.vol_state[0]; html += '<p>Vol state (two-state switching on log RV, filtered): ' + (v.p_high==null ? 'unavailable — ' + v.status : 'P(high) = ' + fmt(v.p_high,3) + ', expected duration high ' + fmt(v.expected_duration_high,1) + ' d, low ' + fmt(v.expected_duration_low,1) + ' d, n = ' + v.n_obs) + '. Diagnostics on the methods page.</p>'; }
+    if (d && d.macro) html += '<h3>Macro context (FRED, weekly changes)</h3>' + table(['series','value','change_4w','date'], d.macro);
+    if (d && d.stablecoins) html += '<p>Stablecoin supply ' + fmt(d.stablecoins.total_usd) + ', 30-day growth ' + pct(d.stablecoins.growth_30d) + ' (' + d.stablecoins.date + ')</p>';
+    setPanel('state', html + csvLink(comps,'fragility'), 'source: ' + f.source + ' · ' + f.ts, staleH, staleH ? 'stale: hourly data older than 3 h' : null);
+  }
+  // 4. triggers
+  if (h.rules && h.rules.length) {
+    const rows = h.rules.map(r => ({rule: r.rule_id, asset: r.asset, status: r.fired===true ? 'FIRING' : r.fired===false ? 'quiet' : 'unavailable', inputs: r.inputs, thresholds: r.thresholds, hit_rate: (d && d.hit_rates && d.hit_rates[r.rule_id]) ? pct(d.hit_rates[r.rule_id].hit_rate) + ' (n=' + d.hit_rates[r.rule_id].n + ')' : 'n/a (backfill pending)', note: r.note||''}));
+    rows.sort((a,b) => (a.status==='FIRING'?0:a.status==='quiet'?1:2) - (b.status==='FIRING'?0:b.status==='quiet'?1:2));
+    setPanel('triggers', '<p>Rules 4.1 crowded long, 4.2 capitulation, 4.3 vol underpricing (thresholds frozen in config/thresholds.yaml). Hit rates with sample sizes come from the walk-forward backfill.</p>' + table(['rule','asset','status','inputs','thresholds','hit_rate','note'], rows, {inputs: v => '<code>'+v+'</code>', thresholds: v => '<code>'+v+'</code>'}) + csvLink(rows,'rules'), 'source: rules over positioning/options/fragility · ' + h.rules[0].ts, staleH, staleH ? 'stale' : null);
+  }
+  // 7. screens placeholder gets liquidity gate now
+  if (h.liquidity && h.liquidity.length) {
+    const rows = h.liquidity.map(r => ({tier:r.tier, base:r.base, depth_2pct_usd:r.depth_2pct_usd, lower_bound:r.depth_lower_bound?'≥':'', adv_real_usd:r.adv_real_usd, adv_reported_usd:r.adv_reported_usd, venues_passing:r.venues_passing, dtl_days:r.dtl_days, gate:r.gate_pass==null?'n/a':(r.gate_pass?'open':'CLOSED'), note:r.gate_note||''}));
+    setPanel('screens', '<p>Liquidity gate (Rule 7.1) at the reference size (book position or 1 % NAV); depth is Σ venues D(0.02) intraday median, "≥" marks a truncated book. Screens with IC arrive with the weekly job.</p>' + table(['tier','base','depth_2pct_usd','lower_bound','adv_real_usd','adv_reported_usd','venues_passing','dtl_days','gate','note'], rows) + csvLink(rows,'liquidity'), 'source: ' + h.liquidity[0].source + ' · ' + h.liquidity[0].date, false, null);
+  }
+  for (const [id, key] of [['venue','venue'],['book','book'],['trades','trades'],['events','events']]) {
+    if (d && d[key] && d[key].html) setPanel(id, d[key].html, d[key].meta || '', d[key].stale, d[key].reason);
+  }
+})();
+</script>
 {% endblock %}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -85,3 +85,125 @@ def parse_klines_1d(env: Envelope) -> pl.DataFrame:
                 )
             )
     return rows_to_df(DailyPriceRow, rows)
+
+
+# ---------- hourly ----------
+from monitor.compute.liquidity import benford_stats, depth_from_levels  # noqa: E402
+from monitor.schema.tables import HourlyPriceRow, OrderBookDepthRow, TradeStatsRow  # noqa: E402
+
+
+def fetch_books(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    def go(c) -> list[Record]:
+        return [c.get("/0/public/Depth", params={"pair": s, "count": 500}) for s in symbols]
+
+    return run_dataset(
+        "kraken", "books", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def parse_books(env: Envelope, delta: float = 0.02) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        res = rec.body["result"]
+        key = next(iter(res))
+        bids = [(float(x[0]), float(x[1])) for x in res[key]["bids"]]
+        asks = [(float(x[0]), float(x[1])) for x in res[key]["asks"]]
+        if not bids or not asks:
+            continue
+        rows.append(
+            OrderBookDepthRow(
+                ts=datetime.fromisoformat(rec.fetched_at),
+                venue=VENUE,
+                symbol=sym,
+                base=kraken_base(sym.removesuffix("USD")),
+                **depth_from_levels(bids, asks, delta),
+                source="kraken",
+                fetched_at=fetched,
+                git_sha=env.git_sha,
+            )
+        )
+    return rows_to_df(OrderBookDepthRow, rows)
+
+
+def fetch_trades(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    def go(c) -> list[Record]:
+        return [c.get("/0/public/Trades", params={"pair": s}) for s in symbols]
+
+    return run_dataset(
+        "kraken", "trades", "hourly", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def parse_trades(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        res = rec.body["result"]
+        key = next(k for k in res if k != "last")
+        lst = res[key]
+        if not lst:
+            continue
+        notionals = [float(t[0]) * float(t[1]) for t in lst]
+        times = [float(t[2]) for t in lst]
+        bs = benford_stats([float(t[1]) for t in lst])  # trade sizes in base units
+        srt = sorted(notionals)
+        rows.append(
+            TradeStatsRow(
+                ts=datetime.fromtimestamp(max(times), tz=UTC),
+                venue=VENUE,
+                symbol=sym,
+                base=kraken_base(sym.removesuffix("USD")),
+                n_trades=len(notionals),
+                span_s=max(times) - min(times),
+                notional_usd=sum(notionals),
+                median_size_usd=srt[len(srt) // 2],
+                benford_chi2=bs["chi2"],
+                benford_p=bs["p"] if bs["p"] is not None else float("nan"),
+                first_digit_shares=[f"{s:.4f}" for s in bs["shares"]],
+                source="kraken",
+                fetched_at=fetched,
+                git_sha=env.git_sha,
+            )
+        )
+    return rows_to_df(TradeStatsRow, rows)
+
+
+def fetch_klines_1h(symbols: list[str], ts: datetime | None = None, force: bool = False) -> Path:
+    def go(c) -> list[Record]:
+        return [c.get("/0/public/OHLC", params={"pair": s, "interval": 60}) for s in symbols]
+
+    return run_dataset(
+        "kraken", "klines_1h", "daily", go, ts=ts, force=force, meta={"symbols": symbols}
+    )
+
+
+def parse_klines_1h(env: Envelope) -> pl.DataFrame:
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, sym in zip(env.records, env.meta["symbols"], strict=True):
+        res = rec.body["result"]
+        key = next(k for k in res if k != "last")
+        base = kraken_base(sym.removesuffix("USD"))
+        for k in res[key]:
+            t = datetime.fromtimestamp(k[0], tz=UTC)
+            if t + timedelta(hours=1) > fetched:
+                continue
+            rows.append(
+                HourlyPriceRow(
+                    ts=t,
+                    venue=VENUE,
+                    symbol=sym,
+                    base=base,
+                    open=float(k[1]),
+                    high=float(k[2]),
+                    low=float(k[3]),
+                    close=float(k[4]),
+                    volume_base=float(k[6]),
+                    volume_quote=float(k[6]) * float(k[5]),
+                    source="kraken",
+                    fetched_at=fetched,
+                    git_sha=env.git_sha,
+                )
+            )
+    return rows_to_df(HourlyPriceRow, rows)

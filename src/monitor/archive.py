@@ -12,6 +12,7 @@ with the latest `fetched_at`.
 
 from __future__ import annotations
 
+import datetime as _dt
 from pathlib import Path
 
 import duckdb
@@ -27,6 +28,22 @@ KEYS: dict[str, list[str]] = {
     "prices_daily": ["date", "venue", "symbol"],
     "venue_listings": ["ts", "venue", "market", "symbol"],
     "universe": ["as_of", "id"],
+    "orderbook_depth": ["ts", "venue", "symbol"],
+    "trade_stats": ["ts", "venue", "symbol"],
+    "liquidations": ["ts", "venue", "symbol", "side_closed", "price", "size_base"],
+    "options": ["ts", "instrument"],
+    "futures_marks": ["ts", "venue", "symbol"],
+    "prices_hourly": ["ts", "venue", "symbol"],
+    "long_short": ["ts", "venue", "symbol"],
+    "dvol": ["ts", "currency"],
+    "funding_daily": ["date", "base"],
+    "wash_filters": ["date", "base", "venue"],
+    "liquidity": ["date", "id"],
+    "positioning": ["ts", "base"],
+    "options_metrics": ["ts", "currency"],
+    "fragility": ["ts"],
+    "rule_fires": ["ts", "rule_id", "asset"],
+    "vol_state": ["date"],
 }
 TIME_COL: dict[str, str] = {
     "markets": "as_of",
@@ -36,6 +53,33 @@ TIME_COL: dict[str, str] = {
     "prices_daily": "date",
     "venue_listings": "ts",
     "universe": "as_of",
+    "orderbook_depth": "ts",
+    "trade_stats": "ts",
+    "liquidations": "ts",
+    "options": "ts",
+    "futures_marks": "ts",
+    "prices_hourly": "ts",
+    "long_short": "ts",
+    "dvol": "ts",
+    "funding_daily": "date",
+    "wash_filters": "date",
+    "liquidity": "date",
+    "positioning": "ts",
+    "options_metrics": "ts",
+    "fragility": "ts",
+    "rule_fires": "ts",
+    "vol_state": "date",
+}
+# hourly tables keep a rolling window in data/processed; the archive keeps everything
+ROLLING_DAYS: dict[str, int] = {
+    "orderbook_depth": 90,
+    "trade_stats": 90,
+    "liquidations": 90,
+    "options": 45,
+    "prices_hourly": 120,
+    "futures_marks": 90,
+    "long_short": 90,
+    "perp_snapshot": 120,
 }
 
 
@@ -59,6 +103,12 @@ def upsert(table: str, new: pl.DataFrame) -> pl.DataFrame:
         df = new
     df = df.sort("fetched_at").unique(subset=keys, keep="last").sort(keys)
     PROCESSED.mkdir(parents=True, exist_ok=True)
+    # archive partitions first (everything), then trim the processed copy to its window
+    write_partitions(table, df)
+    if table in ROLLING_DAYS:
+        tcol = TIME_COL[table]
+        cutoff = df[tcol].max() - _dt.timedelta(days=ROLLING_DAYS[table])
+        df = df.filter(pl.col(tcol) >= cutoff)
     df.write_parquet(processed_path(table), compression="zstd")
     return df
 

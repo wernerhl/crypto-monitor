@@ -85,8 +85,18 @@ def fetch(
     if job in ("all", "daily"):
         for k, v in jobs.fetch_daily(force=force).items():
             typer.echo(f"{k}: {v}")
-    if job in ("hourly", "weekly"):
-        typer.echo(f"{job}: no datasets yet (phase 3)")
+    if job in ("all", "daily"):
+        from monitor import jobs_hourly
+
+        for k, v in jobs_hourly.fetch_hourly_klines(force=force).items():
+            typer.echo(f"{k}: {v}")
+    if job in ("all", "hourly"):
+        from monitor import jobs_hourly
+
+        for k, v in jobs_hourly.fetch_hourly(force=force).items():
+            typer.echo(f"{k}: {v}")
+    if job == "weekly":
+        typer.echo("weekly: no fetch datasets (weekly recomputes from the archive)")
 
 
 @app.command()
@@ -99,6 +109,11 @@ def compute(
 
     if job in ("all", "daily"):
         for k, v in jobs.compute_daily(rebuild=rebuild or job == "all").items():
+            typer.echo(f"{k}: {v} rows")
+    if job in ("all", "hourly", "daily"):
+        from monitor import jobs_hourly
+
+        for k, v in jobs_hourly.compute_hourly(rebuild=rebuild or job == "all").items():
             typer.echo(f"{k}: {v} rows")
 
 
