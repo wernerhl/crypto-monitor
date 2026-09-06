@@ -1,0 +1,37 @@
+name: probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: reachability of every source host from a GitHub-hosted runner
+        run: |
+          for u in \
+            "https://api.binance.com/api/v3/ping" \
+            "https://data-api.binance.vision/api/v3/ping" \
+            "https://data-api.binance.vision/api/v3/depth?symbol=BTCUSDT&limit=5" \
+            "https://fapi.binance.com/fapi/v1/ping" \
+            "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT" \
+            "https://dapi.binance.com/dapi/v1/ping" \
+            "https://api.bybit.com/v5/market/time" \
+            "https://www.okx.com/api/v5/public/time" \
+            "https://api.exchange.coinbase.com/time" \
+            "https://api.kraken.com/0/public/Time" \
+            "https://www.deribit.com/api/v2/public/get_time" \
+            "https://api.coingecko.com/api/v3/ping" \
+            "https://stablecoins.llama.fi/stablecoins" \
+            "https://defillama-datasets.llama.fi/emissionsProtocolsList" \
+            "https://api.llama.fi/protocols" \
+            "https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS" \
+            "https://community-api.coinmetrics.io/v4/catalog-v2/asset-metrics?assets=btc" \
+            "https://api.blockchain.info/charts/hash-rate?timespan=5days&format=json" \
+            "https://mempool.space/api/v1/mining/hashrate/3d" \
+            "https://ultrasound.money/api/v2/fees/supply-parts" \
+            "https://hub.snapshot.org/graphql?query=%7B__typename%7D"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$u" || echo "ERR")
+            echo "$code $u"
+          done
