@@ -2,7 +2,9 @@
 
 A risk-and-context monitor for a tiered crypto asset universe, built to the design in
 *Monitoring a Crypto Asset Universe: A Risk-and-Context System for Portfolio Managers*
-(lecture notes, September 2026). It tells a portfolio manager what a book is exposed to, surfaces
+(lecture notes, September 2026; source and PDF in `docs/notes/`, with an implementation appendix
+added on 2026-09-07 recording what free data supports, where the jobs can run, and how depth,
+wash filters and the rules' validation had to be measured). It tells a portfolio manager what a book is exposed to, surfaces
 a small number of pre-committed trigger rules with their historical hit rates, and provides
 context (venue risk, market state, scheduled supply, cross-sectional screens). It is **not an
 alpha engine**: there is no composite score, no ranking by expected return and no buy/sell

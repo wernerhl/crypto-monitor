@@ -163,3 +163,11 @@
 * Rule 4.3 walk-forward: 170 flags since 2021 (VRP < 0 and Φ > 1), 168 with an elapsed
   30-day horizon, 19 % followed by realised vol above the implied vol at the flag. Reported
   as is; the rule's action is a veto on short vol, not a forecast.
+
+## 2026-09-07 — Lecture notes: implementation appendix
+* Section 13 added to the notes (`docs/notes/`): free-source availability table and its
+  limits, runner geo-blocking and the venue-consistency requirement for aggregated statistics,
+  measurement details (depth lower bounds and trimming, relative Benford on trade sizes,
+  walk-forward z-scores with sample sizes, missing fragility components, weekly-RV switching
+  model, tiering with measured depth, sector seeding), validation on the history that exists
+  (partial-input rule variants, Rule 4.3 full walk-forward, screen ICs), governance in practice.

@@ -1,0 +1,474 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{setspace}
+\usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue]{hyperref}
+\usepackage{microtype}
+
+\newtheorem{definition}{Definition}[section]
+\newtheorem{proposition}{Proposition}[section]
+\newtheorem{remark}{Remark}[section]
+\newtheorem{example}{Example}[section]
+\theoremstyle{definition}
+\newtheorem{rule_}{Rule}[section]
+
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\corr}{\operatorname{corr}}
+\newcommand{\ind}{\mathbf{1}}
+\newcommand{\R}{\mathbb{R}}
+
+\title{Monitoring a Crypto Asset Universe:\\ A Risk-and-Context System for Portfolio Managers\\[4pt]
+\large Lecture Notes}
+\author{}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+\onehalfspacing
+
+\begin{abstract}
+\noindent These notes describe how to build a forward-looking monitoring system for a large crypto asset universe from the point of view of a fund that has to trade it. The first version of such a system is usually designed as a forecasting engine: many indicators, a regime model, a composite score. Practitioners reject that design for reasons that are correct, and the notes take those objections as the starting point. The system is reorganised as a risk-and-context instrument built around a small set of signals with demonstrated out-of-sample content (funding, open interest, liquidation structure, scheduled supply), an explicit venue and counterparty risk module, a set of trade structures with their expected return and risk written out, and a sizing rule that survives estimation error. The econometric machinery is retained where it is useful and demoted where it is not.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%=====================================================================
+\section{Purpose and the Objections That Shape the Design}
+%=====================================================================
+
+\subsection{What the system is for}
+
+A monitoring system for a fund does three things, in this order of importance:
+\begin{enumerate}[nosep]
+\item It tells the portfolio manager (PM) what the book is exposed to, under what conditions the exposures change, and how much can be lost before positions can be reduced.
+\item It surfaces a small number of trade triggers with known historical behaviour, so that the PM does not have to rediscover them under pressure.
+\item It provides context (macro state, scheduled events, cross-sectional screens) for discretionary decisions.
+\end{enumerate}
+It does not produce alpha by itself. Every input described below is available to any competitor with the same data subscriptions, and in a reflexive, highly levered market the forecastable component of returns is arbitraged quickly. The residual predictability is small, horizon-specific and mostly located in the derivatives complex. The design must be honest about that or it will be over-engineered in the wrong places.
+
+\subsection{Seven objections and how they are answered}
+
+The following criticisms are the ones a manager makes of a first-draft system. Each maps to a design decision in these notes.
+
+\begin{center}
+\small
+\begin{tabular}{p{0.44\textwidth} p{0.5\textwidth}}
+\toprule
+Objection & Design response \\
+\midrule
+A single common factor explains most variance; a 200-asset dashboard is a BTC beta call in disguise. & Tiered universe (Section \ref{sec:universe}). Full daily monitoring for the top tier only; the tail is screened weekly and treated as venture exposure. \\
+A three-state Markov-switching model with covariates is estimated on a sample with five regime transitions and will lag exactly when it matters. & State measured by observables with a simple fragility index (Section \ref{sec:state}). The switching model is kept as a secondary, explicitly uncertain, summary. \\
+Funding, liquidations and unlocks are the signals that work; a ridge-weighted composite dilutes them. & Hard-threshold triggers on those three (Sections \ref{sec:positioning}, \ref{sec:supply}); no composite score. \\
+Valuation ratios (fees, real yield) have no robust cross-sectional premium after 2022. & Demoted to screens, with the evidence problem stated (Section \ref{sec:crosssection}). \\
+No venue or counterparty model; the largest historical losses were venue events, not signal failures. & Dedicated module with limits (Section \ref{sec:venue}). \\
+Inputs for carry, basis, vol and event trades are computed but never assembled into trades. & Trade structures with expected return and risk (Section \ref{sec:trades}). \\
+Kelly sizing on forecasts with $R^2$ of a few percent is dominated by estimation error. & Volatility targeting with drawdown control; Kelly retained only as a bound (Section \ref{sec:sizing}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%=====================================================================
+\section{The Universe: Tiering by Tradability}\label{sec:universe}
+%=====================================================================
+
+\subsection{Why the single-factor structure forces tiering}
+
+Let $r_{i,t}$ be the weekly log return of asset $i$ and $f_t$ the return on a cap-weighted index (or BTC). The one-factor decomposition
+\begin{equation}
+r_{i,t} = \alpha_i + \beta_i f_t + \varepsilon_{i,t}
+\end{equation}
+gives $R^2_i$ in the range $0.5$ to $0.8$ for large caps in ordinary conditions and higher in stress. Average pairwise correlation across the top 100 rises from roughly $0.4$--$0.6$ in calm periods to $0.85$--$0.95$ in drawdowns. Two consequences follow.
+
+\begin{proposition}[Effective number of bets]
+For an equal-weighted book of $N$ assets with common pairwise correlation $\rho$ and equal variance, the ratio of portfolio variance to average single-asset variance is $\rho + (1-\rho)/N$. The effective number of independent positions is $N_{\mathrm{eff}} = 1/(\rho + (1-\rho)/N)$.
+\end{proposition}
+With $\rho = 0.5$ and $N = 200$, $N_{\mathrm{eff}} \approx 2$; with $\rho = 0.9$, $N_{\mathrm{eff}} \approx 1.1$. Diversification across the universe does almost nothing in the state where it is needed. The book is a market view plus a few relative-value positions, and the monitoring system should be built around that fact rather than against it.
+
+\subsection{Tiers}
+
+\begin{description}[style=nextline,nosep]
+\item[Tier 1 (roughly 15--25 names).] Liquid perpetual swaps on at least two major venues, listed options for the top two or three, real order-book depth at 2 percent of at least several million USD. Full daily monitoring: positioning, options, flows, supply schedule, venue exposure. This tier carries the derivatives-based triggers and most of the trade structures.
+\item[Tier 2 (roughly 40--80 names).] Spot-liquid, perps on one or two venues, thinner options or none. Daily positioning and supply monitoring; weekly cross-sectional screens. Position size capped by the liquidity gate.
+\item[Tier 3 (the remainder).] Illiquid at fund size. Weekly screens only, position sizes treated as venture exposure with an explicit write-off assumption. No derivatives signals are computed because the data are unreliable or absent.
+\end{description}
+Membership is recomputed monthly from liquidity data as of that date. Historical backtests must use the tier membership as of each date, not today's.
+
+%=====================================================================
+\section{Market State}\label{sec:state}
+%=====================================================================
+
+\subsection{The problem with the regime model}
+
+A $K$-state Markov-switching model with time-varying transition probabilities,
+\begin{equation}
+f_t = \mu_{S_t} + \sigma_{S_t}\epsilon_t, \qquad \Pr(S_t = j \mid S_{t-1} = i, z_{t-1}) = \frac{\exp(a_{ij} + b_{ij}'z_{t-1})}{\sum_k \exp(a_{ik} + b_{ik}'z_{t-1})},
+\end{equation}
+is well specified in principle. The difficulty is statistical. With $K = 3$ and $p$ covariates the model has $3K + K(K-1)(1+p)$ parameters (with $\nu$ counted once); for $p = 8$ that is more than sixty. The sample since 2017 contains perhaps five to eight transitions into a crash state. The transition sensitivities $b_{ij}$ are essentially unidentified, and the filtered probability of the crash state moves only after several days of crash-state returns have been observed, which is when the loss has already occurred. The model is useful as a descriptive summary and for investor communication. It is not a trigger.
+
+\subsection{Observable state variables}
+
+Replace the latent state with observables that are known at $t$ and that have a direct mechanical link to forced flow.
+
+\begin{definition}[Fragility index]
+Let each component be a rolling z-score (median and MAD over 250 days, MAD scaled by $1.4826$). Define
+\begin{equation}
+\Phi_t = \tfrac{1}{5}\Big( z^{\mathrm{FR}}_t + z^{\mathrm{OI}}_t + z^{\mathrm{VRP}^{-}}_t + z^{\mathrm{DD}}_t + z^{\mathrm{SC}^{-}}_t \Big),
+\end{equation}
+where $z^{\mathrm{FR}}$ is the OI-weighted aggregate funding rate across Tier 1; $z^{\mathrm{OI}}$ is aggregate open interest as a fraction of Tier 1 market cap; $z^{\mathrm{VRP}^{-}}$ is the negative of the variance risk premium on BTC (so that a compressed or negative premium raises fragility); $z^{\mathrm{DD}}$ is the negative of the drawdown of $f$ from its 90-day high (so that being at the highs, when stops sit below, raises fragility); and $z^{\mathrm{SC}^{-}}$ is the negative of 30-day stablecoin supply growth.
+\end{definition}
+The index has an interpretation: high funding and high OI mean that a large levered long base is paying to hold; a compressed VRP means that base is not paying for protection; a position near the highs means the liquidation mass sits just below; and flat stablecoin growth means no new settlement money is arriving to absorb forced selling. Each term is a mechanical precondition for a cascade. The index does not forecast the trigger; it measures the size of the pile of dry material.
+
+\subsection{Macro liquidity as context}
+
+Net USD liquidity, $L_t = \text{Fed balance sheet} - \text{TGA} - \text{RRP}$, real yields, the dollar index and equity vol are displayed as context with their 4-week changes. They are not in the fragility index because their link to crypto returns is through risk appetite generally, with variable lead and no mechanical channel. The exception is stablecoin supply growth, which is the closest observable to a crypto money-supply measure and does enter.
+
+\subsection{The switching model, retained as a summary}
+
+A two-state model on realised volatility (not on returns) is more stable than the return-based three-state model and can be reported with wide intervals:
+\begin{equation}
+\log \mathrm{RV}_t = \mu_{S_t} + \phi \log \mathrm{RV}_{t-1} + \sigma_{S_t}\epsilon_t, \qquad S_t \in \{\text{low},\text{high}\},
+\end{equation}
+with constant transition matrix. Report filtered $\xi_{t|t}$ and expected duration $1/(1 - p_{jj})$. Do not use smoothed probabilities in anything that feeds a decision.
+
+%=====================================================================
+\section{Positioning: The Signals That Work}\label{sec:positioning}
+%=====================================================================
+
+The predictable component of short-horizon returns in crypto is concentrated in forced flow: positions that must be closed when a price level is reached, regardless of the holder's view. The derivatives market makes those positions partly observable.
+
+\subsection{Perpetual funding}
+
+A perpetual swap pegs to spot through a funding payment, settled typically every 8 hours,
+\begin{equation}
+\mathrm{FR}_t = \mathrm{clamp}\big(\mathrm{Prem}_t + \iota_0,\; \mathrm{Prem}_t - c,\; \mathrm{Prem}_t + c\big), \qquad \mathrm{Prem}_t = \frac{P^{\mathrm{perp}}_t - P^{\mathrm{index}}_t}{P^{\mathrm{index}}_t},
+\end{equation}
+with $\iota_0$ a small fixed interest component and $c$ a cap. Annualise as $\mathrm{FR}^{\mathrm{ann}} = 3 \times 365 \times \mathrm{FR}$. Aggregate across venues by open-interest share and standardise robustly over 90 days:
+\begin{equation}
+z^{\mathrm{FR}}_{i,t} = \frac{\overline{\mathrm{FR}}_{i,t} - \mathrm{median}_{90}(\overline{\mathrm{FR}}_i)}{1.4826\,\mathrm{MAD}_{90}(\overline{\mathrm{FR}}_i)}.
+\end{equation}
+Funding has two readings. As a crowding measure, an extreme positive value means longs are paying an unusual premium to hold and the position is fragile to any negative shock. As a carry measure, $\overline{\mathrm{FR}}^{\mathrm{ann}}$ is the gross return to a delta-neutral position that is long spot and short the perp (Section \ref{sec:trades}).
+
+\subsection{Open interest and its dynamics}
+
+Relative open interest, $\mathrm{OI}^{\mathrm{rel}}_{i,t} = \mathrm{OI}^{\$}_{i,t}/\mathrm{MarketCap}_{i,t}$, measures the levered share of the float. Its joint movement with price over the last $d$ days classifies the flow:
+\begin{center}
+\small
+\begin{tabular}{cc p{0.6\textwidth}}
+\toprule
+$\Delta \log P$ & $\Delta \log \mathrm{OI}$ & Reading \\
+\midrule
+$+$ & $+$ & New longs; trend carried by fresh leverage; fragile if funding also elevated \\
+$+$ & $-$ & Short covering; forced buying; rally tends not to persist \\
+$-$ & $+$ & New shorts; a squeeze candidate if crowded \\
+$-$ & $-$ & Long liquidation; deleveraging phase \\
+\bottomrule
+\end{tabular}
+\end{center}
+A rolling regression of $\Delta\log\mathrm{OI}$ on $\Delta\log P$ over 20 days gives a slope whose sign summarises whether leverage is chasing or fading the move.
+
+\subsection{Liquidation structure}
+
+A position opened at $P_0$ with leverage $\ell$ and maintenance margin $m$ is liquidated near
+\begin{equation}
+P^{\mathrm{liq}}_{\mathrm{long}} \approx P_0\Big(1 - \tfrac{1}{\ell} + m\Big), \qquad P^{\mathrm{liq}}_{\mathrm{short}} \approx P_0\Big(1 + \tfrac{1}{\ell} - m\Big).
+\end{equation}
+Individual positions are not observed, but changes in OI attributable to each price bucket, combined with the empirical distribution of leverage used on each venue, give an estimated density $\lambda_i(p)$ of liquidation prices. The decision-relevant statistic is the liquidation mass within a plausible move:
+\begin{equation}
+\Lambda^{\pm}_{i,t}(\kappa) = \int_{P_t}^{P_t(1 \pm \kappa\,\hat\sigma_{i,t}\sqrt{h})} \lambda_i(p)\,dp,
+\end{equation}
+the notional that would be force-closed on a $\kappa$-standard-deviation move over horizon $h$. The asymmetry $\Lambda^{-} - \Lambda^{+}$ indicates the direction in which a cascade would run, and $\Lambda^{-}$ relative to real depth (Section \ref{sec:liquidity}) indicates how far it would run.
+
+\subsection{Options on the majors}
+
+For BTC and ETH, and any Tier 1 name with a liquid listed market:
+\begin{itemize}[nosep]
+\item Risk reversal, $\mathrm{RR}_{25} = \mathrm{IV}(25\Delta\text{ call}) - \mathrm{IV}(25\Delta\text{ put})$. A move toward positive skew during a rally marks a market that has stopped paying for downside.
+\item Term structure, $\mathrm{IV}_{3m} - \mathrm{IV}_{1w}$. Inversion marks acute stress and, historically, the late stage of a selloff rather than its start.
+\item Variance risk premium, $\mathrm{VRP}_t = \mathrm{IV}^2_{30,t} - \widehat{\mathrm{RV}}^2_{30,t}$, with $\widehat{\mathrm{RV}}^2_{30} = \tfrac{365}{30}\sum_{k=1}^{30} f_{t-k}^2$. A persistently positive VRP is the compensation to vol sellers; a collapse to zero means the market prices less risk than has just been realised.
+\item Largest-OI strikes by expiry, which act as attractors into expiry through dealer hedging.
+\end{itemize}
+
+\subsection{Trigger rules}
+
+The following are stated as rules with thresholds rather than as inputs to a score. Thresholds are calibrated once on data through 2023 and then frozen; recalibration is a governance event (Section \ref{sec:governance}).
+
+\begin{rule_}[Crowded long]\label{rule:crowded}
+For Tier 1 asset $i$, flag when $z^{\mathrm{FR}}_{i,t} > 2$ and $\mathrm{OI}^{\mathrm{rel}}_{i,t}$ is above its 90th percentile and $\Lambda^{-}_{i,t}(2) / D_{i,t}(0.02) > 1$. Action: reduce long exposure or hedge; if the fund is short, no addition into the flag (squeeze risk is symmetric).
+\end{rule_}
+
+\begin{rule_}[Capitulation]
+Flag when $z^{\mathrm{FR}}_{i,t} < -2$, OI has fallen by more than 20 percent over 5 days, and long-liquidation volume over 24 hours exceeds its 95th percentile. Action: candidate entry for a mean-reversion long over 1 to 5 days; size by the liquidity gate.
+\end{rule_}
+
+\begin{rule_}[Vol underpricing]
+Flag when $\mathrm{VRP}_t < 0$ and $\Phi_t > 1$. Action: no short-vol positions; consider long convexity on the majors.
+\end{rule_}
+
+These rules have historical hit rates that can be reported with their sample sizes, which are small. They are not forecasts; they are pre-committed responses to configurations known to precede forced flow.
+
+%=====================================================================
+\section{Scheduled Supply}\label{sec:supply}
+%=====================================================================
+
+The vesting schedule is public and gives unlock quantities $U_{i,\tau,c}$ at dates $\tau$ by recipient class $c$ (team, investors, ecosystem, community). Expected sell pressure over horizon $h$, in units of float and in days of real volume:
+\begin{align}
+\mathrm{ESP}_{i,t}(h) &= \frac{\sum_{\tau \in (t,t+h]} \sum_c \pi_c\, U_{i,\tau,c}}{\mathrm{Float}_{i,t}}, \\
+\mathrm{ESP}^{\mathrm{vol}}_{i,t}(h) &= \frac{P_{i,t}\sum_{\tau \in (t,t+h]} \sum_c \pi_c\, U_{i,\tau,c}}{\mathrm{ADV}^{\mathrm{real}}_{i,t}},
+\end{align}
+where $\pi_c$ is the fraction sold within the window by class $c$, estimated from on-chain behaviour of tagged wallets after past unlocks (investor wallets sell a large fraction; ecosystem funds often re-lock or distribute slowly). The denominator uses circulating float and wash-filtered volume.
+
+\begin{rule_}[Cliff]
+Flag when a single unlock exceeds 1 percent of float or two days of real volume. The documented pattern is anticipatory: negative drift over the two to four weeks before the cliff, partial reversal after. The trade structure is in Section \ref{sec:trades}.
+\end{rule_}
+
+Annualised dilution from schedule plus emissions, $\iota_{i,t} = (\mathrm{Float}_{i,t+365} - \mathrm{Float}_{i,t})/\mathrm{Float}_{i,t}$, is displayed next to any yield figure. A token must return $\iota$ for a holder to maintain its ownership share.
+
+On-chain holder metrics (MVRV, long-term-holder SOPR, exchange reserves) are retained for BTC and ETH, where the realised-cap concept is meaningful because most supply has moved on-chain at some point. For smaller assets these measures are dominated by supply that has never moved and by adversarial address behaviour, and they are not displayed.
+
+%=====================================================================
+\section{Trade Structures}\label{sec:trades}
+%=====================================================================
+
+A monitoring system that computes funding, basis, VRP and unlock pressure but never assembles them into positions is incomplete. The following are the structures through which much of the durable return in crypto funds has been earned. Each is stated with its gross expected return, its cost and its risk.
+
+\subsection{Cash-and-carry basis}
+
+Long spot, short a dated future expiring at $T$. With futures price $F_t$ and spot $P_t$, the annualised basis is
+\begin{equation}
+b_t = \frac{F_t - P_t}{P_t}\cdot\frac{365}{T - t}.
+\end{equation}
+The return to maturity is locked at $b_t$ gross of costs. Costs: spot financing (if the spot is bought with borrowed stablecoins at rate $r^{\mathrm{sc}}$), the margin haircut on the short leg, and venue fees. Net expected return $\approx b_t - r^{\mathrm{sc}} - \mathrm{fees}$. Risk: counterparty risk on the futures venue (the dominant risk; Section \ref{sec:venue}), margin calls on the short leg during a squeeze before expiry, and basis blow-out if the position must be closed early.
+
+\subsection{Funding carry}
+
+Long spot, short perpetual. Gross return is the realised funding stream $\sum_k \mathrm{FR}_{t+k}$, which is not locked. The trade is a bet that funding stays positive. Expected return over horizon $h$ is $\E_t[\sum_k \mathrm{FR}_{t+k}]$, which for planning can be approximated by the 30-day trailing mean shrunk toward zero. Risk: funding turns negative (the position then pays), venue risk, and margin risk on the short leg. The trade is most attractive exactly when Rule \ref{rule:crowded} fires, since crowded longs are the ones paying, and least attractive after capitulation.
+
+\subsection{Volatility selling on the majors}
+
+Short strangles or short variance on BTC/ETH when $\mathrm{VRP}_t$ is high relative to its history and $\Phi_t$ is low. Expected return per unit notional over the option life is approximately the VRP times vega exposure; the risk is the standard short-gamma risk, sized by the loss at a $3\sigma$ move under the high-vol state's $\sigma$, not the current one. Rule 4.3 forbids this structure when VRP is compressed and fragility is high.
+
+\subsection{Unlock short}
+
+Short the perpetual on a Tier 1 or 2 asset with a flagged cliff, entered two to four weeks before the date, sized by $\mathrm{ESP}^{\mathrm{vol}}$. Cost is negative funding if the short is crowded (which it often is before well-known cliffs; check $z^{\mathrm{FR}} < -1$ as a warning), plus borrow if done in spot. Risk: a squeeze on a crowded short; the unlock being re-locked or OTC-placed (check for announcements); and the general beta of a short in a rising market, which should be hedged with a long in the sector or the index.
+
+\subsection{Structure inventory on the front page}
+
+For each structure, the dashboard reports current gross rate, estimated cost, net rate, and the venue on which it would be executed with that venue's risk score. The PM sees a small table of net carry opportunities, each with its dominant risk named.
+
+%=====================================================================
+\section{Venue and Counterparty Risk}\label{sec:venue}
+%=====================================================================
+
+The largest losses in the history of crypto funds have been venue events: exchange insolvency, withdrawal halts, stablecoin de-pegs, bridge exploits. A dashboard that looked fine on the morning of a venue failure was measuring the wrong thing. This module is not optional.
+
+\subsection{Venue scoring}
+
+For each venue $v$ used for spot, derivatives or custody, maintain a score built from: regulatory domicile and licensing; whether client assets are segregated; the existence and quality of proof-of-reserves (a Merkle-tree attestation of assets is not proof of solvency without liabilities); withdrawal processing times and any history of halts; the share of the venue's volume that fails wash-trading filters; and the concentration of the venue's own balance sheet in its own token. The score is ordinal and reviewed monthly.
+
+\subsection{Exposure limits}
+
+Let $X_{v,t}$ be the fund's gross exposure held at venue $v$ (spot balances plus margin posted plus unrealised P\&L on derivatives). Limits:
+\begin{equation}
+X_{v,t} \le \bar{x}_{v}\cdot \mathrm{NAV}_t, \qquad \sum_v X_{v,t}\,\ind\{\text{score}_v \text{ below threshold}\} \le \bar{x}_{\mathrm{low}}\cdot\mathrm{NAV}_t,
+\end{equation}
+with $\bar{x}_v$ decreasing in the venue's score. Margin should be posted in the smallest amount consistent with liquidation risk, and excess collateral swept to custody daily. Basis and carry trades are venue-intensive by construction; the net rate on those structures should be compared against the risk score of the venue where the short leg sits.
+
+\subsection{Stablecoin and collateral exposure}
+
+Report the fund's exposure to each stablecoin (balances, collateral posted, settlement currency of open derivatives) and the stablecoin's current discount to par, its reserve composition where disclosed, and redemption mechanics. A stablecoin de-peg is a margin event on every position collateralised in it.
+
+\subsection{Systemic exposures, hand-tracked}
+
+A full contagion matrix with Leontief propagation is correct in theory and not maintainable in practice below the largest funds. Replace it with a short list, reviewed weekly: the two or three largest stablecoins and their backing; the two largest lending protocols and their collateral composition; the three largest bridges and the wrapped supply that depends on them; any Tier 1 asset that is widely used as collateral. For each, state the fund's direct exposure and the positions that would be affected through collateral or settlement. That list, honestly kept, captures most of what the matrix would.
+
+%=====================================================================
+\section{Liquidity Gate}\label{sec:liquidity}
+%=====================================================================
+
+Reported volume overstates real volume, in some venues by a large multiple. Use order-book depth and wash-filtered volume.
+
+\begin{definition}[Real depth]
+$D_{i,t}(\delta) = \sum_v \int_{P_t(1-\delta)}^{P_t(1+\delta)} q_v(p)\,p\,dp$, the USD resting quantity within $\delta$ of mid across venues with genuine order books; use $\delta = 0.02$ and the intraday median.
+\end{definition}
+
+Expected impact cost for a trade of size $Q$ under a square-root law,
+\begin{equation}
+\mathrm{Cost}(Q) \approx \frac{s}{2} + Y\sigma_d\sqrt{\frac{Q}{\mathrm{ADV}^{\mathrm{real}}}},
+\end{equation}
+with $s$ the spread, $\sigma_d$ daily vol and $Y$ calibrated from the fund's own fills (values in the range $0.5$ to $1$ are typical). Days to liquidate at participation rate $\rho$,
+\begin{equation}
+\mathrm{DTL}_i = \frac{Q_i}{\rho\,\mathrm{ADV}^{\mathrm{real}}_i}.
+\end{equation}
+
+\begin{rule_}[Gate]
+No position may be entered whose $\mathrm{DTL}$ at $\rho = 0.1$ exceeds 3 days, or whose round-trip impact cost exceeds one quarter of the position's expected net return. The gate is applied before any signal is shown for the asset.
+\end{rule_}
+
+Wash-trading filters: volume-to-depth ratio relative to reference venues, trade-size distributions, first-digit tests on trade sizes, and the correlation of volume with absolute returns (genuine volume rises with $|r|$; fabricated volume is flat).
+
+%=====================================================================
+\section{The Cross-Section: Screens, Not Scores}\label{sec:crosssection}
+%=====================================================================
+
+\subsection{The evidence problem}
+
+Cross-sectional predictors in crypto have a short and unstable record. Size and momentum have documented premia over some windows, both strongly regime-dependent; the momentum premium reverses sharply after regime shifts. Valuation ratios built on fees or revenue (price-to-fees, real yield) have shown weak or negative cross-sectional predictive power once tokens with incentivised or fabricated fee streams are included, and the fee models themselves change year to year. Developer activity is a lagging indicator of project survival, not a leading indicator of return. Attention indices from social data are manipulable and are better read as crowding proxies than as signals.
+
+The correct treatment is to use the cross-section as a set of screens that condition discretionary attention, and to report the historical information coefficient of each screen with its standard error so that nobody mistakes a screen for a forecast.
+
+\subsection{Sector-relative standardisation}
+
+Assign each asset a primary sector (L1, L2, DeFi lending, DEX, derivatives protocols, oracles and infrastructure, stablecoins, RWA, AI/compute, memecoins, gaming, exchange tokens, payments). For any characteristic $x$,
+\begin{equation}
+\tilde{x}_{i,t} = \frac{x_{i,t} - \mathrm{median}_{j\in\mathrm{sector}(i)}(x_{j,t})}{1.4826\,\mathrm{MAD}_{j\in\mathrm{sector}(i)}(x_{j,t})},
+\end{equation}
+winsorised at $\pm 3$. Sector assignments are versioned and reviewed quarterly.
+
+\subsection{The factor model, for exposure not forecasting}
+
+Estimate on weekly returns, with factors built as tercile long-short portfolios on the universe as of each date:
+\begin{equation}
+r_{i,t} = \alpha_i + \beta^{\mathrm{MKT}}_i F^{\mathrm{MKT}}_t + \beta^{\mathrm{SMB}}_i F^{\mathrm{SMB}}_t + \beta^{\mathrm{MOM}}_i F^{\mathrm{MOM}}_t + \beta^{\mathrm{LIQ}}_i F^{\mathrm{LIQ}}_t + \sum_s \gamma_{i,s}F^s_t + \varepsilon_{i,t}.
+\end{equation}
+The valuation factor is dropped from the exposure model until it shows a positive out-of-sample premium in a window not used to construct it. Betas by 26-week rolling regressions with exponential weights (half-life 8 weeks). The purpose is to compute the book's exposure vector $w'B$ and its history, so that a book intended as a DeFi relative-value spread is not found to be a levered small-cap momentum position after the fact. The factor model is not used to rank assets.
+
+\subsection{Screens shown}
+
+For Tiers 2 and 3, weekly: sector-relative momentum (4-week, skipping the last week), float ratio (low float with high fully diluted value is a known negative profile once unlocks begin), $\mathrm{ESP}^{\mathrm{vol}}(13)$, dilution $\iota$, and the liquidity gate status. Each screen carries its trailing 52-week Spearman IC and standard error.
+
+%=====================================================================
+\section{Sizing and Risk}\label{sec:sizing}
+%=====================================================================
+
+\subsection{Why not Kelly}
+
+The Kelly-optimal weight vector is $w^\star = \Sigma^{-1}\mu$. With forecast $R^2$ of a few percent, the estimation error in $\hat\mu$ dominates. A back-of-envelope statement:
+
+\begin{proposition}[Estimation error dominates the Kelly weight]
+Suppose the true expected excess return is $\mu$ and the estimate is $\hat\mu = \mu + e$ with $e \sim N(0, \sigma^2_e I)$, and that $\Sigma = \sigma^2 I$ for simplicity. Then $\hat{w} = \hat\mu/\sigma^2$ and the expected out-of-sample growth rate shortfall relative to the true optimum is $\tfrac{1}{2}\,\mathrm{tr}(\Sigma\,\Var(\hat w)) = \tfrac{N\sigma_e^2}{2\sigma^2}$. With $N = 20$ names, annual vol $\sigma = 0.8$ and a forecast standard error $\sigma_e$ of even $0.2$ per name, the shortfall is $0.5 \times 20 \times 0.04/0.64 = 0.625$, larger than any plausible true growth rate. Kelly on noisy forecasts is a mechanism for converting estimation error into realised losses.
+\end{proposition}
+
+\subsection{Volatility targeting with drawdown control}
+
+Set gross exposure so that the book's forecast volatility equals a target $\sigma^\star$, using the high-state covariance when the fragility index is elevated:
+\begin{equation}
+g_t = \frac{\sigma^\star}{\sqrt{w_t'\,\Sigma_t\,w_t}}, \qquad \Sigma_t = \xi_{t|t,\mathrm{high}}\hat\Sigma^{(\mathrm{high})} + (1 - \xi_{t|t,\mathrm{high}})\hat\Sigma^{(\mathrm{low})} + \eta\,\Phi_t^{+}\,\big(\hat\Sigma^{(\mathrm{high})} - \hat\Sigma^{(\mathrm{low})}\big),
+\end{equation}
+where $\hat\Sigma^{(j)}$ are Ledoit--Wolf shrunk covariances estimated with state-weighted observations, $\Phi_t^{+} = \max(\Phi_t, 0)$ and $\eta > 0$ pulls the covariance toward its stress value when fragility is high even if the vol state has not yet switched. A drawdown rule reduces $\sigma^\star$ by a fixed schedule as the peak-to-trough loss over a trailing window passes thresholds, and restores it only after a recovery, not on a calendar.
+
+\subsection{Limits}
+
+Per-name cap as a share of NAV, sector cap, factor-exposure cap on each element of $|w'B|$, venue caps from Section \ref{sec:venue}, and the liquidity gate. Kelly is computed and shown only as an upper bound: no position may exceed one quarter of its Kelly weight under a forecast shrunk by half.
+
+\subsection{Stress reporting}
+
+Expected shortfall at 5 percent from simulation under the mixture with Student-$t$ innovations and the stress covariance; the P\&L if all liquidations within $2\sigma$ of current prices are triggered simultaneously; the P\&L under a 50 percent drawdown in each hand-tracked systemic exposure; and the P\&L under a withdrawal halt at each venue (exposure at that venue marked to a recovery assumption).
+
+%=====================================================================
+\section{Validation and Governance}\label{sec:governance}
+%=====================================================================
+
+\subsection{Backtest protocol}
+
+\begin{enumerate}[nosep]
+\item Walk-forward only. All parameters estimated on data through $t$, evaluated on $t+h$. Smoothed state probabilities appear nowhere in a decision.
+\item Universe and tier membership as of each date.
+\item Returns net of the impact model, funding and venue fees.
+\item Deflated Sharpe ratio, or the probability of backtest overfitting from combinatorially symmetric cross-validation, reported alongside any Sharpe. The effective sample for anything that depends on regime transitions is the number of transitions, which is single digits.
+\end{enumerate}
+
+\subsection{On automatic demotion}
+
+A rule that sets a signal's weight to zero when its trailing 26-week IC is negative for eight weeks sounds disciplined. On the sample sizes available it fires on noise: it demotes working signals during ordinary drawdowns and readmits broken ones after a lucky quarter. Replace it with a documented review. Each trigger rule and screen has an owner, a stated rationale (the mechanism, not the backtest), a frozen threshold, and a quarterly review in which the owner presents the trailing performance and argues for retention, modification or removal. The decision and its reasoning are recorded. Discretion by an experienced PM, documented and reviewed, has a better record than a rule that reacts to eight weeks of data.
+
+\subsection{Threshold recalibration}
+
+Thresholds in Rules 4.1--4.3, 5.1 and 7.1 are frozen at calibration. Recalibration requires a written case that the underlying mechanism has changed (a change in exchange margin rules, in funding caps, in the structure of the stablecoin market), not that the threshold has been unprofitable recently.
+
+%=====================================================================
+\section{The Front Page}\label{sec:frontpage}
+%=====================================================================
+
+In order, top to bottom:
+\begin{enumerate}[nosep]
+\item Venue and counterparty panel: exposure by venue against limits, venue scores, stablecoin discounts to par, systemic-exposure list with the fund's direct and indirect exposure to each.
+\item Book risk: gross and net exposure, factor exposure vector $w'B$, effective number of bets under the current and the stress covariance, expected shortfall, liquidation-cascade P\&L, venue-halt P\&L.
+\item Market state: fragility index $\Phi_t$ and its components, vol-state probability with interval, stablecoin supply growth, net liquidity and rates as context.
+\item Active triggers: any Rule currently firing, with the asset, the threshold values, the historical hit rate and its sample size.
+\item Trade-structure table: basis, funding carry, vol premium, unlock shorts; gross, cost, net, execution venue and its score.
+\item Event strip, next four weeks: cliffs in days of volume, upgrades, governance, regulatory dates, large expiries.
+\item Tier 2/3 screens with their IC and standard error, liquidity-gate status.
+\end{enumerate}
+Everything else (the switching model's diagnostics, the factor regressions, on-chain holder metrics for BTC and ETH, the attention indices) lives on secondary pages.
+
+%=====================================================================
+\section{Implementation Notes: What Building the System Changes in the Design}\label{sec:implementation}
+%=====================================================================
+
+The preceding sections describe the design. This section records what an open-source implementation of it (September 2026; scheduled jobs on GitHub Actions, static dashboard, free public data only, paid sources optional) forced into the open. Each item is a place where the notes were silent or where the data available to a fund without vendor subscriptions differ from what the design assumes. None of them changes a threshold; several change how a quantity has to be measured.
+
+\subsection{What is and is not available without a subscription}
+
+\begin{center}
+\small
+\begin{tabular}{p{0.30\textwidth} p{0.64\textwidth}}
+\toprule
+Quantity & Free source found, and its limit \\
+\midrule
+Funding, open interest, perpetual marks & Public REST on Binance, Bybit, OKX. Funding history is multi-year on Binance and Bybit but only about three months on OKX. Open-interest history is 30 days on Binance and 180 days on OKX; there is no free OI history on Bybit. \\
+Liquidations & Binance removed its REST liquidation endpoint; Bybit publishes liquidations on a websocket only. OKX exposes a pollable, pageable list of filled liquidation orders. A scheduled job therefore sees an OKX-only sample; the Binance and Bybit streams need a long-running collector. \\
+Options & Deribit book summaries carry mark implied vols and open interest but no greeks; the 25-delta points are computed with Black--76 from the mark vol and checked against the per-instrument ticker. The DVOL index (a 30-day implied vol) has daily history to 2021 and is the only source for a historical variance risk premium. \\
+Order-book depth & Public books are capped per request (Binance 5000 levels, OKX 5000, Kraken 500, Bybit 1000, Coinbase full). For BTC and ETH the capped books reach only about $\pm 1$ percent of mid on Binance and OKX, so $D(0.02)$ there is a lower bound; for smaller names 1000 levels reach several percent. Depth cannot be backfilled at all. \\
+Aggregator market data & CoinGecko free tier: 250 assets per call, category tags, but history capped at 365 days and a tight per-minute limit without a demo key. CoinPaprika as fallback has no circulating supply field. \\
+Unlock schedules & DefiLlama's API endpoints for emissions became paid; the same schedules, with recipient categories, remain free on its datasets host. Linear tranches are given as start date and total; exact daily amounts need the per-protocol file. \\
+Stablecoins, macro, fees, TVL & DefiLlama (supply, peg, by coin, full history); FRED as a keyless CSV (the JSON API needs a free key); WALCL and WTREGEN are in millions of dollars and RRPONTSYD in billions, so net liquidity has to be reconciled before differencing. \\
+On-chain (BTC, ETH) & CoinMetrics community tier: MVRV, exchange supply and flows, active addresses, hash rate, but not realised cap or SOPR; long-term-holder SOPR is unavailable free. ETH staked balance from an open-source aggregator without an official API. \\
+Spot ETF flows & No free official source; the panel shows ``unavailable'' rather than a scraped page. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two consequences follow for Section \ref{sec:positioning}. The liquidation-density estimate $\lambda(p)$ cannot use observed liquidations before go-live; it is built from positive daily OI increments attributed to that day's close, split by the venue's published top-trader long share and an assumed leverage distribution, and normalised to current OI. Rule 4.2's liquidation-volume percentile exists only from the day the OKX polling started, so its historical evaluation is partial (Section \ref{sec:impl-validation}).
+
+\subsection{Where the jobs run matters}
+
+GitHub-hosted runners have United States addresses. From there Binance (spot, USDT-M and COIN-M) answers HTTP 451 and every Bybit host answers 403; Binance's public market-data mirror (\texttt{data-api.binance.vision}) serves spot books, trades and candles but nothing from the futures API. OKX, Coinbase, Kraken, Deribit and all the non-venue sources are reachable. A scheduled cloud job therefore sees derivatives from OKX and Deribit only; the Binance-futures and Bybit datasets must come from a collector on a machine that can reach them (a workstation or a small server outside the United States). The two paths write the same immutable, timestamp-keyed raw files, so they coexist without coordination: whichever fetched a bucket first wins and the other reuses it. Every fetch is isolated, so a blocked or failed source marks its tables ``unavailable this run'' with the reason rather than aborting the job.
+
+This has a design implication the notes did not state: any quantity that aggregates across venues must be computed on a venue set that is constant over the window it is standardised on. Summing OI over three venues today and two venues in the history produced a spurious jump at the seam that read as ``new longs'' on every asset. The implementation therefore computes OI-based statistics (relative OI percentile, five-day change, quadrant, liquidation density, the $z^{\mathrm{OI}}$ component of $\Phi$) on the OKX series, the one venue whose OI is both historical and reachable from every job, and displays the full multi-venue level separately. Funding rates, being rates rather than levels, can be OI-weighted across whatever venues report on a given day.
+
+\subsection{Measurement details the notes left open}
+
+\begin{description}[style=nextline,nosep]
+\item[Depth.] $D(0.02)$ is the intraday median across the hourly snapshots of $\sum_v D_v(0.02)$ over venues with genuine books. Each venue-snapshot records the coverage its capped book actually reached; if any side ended inside the 2 percent band the aggregate is flagged as a lower bound. Raw books are stored trimmed to $\pm 2.5$ percent of mid (a full Coinbase level-2 book exceeds a megabyte), which keeps every number traceable to its file while holding the repository within budget.
+\item[Wash filters.] The first-digit test on trade \emph{notionals} rejects every venue, including the reference venues, because notionals inherit the leading digit of the price; the test is run on trade \emph{sizes} in base units and made relative: a venue fails when its $\chi^2/n$ exceeds three times the median deviation on the reference venues (Coinbase, Kraken). The volume-to-depth ratio is skipped where the book is truncated, since an understated denominator inflates it. A venue is excluded from $\mathrm{ADV}^{\mathrm{real}}$ when at least two of the three tests fail; a single failing test is common on genuine venues (Binance's quantised BTC trade sizes fail the digit test on their own).
+\item[Robust $z$-scores.] Computed walk-forward on a daily grid (hourly repeats of the same eight-hour funding rate must not inflate the sample), with the trailing window excluding the current value, a minimum of 30 prior observations, and ``unavailable'' rather than a number when the MAD is zero. Sample sizes are displayed next to every $z$.
+\item[Fragility index with missing components.] $\Phi_t$ is the mean of the components available on the day and the count is displayed; the VRP component needs the DVOL history to exist at all, and the OI component's window is the venue's OI history, not 250 days.
+\item[The switching model.] Fitted on overlapping 20-day realised vol the autoregressive coefficient is one and the ``expected durations'' are meaningless. Fitting on non-overlapping weekly realised vol gives a two-state model with durations in weeks and standard errors that can be reported.
+\item[Tiering.] With the measured depth screen applied, the Tier 1 count on the first live day fell from 20 (OI criterion alone) to 11; several names sit just under several million dollars of depth on four venues and re-enter when a fifth venue's books are counted. Membership is recomputed daily with a weekly frozen copy so backtests use membership as of date; before go-live the liquidity history is a flagged volume proxy.
+\item[Sectors.] Seeded from aggregator category tags by ordered exact-match rules (derivatives protocols before decentralised exchanges before exchange tokens, layer-one before infrastructure), then reviewed by hand; the tags alone put an oracle into layer two and a privacy coin into infrastructure.
+\end{description}
+
+\subsection{Validation on the history that exists}\label{sec:impl-validation}
+
+Walk-forward hit rates can be computed only for rules whose inputs exist in history. Funding history supports $z^{\mathrm{FR}}$ over several years; open interest supports its percentile for the venue's OI window only; liquidation density, depth and option chains do not exist before go-live. The dashboard therefore reports, with their sample sizes, the full rules from the day the data started and \emph{partial-input variants} for the history: Rule 4.1 on the funding and OI legs only, Rule 4.2 on the funding and OI-drop legs only, each labelled as partial. Rule 4.3 can be evaluated in full from the DVOL-based variance risk premium: on 2021--2026 BTC data it flagged on 170 days, and in 19 percent of the 168 with an elapsed horizon realised vol over the next 30 days exceeded the implied vol at the flag. The rule's action is a veto on short volatility, and this number is reported as a description of the flag, not as a forecast. Screen information coefficients over 52 weeks (momentum $0.02 \pm 0.03$, size $0.08 \pm 0.02$, Amihud $-0.01 \pm 0.01$) are of the same order as their standard errors, which is the point of Section \ref{sec:crosssection}.
+
+\subsection{Governance in practice}
+
+Thresholds live in one file with a calibration date and a note; the rules read them from nowhere else; the backfill reports their performance and does not touch them. A weekly job opens a review issue with the checklist (venues, events, thresholds unchanged, systemic list, sector map, rule owners' presentations). Every displayed number carries its source table, fetch time and code commit, and a status page shows per-table freshness and per-dataset fetch outcomes, including which sources were geo-blocked on a given run. The repository keeps 90 days of daily raw files and 10 days of hourly raw files, rotating older ones to an archive branch; everything derived is rebuilt from raw files by one command.
+
+%=====================================================================
+\section{Summary}
+%=====================================================================
+
+The corrected design is smaller than the original and more useful. Section \ref{sec:implementation} records what an implementation on free data adds: which inputs exist and for how long, where the jobs can run, how depth and wash filters have to be measured, and what the rules can and cannot be validated on. It concentrates daily attention on the fifteen to twenty-five names that can be traded at size, measures the market state through observables with a mechanical link to forced flow rather than through a latent regime model with unidentified parameters, states its few trigger rules with frozen thresholds and reported hit rates, assembles the derivatives data into trade structures with net rates and named risks, treats venue and counterparty exposure as the first item on the page rather than an afterthought, sizes by volatility targeting with drawdown control, and governs its own signals by documented review rather than by a statistical rule that cannot distinguish a broken signal from an unlucky quarter. The econometrics that remain, the vol-state model, the factor exposure model, the stress covariance, are used to describe risk, which is what they are good at, and not to forecast returns, which is what they are not.
+
+\vspace{1em}
+\noindent\textit{These notes describe a design and are not investment advice.}
+
+\end{document}
