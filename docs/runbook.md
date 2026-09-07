@@ -55,6 +55,9 @@ script's natural home and is not implemented in this repository.
 ## Collector on a Mac (installed 2026-09-07)
 `scripts/install_collector_macos.sh` installs launchd agents that run `scripts/collector.sh
 hourly` at :09 and `daily` at 01:45 local time; logs in `~/Library/Logs/crypto-monitor-*.log`.
+Run it from a clone **outside** `~/Documents`, `~/Desktop` and `~/Downloads` (macOS privacy
+protection blocks launchd jobs there with "Operation not permitted"); on the build machine
+that clone is `~/crypto-monitor`, with its own `.env`.
 The machine must be awake (System Settings → Battery → prevent sleep, or `caffeinate`), have
 push rights (`gh auth` is used by git) and the `.env` with keys. `scripts/install_collector_macos.sh
 --remove` uninstalls. Both paths write the same idempotent raw buckets, so the Actions jobs
