@@ -18,14 +18,9 @@ from monitor import archive
 from monitor.meta import git_sha, utc_now
 
 log = logging.getLogger("monitor.fetch")
-CRITICAL = {
-    "markets",
-    "binance_listings",
-    "bybit_listings",
-    "okx_listings",
-    "coinbase_listings",
-    "kraken_listings",
-}
+# only the aggregator markets dataset aborts a run; everything else (geo-blocked venues
+# included) degrades to "unavailable this run" and the last good snapshot is used
+CRITICAL = {"markets"}
 
 
 class FetchRun:
