@@ -39,7 +39,8 @@ Secrets (all optional, read from the environment / GitHub Actions secrets):
 
 ## Tiers (notes Section 2, thresholds in `config/universe.yaml`)
 * **Tier 1** — perps on at least two of Binance, Bybit, OKX; 30-day median aggregate OI above
-  USD 100M; aggregated 2 % order-book depth above USD 3M. Full hourly monitoring.
+  USD 150M; measured 2 % order-book depth (intraday median across venues) above USD 3M. Full
+  hourly monitoring.
 * **Tier 2** — spot on at least two major venues with wash-filtered 30-day ADV above USD 10M.
   Daily positioning and supply, weekly screens.
 * **Tier 3** — the remainder. Weekly screens only, treated as venture exposure.

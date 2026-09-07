@@ -76,6 +76,9 @@ KEYS: dict[str, list[str]] = {
     "funding_daily_history": ["date", "base"],
     "positioning_history": ["date", "base"],
     "fragility_history": ["date"],
+    "dvol_daily": ["date", "currency"],
+    "vrp_history": ["date", "currency"],
+    "unlock_detail": ["fetched_at", "protocol", "date", "label"],
 }
 TIME_COL: dict[str, str] = {
     "markets": "as_of",
@@ -133,6 +136,9 @@ TIME_COL: dict[str, str] = {
     "funding_daily_history": "date",
     "positioning_history": "date",
     "fragility_history": "date",
+    "dvol_daily": "date",
+    "vrp_history": "date",
+    "unlock_detail": "date",
 }
 # hourly tables keep a rolling window in data/processed; the archive keeps everything
 ROLLING_DAYS: dict[str, int] = {

@@ -336,6 +336,81 @@ def fetch_oi_history(
     return p1, p2
 
 
+def fetch_dvol_history(start: date, ts: datetime | None = None, force: bool = False):
+    """Deribit DVOL (30-day implied vol index) daily candles back to 2021-03 (verified
+    2026-09-07: 1000 rows per call, paged with a moving `end_timestamp`)."""
+
+    def go(c) -> list[Record]:
+        recs = []
+        for cur in ("BTC", "ETH"):
+            end = int((ts or datetime.now(UTC)).timestamp() * 1000)
+            for _ in range(8):
+                r = c.get(
+                    "/public/get_volatility_index_data",
+                    params={
+                        "currency": cur,
+                        "resolution": "1D",
+                        "start_timestamp": _ms(start),
+                        "end_timestamp": end,
+                    },
+                )
+                recs.append(r)
+                d = (r.body.get("result") or {}).get("data") or []
+                if len(d) < 1000 or int(d[0][0]) <= _ms(start):
+                    break
+                end = int(d[0][0]) - 1
+        return recs
+
+    return run_dataset(
+        "deribit", "dvol_history", "daily", go, ts=ts, force=force, meta={"start": str(start)}
+    )
+
+
+def parse_dvol_history(env) -> pl.DataFrame:
+    rows = []
+    for rec in env.records:
+        cur = rec.url.split("currency=")[1].split("&")[0]
+        for k in (rec.body.get("result") or {}).get("data") or []:
+            rows.append(
+                {
+                    "date": datetime.fromtimestamp(k[0] / 1000, tz=UTC).date(),
+                    "currency": cur,
+                    "dvol": float(k[4]),
+                }
+            )
+    if not rows:
+        return pl.DataFrame(schema={"date": pl.Date, "currency": pl.Utf8, "dvol": pl.Float64})
+    return (
+        pl.DataFrame(rows).unique(subset=["date", "currency"], keep="last").sort("currency", "date")
+    )
+
+
+def vrp_history(dvol: pl.DataFrame, prices: pl.DataFrame, currency: str = "BTC") -> pl.DataFrame:
+    """VRP_t = IV²₃₀ − RV̂²₃₀ with IV = DVOL/100 and RV̂²₃₀ = (365/30) Σ₃₀ f² (notes §4.4)."""
+    px = prices.filter(pl.col("base") == currency).sort("date")
+    schema = {
+        "date": pl.Date,
+        "currency": pl.Utf8,
+        "iv30": pl.Float64,
+        "rv30_var": pl.Float64,
+        "vrp": pl.Float64,
+    }
+    if px.height < 40:
+        return pl.DataFrame(schema=schema)
+    lr = np.diff(np.log(px["close"].to_numpy()))
+    rv = np.full(lr.size + 1, np.nan)
+    for i in range(30, lr.size + 1):
+        rv[i] = 365.0 / 30.0 * float(np.sum(lr[i - 30 : i] ** 2))
+    rvdf = pl.DataFrame({"date": px["date"].to_list(), "rv30_var": rv.tolist()})
+    d = dvol.filter(pl.col("currency") == currency).select(
+        "date", (pl.col("dvol") / 100.0).alias("iv30")
+    )
+    out = d.join(rvdf, on="date", how="inner").with_columns(
+        (pl.col("iv30") ** 2 - pl.col("rv30_var")).alias("vrp"), pl.lit(currency).alias("currency")
+    )
+    return out.filter(pl.col("vrp").is_finite()).select(list(schema)).sort("date")
+
+
 def fetch_market_caps(ids: list[str], ts: datetime | None = None, force: bool = False):
     return run_dataset(
         "coingecko",
@@ -380,6 +455,7 @@ def backfill(start: date, ts: datetime | None = None, force: bool = False) -> di
         "oi_history", lambda: fetch_oi_history(b_perp, [s.split("-")[0] for s in o_perp], ts, force)
     )
     fr.run("market_caps_365d", lambda: fetch_market_caps(t12["id"].to_list(), ts, force))
+    fr.run("dvol_history", lambda: fetch_dvol_history(start, ts, force))
     fr.flush()
     counts = rebuild_history()
     return {**fr.out, **counts}
@@ -474,6 +550,19 @@ def rebuild_history() -> dict:
             )
         )
         counts["market_cap_history"] = archive.upsert("market_cap_history", m).height
+    dv = [parse_dvol_history(e) for e in envs("deribit_dvol_history")]
+    dv = [f for f in dv if f.height]
+    if dv:
+        d = (
+            pl.concat(dv)
+            .unique(subset=["date", "currency"], keep="last")
+            .with_columns(
+                pl.lit("deribit").alias("source"),
+                pl.lit(now).alias("fetched_at"),
+                pl.lit(sha).alias("git_sha"),
+            )
+        )
+        counts["dvol_daily"] = archive.upsert("dvol_daily", d).height
     counts.update(walk_forward())
     return counts
 
@@ -674,27 +763,51 @@ def walk_forward() -> dict:
         s = sc.sort("date")
         zs = pos.robust_z_series(-s["growth_30d"].fill_null(np.nan).to_numpy(), w250)
         zsc_map = dict(zip(s["date"].to_list(), zs, strict=True))
+    # VRP history from DVOL (the fifth component) → also Rule 4.3 walk-forward
+    dvd = archive.read("dvol_daily")
+    zvrp_map, vrp_map = {}, {}
+    if dvd is not None and dvd.height:
+        vh = vrp_history(dvd, prices, "BTC")
+        if vh.height:
+            archive.upsert(
+                "vrp_history",
+                vh.with_columns(
+                    pl.lit("deribit dvol + prices_daily").alias("source"),
+                    pl.lit(now).alias("fetched_at"),
+                    pl.lit(sha).alias("git_sha"),
+                ),
+            )
+            zv = pos.robust_z_series(-vh["vrp"].to_numpy(), w250)
+            zvrp_map = dict(zip(vh["date"].to_list(), zv, strict=True))
+            vrp_map = dict(zip(vh["date"].to_list(), vh["vrp"].to_list(), strict=True))
     frag_rows = []
     for i, d in enumerate(agg["date"].to_list()):
         comps = {
             "z_fr": None if np.isnan(zfr[i]) else float(zfr[i]),
             "z_dd": None if np.isnan(dd_map.get(d, np.nan)) else float(dd_map[d]),
             "z_sc_neg": None if np.isnan(zsc_map.get(d, np.nan)) else float(zsc_map[d]),
+            "z_vrp_neg": None if np.isnan(zvrp_map.get(d, np.nan)) else float(zvrp_map[d]),
         }
         vals = [v for v in comps.values() if v is not None]
-        frag_rows.append(
-            {
-                "date": d,
-                "phi": float(np.mean(vals)) if vals else None,
-                "n_components": len(vals),
-                **comps,
-            }
-        )
+        phi_d = float(np.mean(vals)) if vals else None
+        frag_rows.append({"date": d, "phi": phi_d, "n_components": len(vals), **comps})
+        if phi_d is not None and d in vrp_map:
+            fires.append(
+                rules_mod.vol_underpricing(
+                    "BTC",
+                    datetime.combine(d, datetime.min.time(), tzinfo=UTC),
+                    vrp_map[d],
+                    phi_d,
+                    th["rules"],
+                )
+            )
     if frag_rows:
         archive.upsert(
             "fragility_history",
             pl.DataFrame(frag_rows, infer_schema_length=None).with_columns(
-                pl.lit("walk_forward (3 of 5 components available in history)").alias("source"),
+                pl.lit(
+                    "walk_forward (z_fr, z_dd, z_sc_neg, z_vrp_neg from history; z_oi within the venues' OI window)"
+                ).alias("source"),
                 pl.lit(now).alias("fetched_at"),
                 pl.lit(sha).alias("git_sha"),
             ),

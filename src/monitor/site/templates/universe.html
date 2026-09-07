@@ -4,8 +4,8 @@
 <h2>Universe and tiers</h2>
 <div class="panel">
 <p class="meta" id="uni-meta">loading data/universe.json …</p>
-<p>Tier 1: perps on ≥ 2 of Binance/Bybit/OKX, 30-day median aggregate OI ≥ USD 100M, 2 % depth ≥ USD 3M (depth <span class="badge">pending phase 3</span>).
-Tier 2: spot on ≥ 2 of Binance/Bybit/OKX/Coinbase/Kraken, 30-day ADV ≥ USD 10M (<span class="badge">reported volume</span> until wash filters land).
+<p>Tier 1: perps on ≥ 2 of Binance/Bybit/OKX, 30-day median aggregate OI ≥ USD 100M, 2 % depth ≥ USD 3M (intraday median of Σ venues from the hourly books; <span class="badge">measured</span> once the liquidity table exists, <span class="badge">pending</span> before).
+Tier 2: spot on ≥ 2 of Binance/Bybit/OKX/Coinbase/Kraken, 30-day ADV ≥ USD 10M (<span class="badge">wash-filtered</span> where the venue filters exist, <span class="badge">reported</span> otherwise).
 Tier 3: remainder. Stablecoins, wrapped and liquid-staking derivatives are excluded. Rules: <code>config/universe.yaml</code>.</p>
 <p><a id="uni-csv" href="#" download="universe.csv">Download CSV</a></p>
 </div>

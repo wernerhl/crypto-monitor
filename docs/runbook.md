@@ -52,6 +52,14 @@ the raw buckets are idempotent so it coexists with the Actions jobs. The mode-(b
 collector for Binance `forceOrder` / Bybit `allLiquidation` liquidation streams is the same
 script's natural home and is not implemented in this repository.
 
+## Collector on a Mac (installed 2026-09-07)
+`scripts/install_collector_macos.sh` installs launchd agents that run `scripts/collector.sh
+hourly` at :09 and `daily` at 01:45 local time; logs in `~/Library/Logs/crypto-monitor-*.log`.
+The machine must be awake (System Settings → Battery → prevent sleep, or `caffeinate`), have
+push rights (`gh auth` is used by git) and the `.env` with keys. `scripts/install_collector_macos.sh
+--remove` uninstalls. Both paths write the same idempotent raw buckets, so the Actions jobs
+simply reuse whatever the collector already fetched.
+
 ## Re-running by hand
 ```bash
 make fetch                 # today's raw files (skips ones that exist)

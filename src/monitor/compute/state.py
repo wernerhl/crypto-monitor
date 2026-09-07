@@ -68,6 +68,17 @@ def realised_vol_daily(log_returns: np.ndarray, window: int = 20) -> np.ndarray:
     return out
 
 
+def realised_vol_weekly(log_returns: np.ndarray, days: int = 7) -> np.ndarray:
+    """Annualised realised vol on non-overlapping `days`-day blocks (√365 scaling); one value
+    per block so the switching model sees independent observations."""
+    r = np.asarray(log_returns, float)
+    n = r.size // days
+    if n == 0:
+        return np.array([])
+    blocks = r[r.size - n * days :].reshape(n, days)
+    return np.sqrt(np.mean(blocks**2, axis=1) * 365.0)
+
+
 def vol_state_model(log_rv: np.ndarray, min_obs: int = 250) -> dict:
     """Fit eq. 3.3 with statsmodels `MarkovAutoregression(k_regimes=2, order=1,
     switching_variance=True)`. Returns filtered P(high) for the last observation and its path,

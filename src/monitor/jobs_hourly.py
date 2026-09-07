@@ -775,11 +775,20 @@ def _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now) -> dict | 
         w,
     )
     # VRP history from options_metrics (negative sign), drawdown from BTC close
-    om = archive.read("options_metrics")
-    if om is not None and om.height:
-        v = om.filter(pl.col("currency") == "BTC").sort("ts")["vrp"].drop_nulls().to_numpy()
-        cur = next((r["vrp"] for r in opt_rows if r["currency"] == "BTC"), None)
-        hist = np.append(v, cur) if cur is not None else v
+    # VRP history: DVOL-based daily series from the backfill, then today's chain-based VRP
+    vh = archive.read("vrp_history")
+    cur = next((r["vrp"] for r in opt_rows if r["currency"] == "BTC"), None)
+    if vh is not None and vh.height:
+        v = vh.filter(pl.col("currency") == "BTC").sort("date")["vrp"].to_numpy()
+    else:
+        om = archive.read("options_metrics")
+        v = (
+            om.filter(pl.col("currency") == "BTC").sort("ts")["vrp"].drop_nulls().to_numpy()
+            if om is not None and om.height
+            else np.array([])
+        )
+    hist = np.append(v, cur) if cur is not None else v
+    if hist.size:
         zz = state_mod.fragility_components({"z_vrp_neg": -hist}, w)
         z.update({k: zz[k] for k in ("z_vrp_neg", "z_vrp_neg_n")})
     btc = prices.filter(pl.col("base") == "BTC").sort("date")["close"].to_numpy()
@@ -814,11 +823,13 @@ def _vol_state(prices, now, sha) -> dict | None:
     if btc.height < 60:
         return None
     lr = np.diff(np.log(btc["close"].to_numpy()))
-    rv = state_mod.realised_vol_daily(lr)
-    res = state_mod.vol_state_model(np.log(rv[np.isfinite(rv)]))
+    # non-overlapping weekly realised vol: overlapping 20-day windows gave an AR coefficient
+    # of one and meaningless durations
+    rv = state_mod.realised_vol_weekly(lr)
+    res = state_mod.vol_state_model(np.log(rv[np.isfinite(rv) & (rv > 0)]), min_obs=100)
     row = {
         "date": btc["date"][-1],
-        "status": res["status"],
+        "status": res["status"] + " (weekly realised vol; durations in weeks)",
         "p_high": res.get("p_high"),
         "expected_duration_high": res.get("expected_duration_high"),
         "expected_duration_low": res.get("expected_duration_low"),

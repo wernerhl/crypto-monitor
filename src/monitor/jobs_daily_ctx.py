@@ -58,6 +58,13 @@ def fetch_context(ts: datetime | None = None, force: bool = False) -> dict[str, 
             "fees_tvl",
             lambda: weekly("llama_api_fees_tvl", lambda: llama.fetch_fees_tvl(ts=ts, force=force)),
         ),
+        (
+            "unlock_detail",
+            lambda: weekly(
+                "llama_datasets_unlock_detail",
+                lambda: llama.fetch_unlock_detail(_tier12_slugs(), ts=ts, force=force),
+            ),
+        ),
         ("fred", lambda: fred.fetch_series(ts=ts, force=force)),
         ("fred_meta", lambda: fred.fetch_meta(ts=ts, force=force)),
         ("coinmetrics", lambda: onchain.fetch_coinmetrics(start=cm_start, ts=ts, force=force)),
@@ -79,6 +86,27 @@ def fetch_context(ts: datetime | None = None, force: bool = False) -> dict[str, 
             log.warning("%s failed: %s", name, e)
             out[name] = f"FAILED: {e}"
     return out
+
+
+def _tier12_slugs() -> list[str]:
+    """DefiLlama protocol slugs for Tier 1/2 assets that have an unlock schedule."""
+    uni = archive.read("universe")
+    sup = archive.read("unlock_supply")
+    if uni is None or sup is None or not sup.height:
+        return []
+    ids = set(
+        uni.filter((pl.col("as_of") == uni["as_of"].max()) & pl.col("tier").is_in([1, 2]))[
+            "id"
+        ].to_list()
+    )
+    latest = sup.filter(pl.col("as_of") == sup["as_of"].max())
+    return sorted(
+        {
+            r["protocol"]
+            for r in latest.filter(pl.col("id").is_in(ids)).select("protocol").to_dicts()
+            if r["protocol"]
+        }
+    )
 
 
 def _envs(store: RawStore, name: str, rebuild: bool):
@@ -110,6 +138,7 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
         sups.append(s)
     put("unlock_events", evs)
     put("unlock_supply", sups)
+    put("unlock_detail", [llama.parse_unlock_detail(e) for e in E("llama_datasets_unlock_detail")])
     put("fees_tvl", [llama.parse_fees_tvl(e) for e in E("llama_api_fees_tvl")])
     put("macro", [fred.parse_series(e) for e in E("fred_csv_series")])
     put("onchain", [onchain.parse_coinmetrics(e) for e in E("coinmetrics_asset_metrics")])
@@ -170,6 +199,41 @@ def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
     if ev is not None and ev.height:
         ev = ev.filter(pl.col("fetched_at") == ev["fetched_at"].max())
         sched = sup.expand_linear(ev)
+        # exact daily amounts from the per-protocol detail replace the even-spread linear
+        # approximation for the protocols we have it for
+        det = archive.read("unlock_detail")
+        sup_tab = archive.read("unlock_supply")
+        if det is not None and det.height and sup_tab is not None:
+            det = det.filter(pl.col("fetched_at") == det["fetched_at"].max())
+            latest_sup = sup_tab.filter(pl.col("as_of") == sup_tab["as_of"].max())
+            slug_to_id = {
+                r["protocol"]: r["id"]
+                for r in latest_sup.select("protocol", "id").to_dicts()
+                if r["protocol"]
+            }
+            det = det.with_columns(
+                pl.col("protocol").replace_strict(slug_to_id, default=None).alias("id")
+            ).drop_nulls("id")
+            covered = set(det["id"].to_list())
+            exact = det.filter(pl.col("date") > as_of).select(
+                "id",
+                "date",
+                pl.lit("linear_exact").alias("kind"),
+                pl.col("label").alias("recipient"),
+                pl.col("label").alias("category"),
+                "recipient_class",
+                "amount",
+                pl.lit("llama_datasets detail").alias("source"),
+                "fetched_at",
+                "git_sha",
+            )
+            sched = pl.concat(
+                [
+                    sched.filter(~(pl.col("id").is_in(covered) & (pl.col("kind") == "linear"))),
+                    exact.select(sched.columns),
+                ],
+                how="vertical_relaxed",
+            )
         in_uni = sched.filter(pl.col("id").is_in(uni.filter(pl.col("tier").is_not_null())["id"]))
         frames = []
         for h in (13, 30, 90):

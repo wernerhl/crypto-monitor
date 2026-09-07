@@ -26,6 +26,11 @@ def compute_hit_rates(as_of: date | None = None) -> pl.DataFrame:
         return pl.DataFrame()
     om = archive.read("options_metrics")
     iv_at = {}
+    # historical flags: IV30 from the DVOL-based VRP history; live flags: the chain-based IV
+    vh = archive.read("vrp_history")
+    if vh is not None and vh.height:
+        for r in vh.select("date", "currency", "iv30").to_dicts():
+            iv_at[(r["currency"], r["date"])] = r["iv30"]
     if om is not None and om.height:
         for r in (
             om.with_columns(pl.col("ts").dt.date().alias("d"))

@@ -243,6 +243,7 @@ def tier(
         o, a, d = oi_d.get(m["id"], {}), adv_d.get(m["id"], {}), depth_d.get(m["id"], {})
         oi_med, oi_days = o.get("oi_median_usd"), int(o.get("oi_window_days") or 0)
         adv_usd, adv_days = a.get("adv_30d_usd"), int(a.get("adv_window_days") or 0)
+        adv_basis = "wash_filtered" if a.get("is_real") else "reported"
         depth_usd = d.get("depth_2pct_usd")
         depth_status = "measured" if depth_usd is not None else "pending_phase3"
         t: int | None
@@ -283,7 +284,7 @@ def tier(
                 spot_venues=len(spot_v),
                 spot_venue_list=spot_v,
                 adv_30d_usd=adv_usd,
-                adv_basis="reported",
+                adv_basis=adv_basis,
                 adv_window_days=adv_days,
                 tier_rule_version=cfg["version"],
                 source=source,

@@ -259,6 +259,27 @@ def compute_universe(as_of: date | None = None) -> pl.DataFrame:
     oi = uni_mod.oi_metrics(archive.read("perp_snapshot"), symap, as_of)
     adv = uni_mod.adv_metrics(archive.read("prices_daily"), symap, as_of)
     sectors = (cfg.get("sector_map") or {}).get("assignments") or {}
+    # measured depth and wash-filtered ADV from the liquidity table (phase 3+); before the
+    # first hourly run they are absent and the rules fall back to the flagged proxies
+    depth_df = None
+    liq = archive.read("liquidity")
+    if liq is not None and liq.height:
+        liq = liq.filter(pl.col("date") == liq["date"].max())
+        depth_df = liq.select("id", "depth_2pct_usd").filter(pl.col("depth_2pct_usd").is_not_null())
+        real = {
+            r["id"]: r["adv_real_usd"]
+            for r in liq.select("id", "adv_real_usd").to_dicts()
+            if r["adv_real_usd"]
+        }
+        if real and adv.height:
+            adv = (
+                adv.with_columns(pl.col("id").replace_strict(real, default=None).alias("adv_real"))
+                .with_columns(
+                    pl.coalesce(pl.col("adv_real"), pl.col("adv_30d_usd")).alias("adv_30d_usd"),
+                    pl.col("adv_real").is_not_null().alias("is_real"),
+                )
+                .drop("adv_real")
+            )
     uni = uni_mod.tier(
         cands,
         symap,
@@ -266,6 +287,7 @@ def compute_universe(as_of: date | None = None) -> pl.DataFrame:
         adv,
         cfg,
         as_of,
+        depth=depth_df,
         sector_map=sectors,
         source=src,
         fetched_at=utc_now(),
