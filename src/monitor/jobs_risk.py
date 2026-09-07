@@ -18,7 +18,7 @@ from monitor.compute import crosssection as xs
 from monitor.compute import sectors as sec
 from monitor.compute import trades as tr
 from monitor.compute import venue as ven
-from monitor.meta import git_sha, utc_now
+from monitor.meta import dump_json, git_sha, utc_now
 from monitor.paths import CONFIG, SITE_DATA
 from monitor.stress import covariance as cov
 from monitor.stress import es as es_mod
@@ -554,7 +554,5 @@ def compute_all_risk(now: datetime | None = None) -> dict:
 def write_risk_json(out: dict, path: Path = SITE_DATA) -> None:
     path.mkdir(parents=True, exist_ok=True)
     (path / "risk.json").write_text(
-        json.dumps(
-            {"generated_at": utc_now().isoformat(), "git_sha": git_sha(), **out}, default=str
-        )
+        dump_json({"generated_at": utc_now().isoformat(), "git_sha": git_sha(), **out})
     )

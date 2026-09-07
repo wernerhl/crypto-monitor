@@ -80,7 +80,7 @@ def compute_weekly() -> dict:
     from monitor.jobs_risk import compute_all_risk
 
     compute_all_risk()  # refresh w'B and screen ICs on the page
-    write_daily_json()
+    write_daily_json()  # also refreshes history.json
     return out
 
 

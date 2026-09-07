@@ -48,6 +48,7 @@ def aggregate_funding(perps: pl.DataFrame) -> pl.DataFrame:
             / pl.col("oi_usd").filter(pl.col("fr_ann").is_not_null()).sum()
         ).alias("funding_ann"),
         pl.col("oi_usd").sum().alias("oi_usd"),
+        pl.col("oi_usd").filter(pl.col("venue") == "okx").sum().alias("oi_usd_okx"),
         pl.col("venue").n_unique().cast(pl.Int64).alias("n_venues"),
         pl.col("venue")
         .filter(pl.col("fr_ann").is_not_null())
@@ -60,7 +61,7 @@ def aggregate_funding(perps: pl.DataFrame) -> pl.DataFrame:
 def daily_from_snapshots(agg: pl.DataFrame) -> pl.DataFrame:
     """One row per (date, base): mean funding_ann and last OI of the day (the OI-weighted
     funding series is standardised on a daily grid so hourly repeats of the same 8-hour rate
-    do not inflate the sample)."""
+    do not inflate the sample). `oi_usd_okx` is the OKX-only OI (see backfill)."""
     return (
         agg.sort("ts")
         .with_columns(pl.col("ts").dt.date().alias("date"))
@@ -68,6 +69,7 @@ def daily_from_snapshots(agg: pl.DataFrame) -> pl.DataFrame:
         .agg(
             pl.col("funding_ann").mean(),
             pl.col("oi_usd").last(),
+            pl.col("oi_usd_okx").last(),
             pl.col("n_venues").max(),
             pl.col("ts").last(),
         )

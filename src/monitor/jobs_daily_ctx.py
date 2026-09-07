@@ -17,7 +17,7 @@ from monitor.compute import context as ctx
 from monitor.compute import supply as sup
 from monitor.fetch import fred, llama, onchain, snapshot
 from monitor.fetch.base import RawStore
-from monitor.meta import git_sha, utc_now
+from monitor.meta import dump_json, git_sha, utc_now
 from monitor.paths import CONFIG, SITE_DATA
 
 log = logging.getLogger("monitor.daily_ctx")
@@ -325,7 +325,8 @@ def write_daily_json(out: Path = SITE_DATA) -> None:
         "eth_staking": latest("eth_staking", "date")[:1],
         "hit_rates": _hit_rates(),
     }
-    (out / "daily.json").write_text(json.dumps(payload, default=str))
+    (out / "daily.json").write_text(dump_json(payload))
+    write_history_json(out)
 
 
 def _onchain_summary() -> list[dict]:
@@ -371,4 +372,109 @@ def _hit_rates() -> dict:
     return {
         r["rule_id"]: {"hit_rate": r["hit_rate"], "n": r["n"], "horizon_days": r["horizon_days"]}
         for r in latest.to_dicts()
+    }
+
+
+def write_history_json(out: Path = SITE_DATA, days: int = 730) -> None:
+    """Time series the charts read (data/history.json): fragility history and components,
+    OI-weighted funding for the majors, stablecoin growth, macro context, BTC close, DVOL and
+    the current IV term structure. Two years of daily points keeps the file around 200 kB."""
+    out.mkdir(parents=True, exist_ok=True)
+    cutoff = utc_now().date() - timedelta(days=days)
+
+    def series(table: str, cols: list[str], key: str = "date", where=None) -> list[dict]:
+        df = archive.read(table)
+        if df is None or not df.height:
+            return []
+        if where is not None:
+            df = df.filter(where)
+        df = df.filter(pl.col(key) >= cutoff).sort(key)
+        return df.select([key, *cols]).to_dicts()
+
+    payload = {
+        "generated_at": utc_now().isoformat(),
+        "git_sha": git_sha(),
+        "days": days,
+        "fragility": series(
+            "fragility_history", ["phi", "n_components", "z_fr", "z_dd", "z_sc_neg"]
+        ),
+        "funding": {
+            b: series("funding_daily_history", ["funding_ann", "oi_usd"], where=pl.col("base") == b)
+            for b in ("BTC", "ETH", "SOL")
+        },
+        "positioning_history": {
+            b: series("positioning_history", ["z_fr", "oi_change_5d"], where=pl.col("base") == b)
+            for b in ("BTC", "ETH")
+        },
+        "stablecoins": series("stablecoin_growth", ["total_usd", "growth_30d"]),
+        "macro": {
+            sid: series("macro", ["value"], where=pl.col("series_id") == sid)
+            for sid in ("WALCL", "WTREGEN", "RRPONTSYD", "DFII10", "DTWEXBGS", "VIXCLS")
+        },
+        "btc_close": _btc_close(cutoff),
+        "dvol": _dvol_series(),
+        "term_structure": _term_structure(),
+        "hit_rates": _hit_rates(),
+    }
+    (out / "history.json").write_text(dump_json(_round(payload)))
+
+
+def _round(o, sig: int = 5):
+    """Round floats to `sig` significant digits (chart resolution) to keep the file small."""
+    if isinstance(o, float):
+        return float(f"{o:.{sig}g}") if o == o else None
+    if isinstance(o, dict):
+        return {k: _round(v, sig) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_round(v, sig) for v in o]
+    return o
+
+
+def _btc_close(cutoff: date) -> list[dict]:
+    from monitor.jobs_hourly import _daily_prices_by_base
+
+    p = _daily_prices_by_base()
+    if not p.height:
+        return []
+    return (
+        p.filter((pl.col("base") == "BTC") & (pl.col("date") >= cutoff))
+        .sort("date")
+        .select("date", "close", "volume_quote")
+        .to_dicts()
+    )
+
+
+def _term_structure() -> dict:
+    """Per-expiry ATM IV and RR25 from the latest options snapshot (for the term-structure chart)."""
+    from monitor.compute.positioning import expiry_metrics
+
+    opts = archive.read("options")
+    if opts is None or not opts.height:
+        return {}
+    out = {}
+    for cur in ("BTC", "ETH"):
+        o = opts.filter(pl.col("currency") == cur)
+        if not o.height:
+            continue
+        chain = o.filter(pl.col("ts") == o["ts"].max()).with_columns(pl.col("mark_iv") / 100.0)
+        em = expiry_metrics(chain)
+        out[cur] = {
+            "ts": str(o["ts"].max()),
+            "rows": em.sort("t_years")
+            .select("expiry", "t_years", "atm_iv", "rr25", "total_oi", "max_oi_strike")
+            .to_dicts(),
+        }
+    return out
+
+
+def _dvol_series() -> dict:
+    dv = archive.read("dvol")
+    if dv is None or not dv.height:
+        return {}
+    return {
+        c: [
+            {"ts": str(r["ts"]), "dvol": r["dvol"]}
+            for r in dv.filter(pl.col("currency") == c).sort("ts").to_dicts()
+        ]
+        for c in ("BTC", "ETH")
     }

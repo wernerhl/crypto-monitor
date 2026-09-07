@@ -25,3 +25,21 @@ def git_sha() -> str:
         return out.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "unknown"
+
+
+def dump_json(obj, **kw) -> str:
+    """JSON for the site: NaN / ±Infinity become null (strict browsers reject them)."""
+    import json
+    import math
+
+    def clean(o):
+        if isinstance(o, float):
+            return o if math.isfinite(o) else None
+        if isinstance(o, dict):
+            return {k: clean(v) for k, v in o.items()}
+        if isinstance(o, list | tuple):
+            return [clean(v) for v in o]
+        return o
+
+    kw.setdefault("default", str)
+    return json.dumps(clean(obj), allow_nan=False, **kw)

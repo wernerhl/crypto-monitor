@@ -479,16 +479,16 @@ def rebuild_history() -> dict:
 
 
 def _daily_funding_from_history(fh: pl.DataFrame, oi_hist: pl.DataFrame | None) -> pl.DataFrame:
-    """Daily OI-weighted annualised funding per base from the funding history. Periods per
-    day are inferred per venue-symbol (8h → 3, 4h → 6); weights are the venue's OI when the OI
-    history covers the day, else equal weights (flagged `weights = equal`)."""
+    """Daily OI-weighted annualised funding per base from the funding history (sum of the
+    day's funding × 365). Weights are each venue's OI where the OI history covers the day, else
+    equal weights (`equal_weights`). `oi_usd` is the sum over venues with history (Binance,
+    OKX); `oi_usd_okx` is the OKX-only series used for OI statistics, the one venue whose OI
+    is both historical and reachable from every runner."""
     f = fh.with_columns(pl.col("ts").dt.date().alias("date"))
     per = f.group_by("date", "venue", "symbol", "base").agg(
         pl.col("funding_rate").sum().alias("fr_day"), pl.len().alias("n")
     )
-    per = per.with_columns(
-        (pl.col("fr_day") * 365.0).alias("fr_ann")
-    )  # sum over the day × 365 = annualised
+    per = per.with_columns((pl.col("fr_day") * 365.0).alias("fr_ann"))
     if oi_hist is not None and oi_hist.height:
         per = per.join(
             oi_hist.select("date", "venue", "base", "oi_usd"),
@@ -500,16 +500,32 @@ def _daily_funding_from_history(fh: pl.DataFrame, oi_hist: pl.DataFrame | None) 
     per = per.with_columns(
         pl.col("oi_usd").fill_null(1.0).alias("w"), pl.col("oi_usd").is_null().alias("equal_w")
     )
-    return (
+    out = (
         per.group_by("date", "base")
         .agg(
             ((pl.col("fr_ann") * pl.col("w")).sum() / pl.col("w").sum()).alias("funding_ann"),
             pl.col("oi_usd").sum().alias("oi_usd"),
+            pl.col("oi_usd").filter(pl.col("venue") == "okx").sum().alias("oi_usd_okx"),
             pl.col("venue").n_unique().cast(pl.Int64).alias("n_venues"),
             pl.col("equal_w").any().alias("equal_weights"),
         )
         .sort("base", "date")
     )
+    # OKX OI history is only 30 days; before that the OKX-only series is unknown, not zero
+    ok = (
+        oi_hist.filter(pl.col("venue") == "okx").select(
+            "date", "base", pl.col("oi_usd").alias("_ok")
+        )
+        if oi_hist is not None and oi_hist.height
+        else None
+    )
+    if ok is not None:
+        out = (
+            out.join(ok, on=["date", "base"], how="left")
+            .with_columns(pl.col("_ok").alias("oi_usd_okx"))
+            .drop("_ok")
+        )
+    return out
 
 
 def walk_forward() -> dict:
@@ -559,9 +575,13 @@ def walk_forward() -> dict:
         z = pos.robust_z_series(fr_, w90)
         px = prices.filter(pl.col("base") == base).sort("date")
         j = g.join(px.select("date", "close"), on="date", how="left")
-        oi = j["oi_usd"].to_numpy()
+        oi = np.array([v if v else np.nan for v in j["oi_usd_okx"].to_list()], dtype=float)
         for i, d in enumerate(g["date"].to_list()):
-            oi_chg = float(oi[i] / oi[i - 5] - 1) if i >= 5 and oi[i - 5] and oi[i] else None
+            oi_chg = (
+                float(oi[i] / oi[i - 5] - 1)
+                if i >= 5 and np.isfinite(oi[i - 5]) and oi[i - 5] > 0 and np.isfinite(oi[i])
+                else None
+            )
             rows.append(
                 {
                     "date": d,
@@ -576,7 +596,11 @@ def walk_forward() -> dict:
                 when = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
                 # full rules need liquidation data / depth that do not exist in history: evaluate the
                 # partial-input variants (funding and OI legs only), labelled 4.1p / 4.2p on the page
-                oi_pct = pos.percentile_rank(oi[: i + 1], 90) if i >= 30 and oi[i] else None
+                oi_pct = (
+                    pos.percentile_rank(oi[: i + 1], 90)
+                    if np.isfinite(oi[: i + 1]).sum() > 30 and np.isfinite(oi[i])
+                    else None
+                )
                 t41, t42 = th["rules"]["crowded_long"], th["rules"]["capitulation"]
                 f41 = rules_mod.RuleFire(
                     rule_id="4.1p",

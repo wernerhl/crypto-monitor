@@ -7,7 +7,6 @@ clone reproduces every table from `data/raw/`.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -20,7 +19,7 @@ from monitor.compute import universe as uni_mod
 from monitor.fetch import binance, bybit, coinbase, coingecko, coinpaprika, kraken, okx
 from monitor.fetch.base import RawStore, SanityError
 from monitor.fetch.resilient import FetchRun
-from monitor.meta import git_sha, utc_now
+from monitor.meta import dump_json, git_sha, utc_now
 from monitor.paths import CONFIG, SITE_DATA
 
 log = logging.getLogger("monitor.jobs")
@@ -352,7 +351,7 @@ def write_site_json(out: Path = SITE_DATA) -> None:
         )
         fetches = latest.sort("ok", "dataset").to_dicts()
     (out / "status.json").write_text(
-        json.dumps(
+        dump_json(
             {
                 "generated_at": utc_now().isoformat(),
                 "git_sha": git_sha(),
@@ -392,4 +391,4 @@ def write_site_json(out: Path = SITE_DATA) -> None:
             "source",
         ).to_dicts(),
     }
-    (out / "universe.json").write_text(json.dumps(payload, default=str))
+    (out / "universe.json").write_text(dump_json(payload))

@@ -1,105 +1,175 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="panel meta" id="fp-meta">loading data/hourly.json …</div>
-{% for pid, title in [("venue","1. Venue and counterparty"),("book","2. Book risk"),("state","3. Market state"),("triggers","4. Active triggers"),("trades","5. Trade structures"),("events","6. Event strip (next four weeks)"),("screens","7. Tier 2/3 screens")] %}
-<h2>{{ title }}</h2>
-<div class="panel stale" id="panel-{{ pid }}"><span class="badge">unavailable</span> <span class="meta">reason: not yet computed</span></div>
-{% endfor %}
+<div id="banners"></div>
+<div id="strip" class="tiles" style="margin:14px 0"></div>
+
+<section class="panel" id="p-venue"><div class="phead"><h2>1 · Venue and counterparty</h2><span class="meta" id="m-venue"></span></div>
+<p class="intuition">The largest losses in crypto funds were venue events, not signal failures. Where the money sits, against limits that shrink as the venue score falls.</p><div id="c-venue"></div></section>
+
+<section class="panel" id="p-book"><div class="phead"><h2>2 · Book risk</h2><span class="meta" id="m-book"></span></div>
+<p class="intuition">What the book is exposed to, how few independent bets it really holds, and how much can be lost before positions can be reduced.</p><div id="c-book"></div></section>
+
+<section class="panel" id="p-state"><div class="phead"><h2>3 · Market state</h2><span class="meta" id="m-state"></span></div>
+<p class="intuition">The fragility index measures the size of the pile of dry material, not the timing of the spark: levered longs paying to hold, no protection bought, price at the highs, no new stablecoin money arriving.</p><div id="c-state"></div></section>
+
+<section class="panel" id="p-triggers"><div class="phead"><h2>4 · Active triggers</h2><span class="meta" id="m-triggers"></span></div>
+<p class="intuition">Pre-committed responses to configurations known to precede forced flow. Thresholds are frozen; hit rates come with their (small) sample sizes.</p><div id="c-triggers"></div></section>
+
+<section class="panel" id="p-trades"><div class="phead"><h2>5 · Trade structures</h2><span class="meta" id="m-trades"></span></div>
+<p class="intuition">Where durable return in crypto funds has come from: basis, funding carry, volatility premium, unlock shorts. Gross, cost, net, and the venue whose failure would matter most.</p><div id="c-trades"></div></section>
+
+<section class="panel" id="p-events"><div class="phead"><h2>6 · Event strip · next four weeks</h2><span class="meta" id="m-events"></span></div>
+<p class="intuition">Scheduled supply and dates that move positioning: cliffs in days of real volume, governance, upgrades, large options expiries.</p><div id="c-events"></div></section>
+
+<section class="panel" id="p-screens"><div class="phead"><h2>7 · Tier 2/3 screens and liquidity gate</h2><span class="meta" id="m-screens"></span></div>
+<p class="intuition">Screens condition attention; they are not forecasts. Each carries its trailing information coefficient with a standard error of the same order.</p><div id="c-screens"></div></section>
+
 <script>
-const fmt = (v, d=2) => v==null || Number.isNaN(v) ? '—' : (typeof v==='number' ? (Math.abs(v)>=1e9 ? (v/1e9).toFixed(2)+'B' : Math.abs(v)>=1e6 ? (v/1e6).toFixed(1)+'M' : Math.abs(v)>=1e3 ? (v/1e3).toFixed(1)+'k' : v.toFixed(d)) : v);
-const pct = v => v==null ? '—' : (100*v).toFixed(1)+'%';
-function table(cols, rows, render={}) {
-  return '<table><thead><tr>' + cols.map(c=>'<th>'+c+'</th>').join('') + '</tr></thead><tbody>' +
-    rows.map(r => '<tr>' + cols.map(c => '<td>' + (render[c] ? render[c](r[c], r) : fmt(r[c])) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
-}
-function setPanel(id, html, meta, stale, reason) {
-  const el = document.getElementById('panel-'+id);
-  el.className = 'panel' + (stale ? ' stale' : '');
-  el.innerHTML = (stale ? '<span class="badge">'+(reason||'stale')+'</span> ' : '') + '<div class="meta">' + meta + '</div>' + html;
-}
-function csvLink(rows, name) {
-  if (!rows.length) return '';
-  const cols = Object.keys(rows[0]);
-  const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => JSON.stringify(r[c]==null?'':r[c])).join(','))).join('\n');
-  return '<p><a download="'+name+'.csv" href="data:text/csv;charset=utf-8,'+encodeURIComponent(csv)+'">Download CSV</a></p>';
-}
 (async function(){
-  let h, d;
-  try { h = await (await fetch('data/hourly.json',{cache:'no-store'})).json(); } catch(e) { document.getElementById('fp-meta').textContent = 'hourly.json unavailable: ' + e; return; }
-  try { d = await (await fetch('data/daily.json',{cache:'no-store'})).json(); } catch(e) { d = null; }
-  const ageH = (new Date() - new Date(h.generated_at)) / 36e5;
-  document.getElementById('fp-meta').textContent = 'hourly data generated ' + h.generated_at + ' (' + ageH.toFixed(1) + ' h ago) · commit ' + h.git_sha.slice(0,12) + (d ? ' · daily data ' + d.generated_at : ' · daily data unavailable');
-  const staleH = ageH > 3;
-  // 3. market state
-  if (h.fragility && h.fragility.length) {
-    const f = h.fragility[0];
-    const comps = ['z_fr','z_oi','z_vrp_neg','z_dd','z_sc_neg'].map(c => ({component:c, z: f[c], n: f[c+'_n']}));
-    let html = '<p><strong>Fragility index Φ = ' + fmt(f.phi) + '</strong> from ' + f.n_components + ' of 5 components (250-day robust z; a component needs ≥ 30 prior days).</p>' + table(['component','z','n'], comps);
-    if (h.options && h.options.length) html += '<h3>Options (Deribit)</h3>' + table(['currency','iv_1w','iv_1m','iv_3m','term_slope','rr25_1m','vrp','dvol','n_instruments'], h.options, {iv_1w:pct, iv_1m:pct, iv_3m:pct, term_slope:pct, rr25_1m:pct, vrp:v=>fmt(v,4)});
-    if (h.vol_state && h.vol_state.length) { const v = h.vol_state[0]; html += '<p>Vol state (two-state switching on log RV, filtered): ' + (v.p_high==null ? 'unavailable — ' + v.status : 'P(high) = ' + fmt(v.p_high,3) + ', expected duration high ' + fmt(v.expected_duration_high,1) + ' d, low ' + fmt(v.expected_duration_low,1) + ' d, n = ' + v.n_obs) + '. Diagnostics on the methods page.</p>'; }
-    if (d && d.macro) html += '<h3>Macro context (FRED, weekly changes)</h3>' + table(['series','value','change_4w','date'], d.macro);
-    if (d && d.stablecoins) html += '<p>Stablecoin supply ' + fmt(d.stablecoins.total_usd) + ', 30-day growth ' + pct(d.stablecoins.growth_30d) + ' (' + d.stablecoins.date + ')</p>';
-    setPanel('state', html + csvLink(comps,'fragility'), 'source: ' + f.source + ' · ' + f.ts, staleH, staleH ? 'stale: hourly data older than 3 h' : null);
+  const [h, d, rk, st, hist] = await Promise.all([CM.json('data/hourly.json'), CM.json('data/daily.json'), CM.json('data/risk.json'), CM.json('data/status.json'), CM.json('data/history.json')]);
+  const F=CM.fmt, P=CM.pct, T=CM.tile, C=CM.colors;
+  const banners=[];
+  const missing=[];
+  if(!h) missing.push('hourly'); if(!d) missing.push('daily'); if(!rk) missing.push('risk');
+  if(missing.length) banners.push({c:'grey',lab:'data missing',txt:missing.join(', ')+' JSON not published yet'});
+
+  // ---------- headline state
+  const frag = h && h.fragility && h.fragility[0];
+  const phi = frag ? frag.phi : null;
+  const stateWord = phi==null ? 'UNKNOWN' : phi>1 ? 'FRAGILE' : phi>0 ? 'BUILDING' : 'CALM';
+  const stateCol = phi==null ? '' : phi>1 ? 'red' : phi>0 ? 'amber' : 'green';
+  const firing = (h&&h.rules||[]).filter(r=>r.fired===true);
+  const unavailable = (h&&h.rules||[]).filter(r=>r.fired==null);
+  if(firing.length) banners.push({c:'red',lab:'rules firing',txt:firing.map(r=>'Rule '+r.rule_id+' on '+r.asset).join(' · ')+' — see panel 4 for the inputs and the pre-committed action.'});
+  else if(h) banners.push({c:'green',lab:'no rule firing',txt:(h.rules||[]).filter(r=>r.fired===false).length+' rule evaluations quiet'+(unavailable.length?' · '+unavailable.length+' waiting for history (z-scores need 30+ days of funding)':'')+'.'});
+  if(rk){ const br=(rk.venue.exposure||[]).filter(e=>e.breach); const low=rk.venue.low_score; if(br.length||low.breach) banners.push({c:'amber',lab:'venue limits breached (example book)',txt:br.map(e=>e.venue+' '+P(e.share_nav)+' vs limit '+P(e.limit_share_nav)).join(' · ')+(low.breach?' · low-score venues '+P(low.share_nav)+' vs '+P(low.limit_share_nav):'')+' — replace config/book.yaml with your own positions.'}); }
+  if(st){ const bad=(st.fetches||[]).filter(f=>!f.ok); if(bad.length) banners.push({c:'grey',lab:'unavailable this run',txt:bad.map(f=>f.dataset).join(', ')+'. '+(bad.some(f=>/451|403/.test(f.reason||''))?'Binance futures and Bybit are geo-blocked from GitHub runners; OKX and Deribit carry the derivatives panels until the collector refreshes them.':'')}); const stale=(st.tables||[]).filter(t=>t.status!=='fresh'); if(stale.length) banners.push({c:'amber',lab:'stale tables',txt:stale.map(t=>t.table+' ('+t.reason+')').join(' · ')}); }
+  document.getElementById('banners').innerHTML = banners.map(b=>'<div class="banner '+b.c+'"><span class="lab">'+b.lab+'</span>'+b.txt+'</div>').join('');
+
+  // ---------- strip
+  const ageH = h ? CM.age(h.generated_at) : null;
+  const opt = h && h.options && h.options.find(o=>o.currency==='BTC');
+  const vs = h && h.vol_state && h.vol_state[0];
+  document.getElementById('strip').innerHTML = [
+    T({label:'market state', value:stateWord, color:stateCol, read: phi==null?'fragility index unavailable':'Φ = '+phi.toFixed(2)+' from '+frag.n_components+' of 5 components', bar: phi==null?null:50+phi*16}),
+    T({label:'rules firing', value:firing.length, color:firing.length?'red':'green', read:firing.length?firing.map(r=>r.rule_id+' '+r.asset).join(', '):'nothing pre-committed is triggered'}),
+    T({label:'BTC 1-month IV', value:opt&&opt.iv_1m!=null?P(opt.iv_1m,0):'—', color:'blue', read: opt&&opt.vrp!=null?(opt.vrp<0?'below realised: market prices less risk than it just had':'above realised: vol sellers are being paid'):'options unavailable'}),
+    T({label:'vol state P(high)', value: vs&&vs.p_high!=null?P(vs.p_high,0):'—', color: vs&&vs.p_high!=null?(vs.p_high>0.5?'amber':'green'):'', read: vs&&vs.p_high!=null?'expected duration '+vs.expected_duration_high.toFixed(0)+' d (filtered, not smoothed)':(vs?vs.status:'')}),
+    T({label:'hourly data age', value: ageH==null?'—':ageH.toFixed(1)+' h', color: ageH==null?'':(ageH>3?'amber':'green'), read: h?'generated '+h.generated_at.slice(0,16).replace('T',' ')+' UTC':''}),
+  ].join('');
+
+  // ---------- 1 venue
+  if(rk){
+    const v=rk.venue; const gc=g=>({A:'green',B:'blue',C:'amber',D:'red'})[g]||'';
+    let html='<div class="tiles">'+v.venues.map(x=>T({label:x.venue, value:'grade '+x.grade, color:gc(x.grade), read:'limit '+P(x.limit_share_nav,0)+' of NAV'+(x.wash_share!=null?' · '+P(x.wash_share,0)+' of pairs fail wash filters':''), bar:x.score_points/18*100})).join('')+'</div>';
+    html+='<div class="grid2"><div><h3>Exposure vs limit (share of NAV)</h3><div id="ch-venue" class="chart"></div></div><div><h3>Stablecoin and systemic exposure</h3><div class="tiles">'+v.stablecoins.map(s=>T({label:s.stablecoin+' collateral', value:P(s.share_nav,0)+' NAV', color: s.discount_to_par!=null&&Math.abs(s.discount_to_par)>0.005?'red':'green', read: s.discount_to_par==null?'peg unavailable':'discount to par '+(1e4*s.discount_to_par).toFixed(1)+' bp · '+(s.peg_mechanism||'')})).join('')+v.systemic.map(s=>T({label:s.name+' · '+s.kind, value: s.direct_exposure_usd||s.collateral_usd? F(Math.abs(s.direct_exposure_usd)+s.collateral_usd):'none', color:'', read:(s.note||'')+(s.discount_to_par!=null?' · '+(1e4*s.discount_to_par).toFixed(1)+' bp':'')})).join('')+'</div></div></div>';
+    html+='<p class="small">Example book (config/book.yaml, NAV '+F(v.nav_usd)+') — replace with your positions. Low-score aggregate: '+P(v.low_score.share_nav)+' of NAV vs limit '+P(v.low_score.limit_share_nav)+(v.low_score.breach?' — <b>breach</b>':' — ok')+'. Scores are a function of config/venues.yaml, reviewed '+v.reviewed_on+'.</p>'+CM.csv(v.exposure,'venue_exposure');
+    document.getElementById('c-venue').innerHTML=html; document.getElementById('m-venue').textContent='source: venues.yaml · book.yaml · DefiLlama pegs · wash filters · '+rk.generated_at.slice(0,16);
+    const ex=v.exposure;
+    CM.plot('ch-venue',[{type:'bar',orientation:'h',y:ex.map(e=>e.venue),x:ex.map(e=>e.share_nav),marker:{color:ex.map(e=>e.breach?C.red:C.green)},name:'exposure',hovertemplate:'%{y}: %{x:.1%}<extra></extra>'},{type:'bar',orientation:'h',y:ex.map(e=>e.venue),x:ex.map(e=>e.limit_share_nav),marker:{color:'rgba(255,255,255,0.10)',line:{color:'#9a927f',width:1}},name:'limit',hovertemplate:'limit %{x:.0%}<extra></extra>'}],{barmode:'overlay',xaxis:{tickformat:'.0%',gridcolor:'#221f19'},height:220,margin:{l:70,r:10,t:10,b:30},showlegend:true,legend:{orientation:'h',y:1.15}});
   }
-  // 4. triggers
-  if (h.rules && h.rules.length) {
-    const rows = h.rules.map(r => ({rule: r.rule_id, asset: r.asset, status: r.fired===true ? 'FIRING' : r.fired===false ? 'quiet' : 'unavailable', inputs: r.inputs, thresholds: r.thresholds, hit_rate: (d && d.hit_rates && d.hit_rates[r.rule_id]) ? pct(d.hit_rates[r.rule_id].hit_rate) + ' (n=' + d.hit_rates[r.rule_id].n + ')' : 'n/a (backfill pending)', note: r.note||''}));
-    rows.sort((a,b) => (a.status==='FIRING'?0:a.status==='quiet'?1:2) - (b.status==='FIRING'?0:b.status==='quiet'?1:2));
-    setPanel('triggers', '<p>Rules 4.1 crowded long, 4.2 capitulation, 4.3 vol underpricing (thresholds frozen in config/thresholds.yaml). Hit rates with sample sizes come from the walk-forward backfill.</p>' + table(['rule','asset','status','inputs','thresholds','hit_rate','note'], rows, {inputs: v => '<code>'+v+'</code>', thresholds: v => '<code>'+v+'</code>'}) + csvLink(rows,'rules'), 'source: rules over positioning/options/fragility · ' + h.rules[0].ts, staleH, staleH ? 'stale' : null);
+
+  // ---------- 2 book
+  if(rk){
+    const b=rk.book;
+    let html='<div class="tiles">'+[
+      T({label:'gross / net', value:P(b.gross,0)+' / '+P(b.net,0), read:'exposure as share of NAV'}),
+      T({label:'effective bets (stress)', value:b.n_eff_stress==null?'—':b.n_eff_stress.toFixed(2), color:b.n_eff_stress==null?'':(b.n_eff_stress<1.5?'amber':'green'), read:b.n_eff_stress==null?'':(b.n_eff_stress<1.5?'a market view plus a few relative-value positions':'some diversification survives stress'), bar:b.n_eff_stress==null?null:Math.min(100,b.n_eff_stress/5*100)}),
+      T({label:'vol · stress covariance', value:P(b.vol_ann_stress,0), color:'blue', read:'current-covariance vol '+P(b.vol_ann_current,0)+' · scale gross by '+(b.gross_scalar_for_vol_target==null?'—':b.gross_scalar_for_vol_target.toFixed(2))+' to hit the target'}),
+      T({label:'1-day ES 5%', value:P(b.es_1d), color: b.es_1d>0.05?'red':b.es_1d>0.03?'amber':'green', read:'Student-t simulation under the stress covariance · VaR '+P(b.var_1d), bar:b.es_1d==null?null:b.es_1d/0.1*100}),
+      T({label:'cascade P&L', value: b.cascade.total_share_nav==null?'—':P(b.cascade.total_share_nav), color:'amber', read: b.cascade.rows.some(r=>r.move==null)?'partial: liquidation density needs 30 days of OI history':'if every liquidation within 2σ triggers at once'}),
+      T({label:'worst venue halt', value: b.venue_halt.length? P(Math.min(...b.venue_halt.map(x=>x.pnl_share_nav))):'—', color:'red', read: b.venue_halt.length? b.venue_halt.slice().sort((a,c)=>a.pnl_share_nav-c.pnl_share_nav)[0].venue+' halted, '+P(b.venue_halt[0].recovery,0)+' recovery':''}),
+    ].join('')+'</div>';
+    html+='<div class="grid2"><div><h3>Factor exposure w′B</h3><div id="ch-fac" class="chart"></div></div><div><h3>Scenario P&L (share of NAV)</h3><div id="ch-scen" class="chart"></div></div></div>';
+    html+='<p class="small">Covariance: state-weighted Ledoit–Wolf tilted toward the high-vol state by η·Φ⁺ ('+b.n_obs+' daily observations'+(b.notes.length?'; '+b.notes.join('; '):'')+').</p>';
+    document.getElementById('c-book').innerHTML=html; document.getElementById('m-book').textContent='source: prices, vol state, fragility, positioning, book.yaml · '+rk.generated_at.slice(0,16);
+    if(b.factor_exposure){ const fe=Object.entries(b.factor_exposure).filter(([k])=>!k.startsWith('SEC_')); const se=Object.entries(b.factor_exposure).filter(([k])=>k.startsWith('SEC_')).sort((a,c)=>Math.abs(c[1])-Math.abs(a[1])).slice(0,6); const all=fe.concat(se); CM.plot('ch-fac',[{type:'bar',x:all.map(e=>e[0].replace('SEC_','')),y:all.map(e=>e[1]),marker:{color:all.map(e=>e[1]>=0?C.blue:C.purple)},hovertemplate:'%{x}: %{y:.2f}<extra></extra>'}],{height:240,margin:{l:40,r:10,t:10,b:60},xaxis:{tickangle:-30,gridcolor:'#221f19'}}); } else document.getElementById('ch-fac').innerHTML='<p class="small stale">factor betas need ≥ 100 weekly observations</p>';
+    const sc=b.venue_halt.map(x=>({n:'halt · '+x.venue,v:x.pnl_share_nav})).concat(b.systemic.map(x=>({n:'−50% · '+x.exposure,v:x.pnl_share_nav}))).concat([{n:'cascade 2σ',v:b.cascade.total_share_nav||0}]);
+    CM.plot('ch-scen',[{type:'bar',orientation:'h',y:sc.map(x=>x.n),x:sc.map(x=>x.v),marker:{color:sc.map(x=>x.v<-0.1?C.red:x.v<0?C.amber:C.green)},hovertemplate:'%{y}: %{x:.1%}<extra></extra>'}],{height:240,margin:{l:130,r:10,t:10,b:30},xaxis:{tickformat:'.0%',gridcolor:'#221f19'}});
   }
-  // 7. screens placeholder gets liquidity gate now
-  if (h.liquidity && h.liquidity.length) {
-    const rows = h.liquidity.map(r => ({tier:r.tier, base:r.base, depth_2pct_usd:r.depth_2pct_usd, lower_bound:r.depth_lower_bound?'≥':'', adv_real_usd:r.adv_real_usd, adv_reported_usd:r.adv_reported_usd, venues_passing:r.venues_passing, dtl_days:r.dtl_days, gate:r.gate_pass==null?'n/a':(r.gate_pass?'open':'CLOSED'), note:r.gate_note||''}));
-    setPanel('screens', '<p>Liquidity gate (Rule 7.1) at the reference size (book position or 1 % NAV); depth is Σ venues D(0.02) intraday median, "≥" marks a truncated book. Screens with IC arrive with the weekly job.</p>' + table(['tier','base','depth_2pct_usd','lower_bound','adv_real_usd','adv_reported_usd','venues_passing','dtl_days','gate','note'], rows) + csvLink(rows,'liquidity'), 'source: ' + h.liquidity[0].source + ' · ' + h.liquidity[0].date, false, null);
-  }
-  // 6. event strip
-  if (d && d.events && d.events.rows && d.events.rows.length) {
-    const rows = d.events.rows.map(r => ({date:r.date, kind:r.kind, asset:r.asset, title:r.title, detail:r.detail||'', source:r.source}));
-    const ageD = (new Date() - new Date(d.generated_at)) / 864e5;
-    setPanel('events', '<p>Next four weeks: unlock cliffs (share of float, days of real volume), governance votes ending, hand-maintained upgrades / listings / regulatory dates (config/events.yaml), large options expiries.</p>' + table(['date','kind','asset','title','detail','source'], rows) + csvLink(rows,'events'), 'as of ' + d.events.as_of + ' · daily data ' + d.generated_at, ageD > 1.5, ageD > 1.5 ? 'stale: daily data older than 36 h' : null);
-  }
-  let rk = null;
-  try { rk = await (await fetch('data/risk.json',{cache:'no-store'})).json(); } catch(e) { rk = null; }
-  if (rk) {
-    const ageR = (new Date() - new Date(rk.generated_at)) / 36e5, staleR = ageR > 36;
-    // 1. venue and counterparty
-    const v = rk.venue;
-    let html = '<p>Example book (config/book.yaml, NAV ' + fmt(v.nav_usd) + ') — replace with your own. Scores are a function of config/venues.yaml (reviewed ' + v.reviewed_on + ').</p>';
-    html += '<h3>Exposure by venue vs limits</h3>' + table(['venue','grade','exposure_usd','share_nav','limit_share_nav','utilisation','breach'], v.exposure, {share_nav:pct, limit_share_nav:pct, utilisation:v=>v==null?'—':(100*v).toFixed(0)+'%', breach:b=>b?'<strong>BREACH</strong>':'ok'});
-    html += '<p>Low-score venues (grade ≥ ' + 'C' + ') aggregate: ' + pct(v.low_score.share_nav) + ' of NAV vs limit ' + pct(v.low_score.limit_share_nav) + (v.low_score.breach ? ' — <strong>BREACH</strong>' : ' — ok') + '</p>';
-    html += '<h3>Venue scores</h3>' + table(['venue','grade','score_points','limit_share_nav','wash_share'], v.venues, {limit_share_nav:pct, wash_share:x=>x==null?'n/a':pct(x)});
-    html += '<h3>Stablecoin exposure</h3>' + table(['stablecoin','exposure_usd','share_nav','discount_to_par','peg_mechanism'], v.stablecoins, {share_nav:pct, discount_to_par:x=>x==null?'—':(1e4*x).toFixed(1)+' bp'});
-    html += '<h3>Systemic exposures (hand-tracked)</h3>' + table(['name','kind','direct_exposure_usd','collateral_usd','discount_to_par','note'], v.systemic, {discount_to_par:x=>x==null?'—':(1e4*x).toFixed(1)+' bp'});
-    setPanel('venue', html + csvLink(v.exposure,'venue_exposure'), 'source: config/venues.yaml, config/book.yaml, stablecoins (DefiLlama), wash filters · ' + rk.generated_at, staleR, staleR?'stale':null);
-    // 2. book risk
-    const b = rk.book;
-    html = '<p>Gross ' + pct(b.gross) + ', net ' + pct(b.net) + ' of NAV. Covariance: state-weighted Ledoit–Wolf with the fragility tilt (' + b.n_obs + ' daily observations' + (b.notes.length? '; ' + b.notes.join('; ') : '') + ').</p>';
-    html += table(['metric','value'], [
-      {metric:'annualised vol (stress covariance)', value: pct(b.vol_ann_stress)}, {metric:'annualised vol (current covariance)', value: pct(b.vol_ann_current)},
-      {metric:'effective number of bets (stress / current)', value: fmt(b.n_eff_stress) + ' / ' + fmt(b.n_eff_current)},
-      {metric:'1-day expected shortfall 5 % (Student-t, stress cov)', value: pct(b.es_1d)}, {metric:'1-day VaR 5 %', value: pct(b.var_1d)},
-      {metric:'gross scalar to hit the vol target', value: fmt(b.gross_scalar_for_vol_target)},
-      {metric:'liquidation-cascade P&L (Λ⁻ within 2σ)', value: b.cascade.total_share_nav==null?'—':pct(b.cascade.total_share_nav) + (b.cascade.rows.some(r=>r.move==null)?' (some positions lack a liquidation density yet)':'')}
-    ]);
-    html += '<h3>Factor exposure w′B</h3>' + (b.factor_exposure ? table(['factor','exposure'], Object.entries(b.factor_exposure).map(([k,v])=>({factor:k, exposure:v})), {exposure:x=>fmt(x,3)}) + '<p class="meta">betas as of week ' + b.factor_week + '</p>' : '<p class="stale"><span class="badge">unavailable</span> factor betas need ≥ 100 weekly observations (weekly job after the backfill)</p>');
-    html += '<h3>Venue-halt P&L</h3>' + table(['venue','exposure_usd','recovery','pnl_share_nav'], b.venue_halt, {pnl_share_nav:pct});
-    html += '<h3>Systemic 50 % drawdown P&L</h3>' + table(['exposure','kind','direct_usd','collateral_usd','pnl_share_nav'], b.systemic, {pnl_share_nav:pct});
-    setPanel('book', html, 'source: prices_daily, vol_state, fragility, positioning, book.yaml · ' + rk.generated_at, staleR, staleR?'stale':null);
-    // 5. trade structures
-    if (rk.trades && rk.trades.length) {
-      const rows = rk.trades.map(r=>({structure:r.structure, asset:r.asset, instrument:r.instrument, venue:r.venue + ' (' + (r.venue_score||'?') + ')', days:r.days, gross_ann:r.gross_ann, cost_ann:r.cost_ann, net_ann:r.net_ann, dominant_risk:r.dominant_risk}));
-      rows.sort((a,b)=>(b.net_ann??-9)-(a.net_ann??-9));
-      setPanel('trades', '<p>Gross, estimated cost and net annualised rates with the execution venue and its score. Cost assumptions in config/thresholds.yaml (stablecoin borrow) and config/venues.yaml (fees). Net carry is compared against the venue score where the short leg sits.</p>' + table(['structure','asset','instrument','venue','days','gross_ann','cost_ann','net_ann','dominant_risk'], rows, {gross_ann:pct, cost_ann:pct, net_ann:pct, days:x=>x==null?'—':x.toFixed(0)}) + csvLink(rows,'trades'), 'source: futures_marks, funding_daily, options_metrics, cliffs · ' + rk.generated_at, staleR, staleR?'stale':null);
+
+  // ---------- 3 market state
+  if(h){
+    const f=frag||{};
+    const comp=[['z_fr','funding z','longs paying an unusual premium to hold: fragile to any shock','funding subdued: no crowded long base','funding ordinary'],['z_oi','open interest / cap z','levered share of the float unusually high','little leverage on the float','leverage ordinary'],['z_vrp_neg','−VRP z','protection is not being bought (premium compressed)','vol sellers well paid: protection bought','vol premium ordinary'],['z_dd','−drawdown z','price at the highs: liquidation mass sits just below','far below the highs: stops already flushed','drawdown ordinary'],['z_sc_neg','−stablecoin growth z','no new settlement money to absorb forced selling','stablecoin money arriving fast','stablecoin growth ordinary']];
+    const read=(z,hi,lo,mid)=> z>1?hi:z<-1?lo:mid;
+    let html='<div class="grid2"><div><div id="ch-gauge" class="chart" style="min-height:300px"></div><p class="small" style="text-align:center">each component is a 250-day robust z-score; Φ is their mean. Above 1 the pile of dry material is large; below 0 it is small.</p></div><div class="tiles">'+comp.map(([k,l,hi,lo,mid])=>{const z=f[k]; const n=f[k+'_n']; return T({label:l, value:z==null?'n/a':CM.sign(z), color: z==null?'':(z>1?'red':z<-1?'green':'amber'), read: z==null?('needs 30+ days of history'+(n?' ('+n+' so far)':'')):read(z,hi,lo,mid)+' (n='+(n||'?')+')', bar: z==null?null:50+z*16, na:z==null});}).join('')+'</div></div>';
+    html+='<div class="grid2"><div><h3>Fragility index · 2 years (walk-forward, 3 of 5 components in history)</h3><div id="ch-frag" class="chart"></div></div><div><h3>BTC · OI-weighted annualised funding</h3><div id="ch-fund" class="chart"></div></div></div>';
+    html+='<div class="grid2"><div><h3>Implied vol term structure (Deribit ATM)</h3><div id="ch-term" class="chart"></div></div><div><h3>Options readings</h3><div class="tiles" id="opt-tiles"></div></div></div>';
+    html+='<div class="grid2"><div><h3>Net USD liquidity (WALCL − TGA − RRP, $bn)</h3><div id="ch-liq" class="chart"></div></div><div><h3>Stablecoin supply and 30-day growth</h3><div id="ch-sc" class="chart"></div></div></div>';
+    html+='<div class="tiles" id="macro-tiles"></div>';
+    document.getElementById('c-state').innerHTML=html; document.getElementById('m-state').textContent='source: '+(f.source||'')+' · '+(f.ts||'').toString().slice(0,16);
+    CM.plot('ch-gauge',[{type:'indicator',mode:'gauge+number',value:phi==null?0:Math.round(phi*100)/100,number:{font:{size:34,color:'#efe8d8',family:'SF Mono, Menlo, monospace'},valueformat:'+.2f'},title:{text:'FRAGILITY INDEX Φ · '+stateWord,font:{size:12,color:'#9a927f',family:'SF Mono, Menlo, monospace'}},domain:{x:[0,1],y:[0,1]},gauge:{shape:'angular',axis:{range:[-3,3],tickvals:[-3,-2,-1,0,1,2,3],tickcolor:'#9a927f',tickfont:{size:10}},bar:{color:'rgba(0,0,0,0)'},bgcolor:'rgba(0,0,0,0)',borderwidth:0,steps:[{range:[-3,0],color:'rgba(125,211,154,0.6)'},{range:[0,1],color:'rgba(229,184,90,0.6)'},{range:[1,3],color:'rgba(224,119,111,0.65)'}],threshold:{line:{color:'#efe8d8',width:4},thickness:0.9,value:phi==null?0:phi}}}],{height:300,margin:{l:30,r:30,t:50,b:10}});
+    if(hist){
+      const fr=hist.fragility||[]; CM.plot('ch-frag',[{x:fr.map(r=>r.date),y:fr.map(r=>r.phi),type:'scatter',mode:'lines',line:{color:C.amber,width:1.5},name:'Φ (history)',hovertemplate:'%{x}: %{y:.2f}<extra></extra>'}],{height:240,shapes:[{type:'rect',xref:'paper',x0:0,x1:1,y0:1,y1:4,fillcolor:'rgba(224,119,111,0.12)',line:{width:0}},{type:'rect',xref:'paper',x0:0,x1:1,y0:-4,y1:0,fillcolor:'rgba(125,211,154,0.07)',line:{width:0}}],yaxis:{range:[-3,3],gridcolor:'#221f19'},showlegend:false});
+      const fu=(hist.funding||{}).BTC||[]; const fe=(hist.funding||{}).ETH||[]; CM.plot('ch-fund',[{x:fu.map(r=>r.date),y:fu.map(r=>r.funding_ann),type:'scatter',mode:'lines',line:{color:C.blue,width:1.3},name:'BTC',hovertemplate:'%{y:.1%}<extra>BTC</extra>'},{x:fe.map(r=>r.date),y:fe.map(r=>r.funding_ann),type:'scatter',mode:'lines',line:{color:C.purple,width:1},name:'ETH',hovertemplate:'%{y:.1%}<extra>ETH</extra>'}],{height:240,yaxis:{tickformat:'.0%',gridcolor:'#221f19'}});
+      const ts=hist.term_structure||{}; const tr=[]; for(const c of ['BTC','ETH']){ const rows=(ts[c]&&ts[c].rows||[]).filter(r=>r.atm_iv!=null); tr.push({x:rows.map(r=>r.t_years*365),y:rows.map(r=>r.atm_iv),type:'scatter',mode:'lines+markers',name:c+' ATM IV',line:{color:c==='BTC'?C.blue:C.purple},hovertemplate:'%{x:.0f} d: %{y:.1%}<extra>'+c+'</extra>'}); }
+      CM.plot('ch-term',tr,{height:240,xaxis:{title:{text:'days to expiry'},type:'log',tickvals:[1,7,30,90,180,365],ticktext:['1d','1w','1m','3m','6m','1y'],gridcolor:'#221f19'},yaxis:{tickformat:'.0%',gridcolor:'#221f19'},hovermode:'closest'});
+      const mac=hist.macro||{}; const nl=(function(){ const w=mac.WALCL||[], t=mac.WTREGEN||[], r=mac.RRPONTSYD||[]; const tm=new Map(t.map(x=>[x.date,x.value])); const rr=r.slice(); const out=[]; for(const x of w){ let tv=null; for(const y of t){ if(y.date<=x.date) tv=y.value; } let rv=null; for(const y of rr){ if(y.date<=x.date) rv=y.value; } if(tv!=null&&rv!=null) out.push({date:x.date,v:x.value/1e3-tv/1e3-rv}); } return out; })();
+      CM.plot('ch-liq',[{x:nl.map(r=>r.date),y:nl.map(r=>r.v),type:'scatter',mode:'lines',line:{color:C.green,width:1.5},hovertemplate:'%{x}: $%{y:,.0f}bn<extra></extra>'}],{height:240,showlegend:false});
+      const scs=hist.stablecoins||[]; CM.plot('ch-sc',[{x:scs.map(r=>r.date),y:scs.map(r=>r.total_usd),type:'scatter',mode:'lines',line:{color:C.blue,width:1.3},name:'supply $',hovertemplate:'$%{y:,.0f}<extra>supply</extra>'},{x:scs.map(r=>r.date),y:scs.map(r=>r.growth_30d),type:'scatter',mode:'lines',line:{color:C.amber,width:1.2},name:'30-day growth',yaxis:'y2',hovertemplate:'%{y:.1%}<extra>growth</extra>'}],{height:240,yaxis:{gridcolor:'#221f19'},yaxis2:{overlaying:'y',side:'right',tickformat:'.0%',gridcolor:'rgba(0,0,0,0)'},margin:{l:48,r:44,t:26,b:36}});
     }
-    // 7. screens (append to the liquidity gate panel)
-    if (rk.screens && rk.screens.length) {
-      const ic = JSON.parse(rk.screens[0].ic_json || '{}');
-      const icTxt = Object.keys(ic).length ? Object.entries(ic).map(([k,v])=>k + ': IC ' + (v.ic==null?'n/a':v.ic.toFixed(3)) + ' ± ' + (v.ic_se==null?'n/a':v.ic_se.toFixed(3)) + ' (n=' + v.n_weeks + ' weeks)').join('; ') : 'IC not yet estimated (weekly job after the backfill)';
-      const rows = rk.screens.map(r=>({tier:r.tier, symbol:r.symbol, sector:r.sector, mom_4w_skip1_z:r.mom_4w_skip1_z, float_ratio:r.float_ratio, float_ratio_z:r.float_ratio_z, esp_days_of_volume_13:r.esp_days_of_volume, dilution:r.dilution, gate:r.gate_pass==null?'n/a':(r.gate_pass?'open':'CLOSED')}));
-      rows.sort((a,b)=>(a.tier-b.tier)||((b.mom_4w_skip1_z??-9)-(a.mom_4w_skip1_z??-9)));
-      const el = document.getElementById('panel-screens');
-      el.innerHTML += '<h3>Weekly screens, Tier 2/3 (sector-relative z, winsorised ±3)</h3><p class="meta">Screens condition attention; they are not forecasts. Trailing 52-week Spearman IC vs next-week return: ' + icTxt + '</p>' + table(['tier','symbol','sector','mom_4w_skip1_z','float_ratio','float_ratio_z','esp_days_of_volume_13','dilution','gate'], rows, {float_ratio:x=>fmt(x,2), dilution:x=>x==null?'unknown':pct(x)}) + csvLink(rows,'screens');
-    }
+    const ot=[]; for(const o of (h.options||[])){ ot.push(T({label:o.currency+' VRP (IV² − RV²)', value:o.vrp==null?'—':CM.sign(o.vrp,3), color:o.vrp==null?'':(o.vrp<0?'red':'green'), read:o.vrp==null?'':(o.vrp<0?'collapsed: market prices less risk than it just realised — no short vol':'positive: compensation to vol sellers'), bar:o.vrp==null?null:50+o.vrp*200})); ot.push(T({label:o.currency+' 25Δ risk reversal (1m)', value:o.rr25_1m==null?'—':P(o.rr25_1m), color:o.rr25_1m==null?'':(o.rr25_1m>0?'amber':'green'), read:o.rr25_1m==null?'':(o.rr25_1m>0?'calls over puts: the market has stopped paying for downside':'puts over calls: downside still bought')})); ot.push(T({label:o.currency+' term slope (3m − 1w)', value:o.term_slope==null?'—':P(o.term_slope), color:o.term_slope==null?'':(o.term_slope<0?'red':'green'), read:o.term_slope==null?'':(o.term_slope<0?'inverted: acute stress, historically late in a selloff':'upward: no acute stress priced')})); }
+    document.getElementById('opt-tiles').innerHTML=ot.join('')||'<p class="small stale">options unavailable</p>';
+    if(d&&d.macro){ const rd={NETLIQ:v=>v>0?'liquidity added over four weeks':'liquidity drained over four weeks',DFII10:v=>v>0?'real yields rising: risk appetite headwind':'real yields falling',DTWEXBGS:v=>v>0?'dollar stronger':'dollar weaker',VIXCLS:v=>v>0?'equity vol rising':'equity vol falling'}; document.getElementById('macro-tiles').innerHTML=d.macro.filter(m=>['NETLIQ','DFII10','DTWEXBGS','VIXCLS'].includes(m.series_id)).map(m=>T({label:m.series+' ('+m.unit+')', value:m.series_id==='NETLIQ'?F(m.value*1e9):F(m.value), color:'blue', read:(m.change_4w==null?'':CM.sign(m.change_4w)+' over 4 weeks · '+(rd[m.series_id]?rd[m.series_id](m.change_4w):''))+' · '+m.date})).join('')+(d.stablecoins?T({label:'stablecoin supply', value:F(d.stablecoins.total_usd), color: d.stablecoins.growth_30d>0?'green':'amber', read:'30-day growth '+P(d.stablecoins.growth_30d)+' · '+(d.stablecoins.growth_30d>0.02?'new settlement money arriving':d.stablecoins.growth_30d<0?'shrinking: nothing to absorb forced selling':'flat')}):''); }
+  }
+
+  // ---------- 4 triggers
+  if(h&&h.rules){
+    const names={'4.1':'crowded long → reduce or hedge longs; no adding to shorts','4.2':'capitulation → candidate 1–5 day mean-reversion long, sized by the gate','4.3':'vol underpricing → no short-vol positions; consider long convexity','5.1':'cliff → unlock short 2–4 weeks ahead (see trades)'};
+    const hr=(d&&d.hit_rates)||{};
+    const chip=(label,v,thr,ok,fmtv)=>'<span class="badge '+(v==null?'':ok?'red':'green')+'" title="threshold '+thr+'">'+label+' '+(v==null?'n/a':fmtv(v))+' <span style="opacity:.6">'+thr+'</span></span>';
+    const legs={
+      '4.1':(i,t)=>[chip('z_FR',i.z_fr,'&gt; '+t.z_fr_min,i.z_fr>t.z_fr_min,v=>v.toFixed(2)),chip('OI pct',i.oi_rel_pctile,'≥ '+P(t.oi_rel_percentile_min,0),i.oi_rel_pctile>=t.oi_rel_percentile_min,v=>P(v,0)),chip('Λ⁻/D',i.lambda_over_depth,'&gt; '+t.lambda_over_depth_min,i.lambda_over_depth>t.lambda_over_depth_min,v=>v.toFixed(2))],
+      '4.2':(i,t)=>[chip('z_FR',i.z_fr,'&lt; '+t.z_fr_max,i.z_fr<t.z_fr_max,v=>v.toFixed(2)),chip('ΔOI 5d',i.oi_change_5d,'≤ −'+P(t.oi_drop_5d_min,0),i.oi_change_5d<=-t.oi_drop_5d_min,v=>P(v,0)),chip('liq pct',i.long_liq_24h_pctile,'≥ '+P(t.long_liq_24h_percentile_min,0),i.long_liq_24h_pctile>=t.long_liq_24h_percentile_min,v=>P(v,0))],
+      '4.3':(i,t)=>[chip('VRP',i.vrp,'&lt; 0',i.vrp<t.vrp_max,v=>v.toFixed(3)),chip('Φ',i.phi,'&gt; '+t.phi_min,i.phi>t.phi_min,v=>v.toFixed(2))],
+      '5.1':(i,t)=>[chip('% float',i.unlock_share_of_float,'&gt; '+P(t.single_unlock_float_share_min,0),i.unlock_share_of_float>t.single_unlock_float_share_min,v=>P(v,2)),chip('days vol',i.unlock_days_of_volume,'&gt; '+t.single_unlock_days_of_volume_min,i.unlock_days_of_volume>t.single_unlock_days_of_volume_min,v=>v.toFixed(1))],
+    };
+    const rows=h.rules.map(r=>{const inp=(()=>{try{return JSON.parse(r.inputs)}catch(e){return {}}})(); const th=(()=>{try{return JSON.parse(r.thresholds)}catch(e){return {}}})(); const hh=hr[r.rule_id]||hr[r.rule_id+'p']; const chips=(legs[r.rule_id]?legs[r.rule_id](inp,th):[]).join(' '); return {status:r.fired===true?'FIRING':r.fired===false?'quiet':'unavailable', rule:r.rule_id, asset:r.asset, inputs_vs_thresholds:chips+(r.note?' <span class="small">'+r.note+'</span>':''), hit_rate: hh&&hh.n? P(hh.hit_rate,0)+' (n='+hh.n+(hr[r.rule_id]&&hr[r.rule_id].n?'':', partial inputs')+')':'n/a (no elapsed horizons)', action:names[r.rule_id]||''};});
+    rows.sort((a,b)=>({FIRING:0,quiet:1,unavailable:2}[a.status]-{FIRING:0,quiet:1,unavailable:2}[b.status])||a.rule.localeCompare(b.rule));
+    const counts={FIRING:rows.filter(r=>r.status==='FIRING').length,quiet:rows.filter(r=>r.status==='quiet').length,unavailable:rows.filter(r=>r.status==='unavailable').length};
+    document.getElementById('c-triggers').innerHTML='<p class="count"><b style="color:var(--red)">'+counts.FIRING+' firing</b> · <b style="color:var(--green)">'+counts.quiet+' quiet</b> · <b style="color:var(--muted)">'+counts.unavailable+' unavailable</b> (inputs need 30+ days of funding history or liquidation data)</p>'+'<p class="small">Each chip shows the input against its frozen threshold; a red chip means that leg is met. A rule fires only when every leg is met.</p>'+CM.table(['status','rule','asset','inputs_vs_thresholds','hit_rate','action'],rows,{status:v=>'<span class="badge '+(v==='FIRING'?'red':v==='quiet'?'green':'')+'">'+v+'</span>',inputs_vs_thresholds:v=>v},r=>r.status==='FIRING'?'fire':(r.status==='unavailable'?'stale':''))+CM.csv(rows,'rules');
+    document.getElementById('m-triggers').textContent='thresholds frozen in config/thresholds.yaml · evaluated '+h.rules[0].ts.toString().slice(0,16);
+  }
+
+  // ---------- 5 trades
+  if(rk&&rk.trades){
+    const tr=rk.trades.slice().sort((a,b)=>((b.net_ann??-9)-(a.net_ann??-9)));
+    const withNet=tr.filter(t=>t.net_ann!=null);
+    let html='<div class="grid2"><div><h3>Net annualised rate by structure</h3><div id="ch-trades" class="chart" style="min-height:'+Math.max(240,withNet.length*18)+'px"></div></div><div><h3>Reading</h3><div class="tiles">'+[
+      T({label:'best net carry', value: withNet.length?P(withNet[0].net_ann):'—', color: withNet.length&&withNet[0].net_ann>0?'green':'amber', read: withNet.length? withNet[0].structure+' · '+withNet[0].asset+' on '+withNet[0].venue+' (grade '+withNet[0].venue_score+')':''}),
+      T({label:'structures priced', value: tr.length, read: [...new Set(tr.map(t=>t.structure))].join(' · ')}),
+      T({label:'cost assumptions', value: '6% + fees', read:'stablecoin borrow 6% ann. and public taker fees (config); replace with the fund\'s own rates'}),
+      T({label:'vol selling', value: (tr.find(t=>t.structure==='volatility selling'&&/FORBIDDEN/.test(t.dominant_risk))?'FORBIDDEN':'allowed'), color:(tr.find(t=>t.structure==='volatility selling'&&/FORBIDDEN/.test(t.dominant_risk))?'red':'green'), read:'Rule 4.3 veto when VRP < 0 and Φ > 1'}),
+    ].join('')+'</div></div></div>';
+    html+=CM.table(['structure','asset','instrument','venue','venue_score','days','gross_ann','cost_ann','net_ann','dominant_risk'],tr,{gross_ann:v=>P(v),cost_ann:v=>P(v),net_ann:v=>v==null?'—':'<b style="color:'+(v>0?C.green:C.red)+'">'+P(v)+'</b>',days:v=>v==null?'—':v.toFixed(0),venue_score:v=>'<span class="badge '+({A:'green',B:'blue',C:'amber',D:'red'}[v]||'')+'">'+(v||'?')+'</span>'})+CM.csv(tr,'trades');
+    document.getElementById('c-trades').innerHTML=html; document.getElementById('m-trades').textContent='source: futures marks, funding, options, cliffs · '+rk.generated_at.slice(0,16);
+    const short={'cash-and-carry basis':'basis','funding carry':'funding','volatility selling':'vol','unlock short':'unlock'}; CM.plot('ch-trades',[{type:'bar',orientation:'h',y:withNet.map(t=>(short[t.structure]||t.structure)+' · '+t.asset+(t.expiry?' '+t.expiry.slice(2,10):'')),x:withNet.map(t=>t.net_ann),marker:{color:withNet.map(t=>t.net_ann>0?C.green:C.red)},hovertemplate:'%{y}: %{x:.1%}<extra></extra>'}],{height:Math.max(240,withNet.length*18),margin:{l:170,r:10,t:10,b:30},xaxis:{tickformat:'.0%',gridcolor:'#221f19'},yaxis:{autorange:'reversed',tickfont:{size:10}}});
+  }
+
+  // ---------- 6 events
+  if(d&&d.events&&d.events.rows){
+    const rows=d.events.rows; const kinds=[...new Set(rows.map(r=>r.kind))]; const kc={'unlock cliff':C.amber,'governance':C.purple,'options expiry':C.blue,'upgrade':C.green};
+    let html='<div id="ch-events" class="chart" style="min-height:200px"></div>'+CM.table(['date','kind','asset','title','detail','source'],rows,{kind:v=>'<span class="badge '+({'unlock cliff':'amber','governance':'purple','options expiry':'blue'}[v]||'green')+'">'+v+'</span>'})+CM.csv(rows,'events');
+    document.getElementById('c-events').innerHTML=html; document.getElementById('m-events').textContent='as of '+d.events.as_of+' · DefiLlama, Snapshot, events.yaml, Deribit';
+    const dov=r=>{const m=/([\d.]+) days of real volume/.exec(r.detail||''); return m?parseFloat(m[1]):null;}; CM.plot('ch-events',kinds.map(k=>{const rr=rows.filter(r=>r.kind===k); const big=k==='unlock cliff'; return {type:'scatter',mode:big?'markers+text':'markers',name:k,x:rr.map(r=>r.date),y:rr.map(r=>big&&dov(r)!=null?Math.log10(1+dov(r)):0),yaxis:big?'y':'y2',text:rr.map(r=>big&&(dov(r)||0)>=2?r.asset:''),textposition:'top center',textfont:{size:9,color:'#e5b85a'},customdata:rr.map(r=>r.asset+': '+r.title+(r.detail?' — '+r.detail:'')),marker:{size:rr.map(r=>big?Math.min(24,8+2*Math.log10(1+(dov(r)||0))):9),color:kc[k]||C.green,opacity:0.8},hovertemplate:'%{x}<br>%{customdata}<extra>'+k+'</extra>'};}),{height:260,margin:{l:70,r:10,t:10,b:30},showlegend:true,legend:{orientation:'h',y:1.12},hovermode:'closest',yaxis:{title:{text:'cliff: log(days of volume)',font:{size:10}},gridcolor:'#221f19'},yaxis2:{overlaying:'y',side:'right',visible:false,range:[-1,20]}});
+  }
+
+  // ---------- 7 screens + gate
+  if(h&&h.liquidity){
+    const liq=h.liquidity; const open=liq.filter(r=>r.gate_pass===true).length, closed=liq.filter(r=>r.gate_pass===false).length, na=liq.filter(r=>r.gate_pass==null).length;
+    let html='<div class="tiles">'+[
+      T({label:'gate open / closed', value:open+' / '+closed, color: closed?'amber':'green', read:na?na+' names without real ADV yet':'at the reference size (book position or 1% NAV)'}),
+      T({label:'deepest 2% book', value: F(Math.max(...liq.map(r=>r.depth_2pct_usd||0))), color:'blue', read: liq.slice().sort((a,b)=>(b.depth_2pct_usd||0)-(a.depth_2pct_usd||0))[0].base+' · Σ venues, intraday median · "≥" marks a truncated book'}),
+      T({label:'wash-filtered volume', value: P(liq.reduce((s,r)=>s+(r.adv_real_usd||0),0)/Math.max(1,liq.reduce((s,r)=>s+(r.adv_reported_usd||0),0)),0), color:'green', read:'share of reported ADV kept after the venue filters (Tier 1+2)'}),
+    ].join('')+'</div>';
+    html+='<div class="grid2"><div><h3>Depth at 2% vs real ADV (Tier 1+2)</h3><div id="ch-liq2" class="chart"></div></div><div><h3>Screens · momentum vs float ratio (sector-relative z)</h3><div id="ch-scr" class="chart"></div></div></div>';
+    const lrows=liq.map(r=>({tier:r.tier,base:r.base,depth_2pct_usd:r.depth_2pct_usd,lb:r.depth_lower_bound?'≥':'',adv_real_usd:r.adv_real_usd,adv_reported_usd:r.adv_reported_usd,venues_passing:r.venues_passing,dtl_days:r.dtl_days,gate:r.gate_pass==null?'n/a':(r.gate_pass?'open':'CLOSED')}));
+    html+='<h3>Liquidity gate</h3>'+CM.table(['tier','base','depth_2pct_usd','lb','adv_real_usd','adv_reported_usd','venues_passing','dtl_days','gate'],lrows,{gate:v=>'<span class="badge '+(v==='open'?'green':v==='CLOSED'?'red':'')+'">'+v+'</span>',dtl_days:v=>v==null?'—':v.toFixed(2)})+CM.csv(lrows,'liquidity');
+    if(rk&&rk.screens&&rk.screens.length){ const ic=JSON.parse(rk.screens[0].ic_json||'{}'); const icTxt=Object.keys(ic).length?Object.entries(ic).map(([k,v])=>k+': IC '+(v.ic==null?'n/a':v.ic.toFixed(3))+' ± '+(v.ic_se==null?'n/a':v.ic_se.toFixed(3))+' ('+v.n_weeks+' w)').join(' · '):'IC not yet estimated'; const srows=rk.screens.map(r=>({tier:r.tier,symbol:r.symbol,sector:r.sector,mom_z:r.mom_4w_skip1_z,float_ratio:r.float_ratio,float_z:r.float_ratio_z,esp_dov_13:r.esp_days_of_volume,dilution:r.dilution,gate:r.gate_pass==null?'n/a':(r.gate_pass?'open':'CLOSED')})).sort((a,b)=>(a.tier-b.tier)||((b.mom_z??-9)-(a.mom_z??-9))); html+='<h3>Weekly screens · Tier 2/3</h3><p class="small">Trailing 52-week Spearman IC vs next-week return: '+icTxt+'. ICs of the same order as their standard errors are the point: these condition attention, they do not forecast.</p>'+CM.table(['tier','symbol','sector','mom_z','float_ratio','float_z','esp_dov_13','dilution','gate'],srows,{mom_z:v=>v==null?'—':'<span style="color:'+(v>1?C.green:v<-1?C.red:'inherit')+'">'+v.toFixed(2)+'</span>',float_z:v=>v==null?'—':v.toFixed(2),float_ratio:v=>v==null?'—':v.toFixed(2),dilution:v=>v==null?'unknown':P(v),esp_dov_13:v=>v==null?'—':v.toFixed(1),gate:v=>'<span class="badge '+(v==='open'?'green':v==='CLOSED'?'red':'')+'">'+v+'</span>'})+CM.csv(srows,'screens'); }
+    document.getElementById('c-screens').innerHTML=html; document.getElementById('m-screens').textContent='source: books, wash filters, prices · '+h.liquidity[0].date+(rk?' · screens '+rk.generated_at.slice(0,10):'');
+    const lq=liq.filter(r=>r.depth_2pct_usd&&r.adv_real_usd); CM.plot('ch-liq2',[{type:'scatter',mode:'markers+text',x:lq.map(r=>r.adv_real_usd),y:lq.map(r=>r.depth_2pct_usd),text:lq.map(r=>r.base),textposition:'top center',textfont:{size:9,color:'#9a927f'},marker:{size:9,color:lq.map(r=>r.tier===1?C.blue:C.purple)},hovertemplate:'%{text}<br>ADV real $%{x:,.0f}<br>depth $%{y:,.0f}<extra></extra>'}],{height:260,xaxis:{type:'log',title:{text:'real ADV $'},gridcolor:'#221f19'},yaxis:{type:'log',title:{text:'D(0.02) $'},gridcolor:'#221f19'},hovermode:'closest',showlegend:false});
+    if(rk&&rk.screens){ const s=rk.screens.filter(r=>r.mom_4w_skip1_z!=null&&r.float_ratio_z!=null); const secs=[...new Set(s.map(r=>r.sector))]; const pal=[C.blue,C.green,C.amber,C.red,C.purple,'#d0a5f0','#9fd8e8','#f0c39a','#c8e6a0','#e8a0c0','#a0c0e8','#e0e0a0','#a0e0d0']; CM.plot('ch-scr',secs.map((sec,i)=>{const rr=s.filter(r=>r.sector===sec); return {type:'scatter',mode:'markers',name:sec,x:rr.map(r=>r.float_ratio_z),y:rr.map(r=>r.mom_4w_skip1_z),text:rr.map(r=>r.symbol),marker:{size:8,color:pal[i%pal.length],opacity:0.85},hovertemplate:'%{text} ('+sec+')<br>float z %{x:.2f} · mom z %{y:.2f}<extra></extra>'};}),{height:360,xaxis:{title:{text:'float ratio z (low float + high FDV is the negative profile)'},gridcolor:'#221f19'},yaxis:{title:{text:'4-week momentum z (skip 1 week)'},gridcolor:'#221f19'},hovermode:'closest',showlegend:true,legend:{orientation:'h',y:-0.42,font:{size:9}},margin:{l:48,r:16,t:16,b:120}}); }
   }
 })();
 </script>

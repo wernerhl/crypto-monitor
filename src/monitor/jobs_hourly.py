@@ -22,7 +22,7 @@ from monitor.compute import state as state_mod
 from monitor.fetch import binance, bybit, coinbase, deribit, kraken, okx
 from monitor.fetch.base import RawStore
 from monitor.fetch.resilient import FetchRun
-from monitor.meta import git_sha, utc_now
+from monitor.meta import dump_json, git_sha, utc_now
 from monitor.paths import CONFIG, SITE_DATA
 
 log = logging.getLogger("monitor.hourly")
@@ -352,6 +352,19 @@ def compute_derived(as_of: date | None = None) -> dict[str, int]:
             ),
         )
     fd = archive.read("funding_daily")
+    # the backfill merges venue funding history with the live table (history rows first,
+    # live rows win on overlap); use it so z-scores and percentiles have their windows
+    fdh = archive.read("funding_daily_history")
+    if fdh is not None and fdh.height:
+        cols = ["date", "base", "funding_ann", "oi_usd", "oi_usd_okx", "n_venues"]
+        live = fd.select(cols) if fd is not None else None
+        fd = fdh.select(cols)
+        if live is not None:
+            fd = (
+                pl.concat([fd, live], how="diagonal_relaxed")
+                .unique(subset=["date", "base"], keep="last")
+                .sort("base", "date")
+            )
 
     # ---- liquidity: depth aggregate, wash filters, real ADV
     depth = archive.read("orderbook_depth")
@@ -608,19 +621,30 @@ def _positioning_row(
     if not f.height:
         return None
     z_fr, n_fr = pos.robust_z(f["funding_ann"].to_numpy(), th["robust_z"]["window_days_funding"])
-    oi = f["oi_usd"].to_numpy()
-    oi_rel = pos.oi_relative(float(oi[-1]), mcap_usd)
+    oi_total = f["oi_usd"].to_numpy()
+    # OI statistics on the OKX series (continuous history, reachable from every runner)
+    oi = f["oi_usd_okx"].to_numpy() if "oi_usd_okx" in f.columns else oi_total
+    oi_rel = pos.oi_relative(float(oi_total[-1]) if oi_total[-1] else None, mcap_usd)
     # OI^rel history needs daily market caps; use the current cap for the trailing window (flagged)
-    oi_rel_hist = oi / mcap_usd if mcap_usd else np.array([])
-    pct = pos.percentile_rank(oi_rel_hist, 90) if oi_rel_hist.size >= 30 else None
+    oi_ok = np.array([v if v else np.nan for v in oi], dtype=float)
+    oi_rel_hist = oi_ok / mcap_usd if mcap_usd else np.array([])
+    pct = pos.percentile_rank(oi_rel_hist, 90) if np.isfinite(oi_rel_hist).sum() >= 30 else None
     px = prices.filter(pl.col("base") == base).sort("date")
-    joined = px.join(f.select("date", "oi_usd"), on="date", how="inner").sort("date")
+    joined = (
+        px.join(f.select("date", pl.col("oi_usd_okx").alias("oi_usd")), on="date", how="inner")
+        .drop_nulls("oi_usd")
+        .sort("date")
+    )
     quad = (
         pos.oi_price_quadrant(joined["close"].to_numpy(), joined["oi_usd"].to_numpy())
         if joined.height > 5
         else {"dlogp": None, "dlogoi": None, "quadrant": None, "slope_20d": None}
     )
-    oi_change_5d = float(oi[-1] / oi[-6] - 1) if oi.size >= 6 and oi[-6] > 0 else None
+    oi_change_5d = (
+        float(oi_ok[-1] / oi_ok[-6] - 1)
+        if oi_ok.size >= 6 and np.isfinite(oi_ok[-6]) and oi_ok[-6] > 0 and np.isfinite(oi_ok[-1])
+        else None
+    )
     sigma = _sigma_daily(prices, base)
     ls = 0.5
     if long_share is not None and long_share.height:
@@ -662,10 +686,11 @@ def _positioning_row(
         "funding_ann": float(f["funding_ann"][-1]) if f["funding_ann"][-1] is not None else None,
         "z_fr": z_fr,
         "z_fr_n": n_fr,
-        "oi_usd": float(oi[-1]),
+        "oi_usd": float(oi_total[-1]) if oi_total[-1] else None,
+        "oi_stats_venue": "okx",
         "oi_rel": oi_rel,
         "oi_rel_pctile": pct,
-        "oi_rel_pctile_n": int(min(oi_rel_hist.size, 90)),
+        "oi_rel_pctile_n": int(min(int(np.isfinite(oi_rel_hist).sum()), 90)),
         "oi_change_5d": oi_change_5d,
         "dlogp_5d": quad["dlogp"],
         "dlogoi_5d": quad["dlogoi"],
@@ -735,11 +760,13 @@ def _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now) -> dict | 
         f.group_by("date")
         .agg(
             ((pl.col("funding_ann") * pl.col("oi_usd")).sum() / pl.col("oi_usd").sum()).alias("fr"),
-            pl.col("oi_usd").sum().alias("oi"),
+            pl.col("oi_usd_okx").sum().alias("oi"),  # OKX series: continuous history (see backfill)
         )
         .sort("date")
     )
     cap_t1 = sum(v for k, v in mcap.items() if k in t1 and v)
+    # days before the OI history starts sum to zero: they are missing, not zero
+    day = day.with_columns(pl.when(pl.col("oi") > 0).then(pl.col("oi")).otherwise(None).alias("oi"))
     z = state_mod.fragility_components(
         {
             "z_fr": day["fr"].to_numpy(),
@@ -826,4 +853,4 @@ def write_hourly_json(out: Path = SITE_DATA) -> None:
         "liquidity": latest("liquidity", "date"),
         "vol_state": latest("vol_state", "date"),
     }
-    (out / "hourly.json").write_text(json.dumps(payload, default=str))
+    (out / "hourly.json").write_text(dump_json(payload))

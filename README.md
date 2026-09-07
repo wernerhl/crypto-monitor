@@ -48,11 +48,16 @@ Stablecoins, wrapped tokens and liquid-staking derivatives are excluded from eve
 Membership is recomputed weekly and its history is stored so backtests use membership as of date.
 
 ## How to read the front page
-Top to bottom, in the order fixed by the notes (Section 12): venue and counterparty panel;
-book risk; market state (fragility index and components); active triggers with hit rates and
-sample sizes; trade-structure table; four-week event strip; Tier 2/3 screens with IC and standard
-error. Every panel shows `last updated` and the source used; stale or missing data is greyed with
-the reason. Charts link to their CSV. `methods.html` restates the notes for each panel and links
+Banners first: rules firing (red), venue limits breached (amber), datasets unavailable this run
+(grey). Then a strip with the market state word (CALM / BUILDING / FRAGILE from the fragility
+index), rules firing, BTC 1-month implied vol, the vol-state probability and the data age.
+Panels follow the notes' order (Section 12): venue and counterparty; book risk; market state
+(gauge, five component tiles with a one-line reading each, two-year charts); active triggers
+(each input shown as a chip against its frozen threshold; a rule fires only when every chip is
+red); trade structures (net annualised rates by structure, execution venue and grade); the
+four-week event strip (cliffs sized by days of real volume); Tier 2/3 screens and the liquidity
+gate. Every panel shows its source tables and timestamp; stale or missing data is greyed with the
+reason; every table has a CSV link. `methods.html` restates the notes for each panel and links
 to the code.
 
 ## Repository map
