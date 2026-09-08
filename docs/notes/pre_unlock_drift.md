@@ -13,9 +13,9 @@ from `cliff_study_events` and `cliff_study` (`monitor.compute.cliff_study`, week
 | 2021 | 79 | 50 | 41.8 % | 5.5 % | 6.7 % | +3.3 % | 3.5 % | +4.9 % | -0.3 % | -4.7 % (75) | +3.4 % | +7.1 % |
 | 2022 | 37 | 29 | 64.9 % | 7.8 % | 9.3 % | -2.5 % | 3.1 % | -2.5 % | -1.5 % | -2.9 % (35) | -5.4 % | -7.1 % |
 | 2023 | 51 | 34 | 52.9 % | 7.0 % | 7.2 % | +0.8 % | 2.4 % | -0.3 % | -2.4 % | -2.9 % (47) | +7.1 % | +1.3 % |
-| 2024 | 266 | 46 | 54.5 % | 3.1 % | 7.8 % | +3.4 % | 5.7 % | -2.5 % | -2.0 % | -4.6 % (83) | +5.4 % | -0.1 % |
-| 2025 | 1057 | 53 | 67.2 % | 1.4 % | 4.0 % | -6.6 % | 2.0 % | -7.3 % | -6.0 % | -6.5 % (952) | -3.8 % | -5.6 % |
-| 2026 | 1155 | 35 | 54.9 % | 1.5 % | 3.9 % | -1.2 % | 1.4 % | -1.6 % | +0.3 % | -5.3 % (1002) | -0.6 % | -1.1 % |
+| 2024 | 266 | 46 | 54.5 % | 3.1 % | 7.8 % | +3.4 % | 5.7 % | -2.5 % | -2.0 % | -4.4 % (83) | +5.4 % | -0.1 % |
+| 2025 | 1057 | 53 | 67.2 % | 1.4 % | 4.0 % | -6.6 % | 2.0 % | -7.3 % | -6.0 % | -4.7 % (952) | -3.8 % | -5.6 % |
+| 2026 | 1155 | 35 | 54.9 % | 1.5 % | 3.9 % | -1.2 % | 1.4 % | -1.6 % | +0.3 % | -1.3 % (1002) | -0.6 % | -1.1 % |
 
 ![hit rate by year](figures/unlock_hit_by_year.svg)
 
@@ -26,9 +26,9 @@ Placebo dates of the same tokens, by year (the row a cliff year should be read a
 | 2021 | 160 | 48 | 40.0 % | 3.9 % | 6.3 % | +5.6 % | 3.7 % | +6.1 % | +3.9 % | +1.3 % (142) | +2.9 % | +6.2 % |
 | 2022 | 120 | 46 | 71.7 % | 4.1 % | 6.0 % | -12.3 % | 3.2 % | -10.5 % | -6.5 % | -5.9 % (100) | -3.8 % | -2.0 % |
 | 2023 | 160 | 48 | 54.4 % | 3.9 % | 5.8 % | +2.6 % | 2.3 % | -0.8 % | -0.3 % | -2.3 % (136) | +3.9 % | -0.5 % |
-| 2024 | 380 | 51 | 45.5 % | 2.6 % | 7.2 % | +3.9 % | 3.8 % | +2.2 % | -0.3 % | -0.2 % (157) | +1.8 % | +1.0 % |
-| 2025 | 680 | 53 | 69.9 % | 1.8 % | 3.6 % | -8.4 % | 2.0 % | -8.9 % | -7.1 % | -2.6 % (548) | -5.0 % | -6.0 % |
-| 2026 | 680 | 35 | 60.0 % | 1.9 % | 4.1 % | -2.7 % | 1.7 % | -2.9 % | -1.0 % | -1.1 % (601) | -2.6 % | -3.2 % |
+| 2024 | 380 | 51 | 45.5 % | 2.6 % | 7.2 % | +3.9 % | 3.8 % | +2.2 % | -0.3 % | -0.6 % (157) | +1.8 % | +1.0 % |
+| 2025 | 680 | 53 | 69.9 % | 1.8 % | 3.6 % | -8.4 % | 2.0 % | -8.9 % | -7.1 % | -1.6 % (548) | -5.0 % | -6.0 % |
+| 2026 | 680 | 35 | 60.0 % | 1.9 % | 4.1 % | -2.7 % | 1.7 % | -2.9 % | -1.0 % | -0.5 % (601) | -2.6 % | -3.2 % |
 
 The pooled numbers below are carried by 2025, and the placebo says most of that year's drift
 was not cliff-specific. In 2025 (n = 1057) a cliff was preceded by a negative
@@ -41,10 +41,10 @@ falling on ordinary days too. In 2026 (n = 1155) the cliff hit rate is
 the BTC-relative drift is +0.3 %; by those two measures the drift has
 faded in the most recent year, which is what one expects of a public schedule being
 arbitraged. The β-adjusted column tells a more cautious story: cliffs read
--6.5 % against -2.6 % on the placebo in
-2025 (-3.9 points, about 1.4 clustered standard errors) and
--5.3 % against -1.1 % in 2026
-(-4.2 points, about 1.9 standard errors). A residual of that size on rolling
+-4.7 % against -1.6 % on the placebo in
+2025 (-3.1 points, about 1.1 clustered standard errors) and
+-1.3 % against -0.5 % in 2026
+(-0.9 points, about 0.4 standard errors). A residual of that size on rolling
 26-week betas of small tokens is suggestive, not established. Either way Rule 5.1 stays
 informational: the thresholds are kept, the trade table carries the caveat, and the cliff
 calendar is one rolling list rather than a trigger per token.
@@ -98,13 +98,13 @@ of the recipient change the answer, and does the effect survive a placebo?
 
 | group | n | weeks | hit rate | s.e. (i.i.d.) | s.e. (clustered by week) | mean pre 14 d | s.e. pre (clustered) | median pre 14 d | mean pre vs BTC | mean pre β-adjusted (n) | mean post 14 d | median post 14 d |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| all cliffs with price coverage | 2645 | 243 | 59.5 % | 1.0 % | 2.6 % | -2.7 % | 1.2 % | -3.7 % | -2.5 % | -5.7 % (2194) | -1.1 % | -2.6 % |
-| cliffs with float and volume measured | 2583 | 243 | 58.8 % | 1.0 % | 2.6 % | -2.3 % | 1.2 % | -3.5 % | -2.2 % | -5.7 % (2191) | -1.1 % | -2.6 % |
-| Rule 5.1 as implemented (> 1% of float or > 2 days of volume) | 759 | 183 | 54.5 % | 1.8 % | 3.5 % | -0.7 % | 1.5 % | -1.7 % | -2.1 % | -8.8 % (634) | -1.5 % | -2.1 % |
-| both legs (> 1% of float and > 2 days of volume) | 311 | 147 | 63.0 % | 2.7 % | 3.5 % | -3.9 % | 1.4 % | -4.0 % | -4.1 % | -5.6 % (275) | -0.3 % | -2.4 % |
-| neither leg | 1824 | 200 | 60.6 % | 1.1 % | 2.6 % | -3.0 % | 1.2 % | -4.2 % | -2.2 % | -4.4 % (1557) | -1.0 % | -2.7 % |
-| pseudo-cliffs on the Rule 5.1 tokens only | 2040 | 273 | 59.2 % | 1.1 % | 2.5 % | -2.7 % | 1.3 % | -3.7 % | -2.5 % | -1.6 % (1576) | -1.8 % | -2.9 % |
-| pseudo-cliffs: 20 non-cliff days per token and year | 2180 | 279 | 59.3 % | 1.1 % | 2.4 % | -2.9 % | 1.2 % | -3.7 % | -2.7 % | -1.7 % (1684) | -1.8 % | -2.8 % |
+| all cliffs with price coverage | 2645 | 243 | 59.5 % | 1.0 % | 2.6 % | -2.7 % | 1.2 % | -3.7 % | -2.5 % | -3.1 % (2194) | -1.1 % | -2.6 % |
+| cliffs with float and volume measured | 2583 | 243 | 58.8 % | 1.0 % | 2.6 % | -2.3 % | 1.2 % | -3.5 % | -2.2 % | -3.1 % (2191) | -1.1 % | -2.6 % |
+| Rule 5.1 as implemented (> 1% of float or > 2 days of volume) | 759 | 183 | 54.5 % | 1.8 % | 3.5 % | -0.7 % | 1.5 % | -1.7 % | -2.1 % | -6.9 % (634) | -1.5 % | -2.1 % |
+| both legs (> 1% of float and > 2 days of volume) | 311 | 147 | 63.0 % | 2.7 % | 3.5 % | -3.9 % | 1.4 % | -4.0 % | -4.1 % | -6.4 % (275) | -0.3 % | -2.4 % |
+| neither leg | 1824 | 200 | 60.6 % | 1.1 % | 2.6 % | -3.0 % | 1.2 % | -4.2 % | -2.2 % | -1.5 % (1557) | -1.0 % | -2.7 % |
+| pseudo-cliffs on the Rule 5.1 tokens only | 2040 | 273 | 59.2 % | 1.1 % | 2.5 % | -2.7 % | 1.3 % | -3.7 % | -2.5 % | -1.0 % (1576) | -1.8 % | -2.9 % |
+| pseudo-cliffs: 20 non-cliff days per token and year | 2180 | 279 | 59.3 % | 1.1 % | 2.4 % | -2.9 % | 1.2 % | -3.7 % | -2.7 % | -1.2 % (1684) | -1.8 % | -2.8 % |
 | all days, Rule 5.1 tokens only | 39321 |  | 56.2 % |  |  | n/a |  | n/a | n/a | n/a | n/a | n/a |
 | all days, same assets and period (share of negative 14-day returns) | 42984 |  | 56.1 % |  |  | n/a |  | n/a | n/a | n/a | n/a | n/a |
 
@@ -113,7 +113,7 @@ by a negative return 54.5 % of the time (clustered s.e. 3.5 %),
 against 59.2 % on the placebo dates of the same tokens (clustered s.e.
 2.5 %) and a subset base rate of 56.2 %; their
 mean pre-cliff return is -0.7 % (-2.1 % vs BTC,
--8.8 % β-adjusted on 634 events) against
+-6.9 % β-adjusted on 634 events) against
 -2.7 % on the placebo. The intersection of both legs (n = 311)
 reads 63.0 % (clustered s.e. 3.5 %), mean
 -3.9 %, -4.1 % vs BTC. The conditional effect is the
@@ -124,12 +124,12 @@ standard error, not the i.i.d. one.
 
 | group | n | weeks | hit rate | s.e. (i.i.d.) | s.e. (clustered by week) | mean pre 14 d | s.e. pre (clustered) | median pre 14 d | mean pre vs BTC | mean pre β-adjusted (n) | mean post 14 d | median post 14 d |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| community | 32 | 28 | 71.9 % | 7.9 % | 8.0 % | -7.1 % | 2.8 % | -5.1 % | -4.7 % | -6.4 % (24) | +1.1 % | -2.6 % |
-| ecosystem | 495 | 134 | 64.0 % | 2.2 % | 3.9 % | -5.0 % | 1.6 % | -5.7 % | -3.9 % | -2.8 % (463) | -2.4 % | -3.5 % |
-| investors | 474 | 131 | 61.6 % | 2.2 % | 4.4 % | -5.8 % | 2.0 % | -5.9 % | -7.1 % | -10.5 % (404) | -5.7 % | -7.2 % |
-| public | 9 | 9 | 22.2 % | 13.9 % | 13.9 % | +9.1 % | 6.1 % | +13.5 % | +3.2 % | +2.7 % (9) | +9.9 % | +19.7 % |
-| team | 301 | 184 | 57.8 % | 2.8 % | 3.3 % | -3.1 % | 1.4 % | -2.9 % | -4.1 % | -6.0 % (278) | -0.4 % | -1.7 % |
-| unknown | 1334 | 105 | 57.3 % | 1.4 % | 3.0 % | -0.7 % | 1.4 % | -2.4 % | -0.1 % | -5.1 % (1016) | +0.7 % | -1.7 % |
+| community | 32 | 28 | 71.9 % | 7.9 % | 8.0 % | -7.1 % | 2.8 % | -5.1 % | -4.7 % | -3.9 % (24) | +1.1 % | -2.6 % |
+| ecosystem | 495 | 134 | 64.0 % | 2.2 % | 3.9 % | -5.0 % | 1.6 % | -5.7 % | -3.9 % | -3.6 % (463) | -2.4 % | -3.5 % |
+| investors | 474 | 131 | 61.6 % | 2.2 % | 4.4 % | -5.8 % | 2.0 % | -5.9 % | -7.1 % | -9.2 % (404) | -5.7 % | -7.2 % |
+| public | 9 | 9 | 22.2 % | 13.9 % | 13.9 % | +9.1 % | 6.1 % | +13.5 % | +3.2 % | +2.8 % (9) | +9.9 % | +19.7 % |
+| team | 301 | 184 | 57.8 % | 2.8 % | 3.3 % | -3.1 % | 1.4 % | -2.9 % | -4.1 % | -7.0 % (278) | -0.4 % | -1.7 % |
+| unknown | 1334 | 105 | 57.3 % | 1.4 % | 3.0 % | -0.7 % | 1.4 % | -2.4 % | -0.1 % | +0.6 % (1016) | +0.7 % | -1.7 % |
 
 ![hit rate by class](figures/unlock_hit_by_class.svg)
 
@@ -139,20 +139,20 @@ standard error, not the i.i.d. one.
 
 | group | n | weeks | hit rate | s.e. (i.i.d.) | s.e. (clustered by week) | mean pre 14 d | s.e. pre (clustered) | median pre 14 d | mean pre vs BTC | mean pre β-adjusted (n) | mean post 14 d | median post 14 d |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0.5–1 % | 52 | 44 | 57.7 % | 6.9 % | 7.0 % | -3.1 % | 3.0 % | -5.7 % | -3.0 % | -4.6 % (44) | -1.8 % | -3.2 % |
-| 1–2 % | 154 | 98 | 64.9 % | 3.8 % | 4.5 % | -5.9 % | 1.7 % | -5.3 % | -6.0 % | -7.1 % (137) | -1.9 % | -5.1 % |
-| 2–5 % | 199 | 131 | 62.8 % | 3.4 % | 3.6 % | -3.4 % | 1.5 % | -3.4 % | -2.8 % | -4.3 % (174) | +0.1 % | -2.6 % |
-| < 0.5 % | 2142 | 195 | 58.6 % | 1.1 % | 2.7 % | -2.3 % | 1.3 % | -3.6 % | -2.1 % | -5.6 % (1754) | -1.3 % | -2.5 % |
-| > 5 % | 94 | 75 | 63.8 % | 5.0 % | 5.2 % | -6.0 % | 2.4 % | -4.8 % | -7.1 % | -8.7 % (82) | +2.5 % | +0.1 % |
+| 0.5–1 % | 52 | 44 | 57.7 % | 6.9 % | 7.0 % | -3.1 % | 3.0 % | -5.7 % | -3.0 % | -4.2 % (44) | -1.8 % | -3.2 % |
+| 1–2 % | 154 | 98 | 64.9 % | 3.8 % | 4.5 % | -5.9 % | 1.7 % | -5.3 % | -6.0 % | -6.7 % (137) | -1.9 % | -5.1 % |
+| 2–5 % | 199 | 131 | 62.8 % | 3.4 % | 3.6 % | -3.4 % | 1.5 % | -3.4 % | -2.8 % | -5.7 % (174) | +0.1 % | -2.6 % |
+| < 0.5 % | 2142 | 195 | 58.6 % | 1.1 % | 2.7 % | -2.3 % | 1.3 % | -3.6 % | -2.1 % | -2.3 % (1754) | -1.3 % | -2.5 % |
+| > 5 % | 94 | 75 | 63.8 % | 5.0 % | 5.2 % | -6.0 % | 2.4 % | -4.8 % | -7.1 % | -9.3 % (82) | +2.5 % | +0.1 % |
 
 ![hit rate by share of float](figures/unlock_hit_by_share.svg)
 
 | group | n | weeks | hit rate | s.e. (i.i.d.) | s.e. (clustered by week) | mean pre 14 d | s.e. pre (clustered) | median pre 14 d | mean pre vs BTC | mean pre β-adjusted (n) | mean post 14 d | median post 14 d |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1–2 d | 331 | 104 | 64.4 % | 2.6 % | 4.3 % | -5.1 % | 1.8 % | -5.6 % | -4.5 % | -14.7 % (249) | +0.1 % | -2.5 % |
-| 2–5 d | 345 | 106 | 51.0 % | 2.7 % | 5.1 % | +0.1 % | 1.9 % | -0.4 % | -2.2 % | -11.5 % (299) | -3.0 % | -1.3 % |
-| < 1 d | 1622 | 206 | 60.3 % | 1.2 % | 2.9 % | -2.8 % | 1.3 % | -4.0 % | -2.0 % | -2.9 % (1426) | -1.1 % | -2.9 % |
-| > 5 d | 289 | 114 | 53.6 % | 2.9 % | 4.2 % | +0.9 % | 2.3 % | -1.3 % | +0.0 % | -5.6 % (220) | -0.5 % | -3.2 % |
+| 1–2 d | 331 | 104 | 64.4 % | 2.6 % | 4.3 % | -5.1 % | 1.8 % | -5.6 % | -4.5 % | -6.3 % (249) | +0.1 % | -2.5 % |
+| 2–5 d | 345 | 106 | 51.0 % | 2.7 % | 5.1 % | +0.1 % | 1.9 % | -0.4 % | -2.2 % | -9.3 % (299) | -3.0 % | -1.3 % |
+| < 1 d | 1622 | 206 | 60.3 % | 1.2 % | 2.9 % | -2.8 % | 1.3 % | -4.0 % | -2.0 % | -1.2 % (1426) | -1.1 % | -2.9 % |
+| > 5 d | 289 | 114 | 53.6 % | 2.9 % | 4.2 % | +0.9 % | 2.3 % | -1.3 % | +0.0 % | -3.1 % (220) | -0.5 % | -3.2 % |
 
 ![hit rate by days of volume](figures/unlock_hit_by_dov.svg)
 
@@ -168,7 +168,7 @@ Average cumulative log return from fourteen days before to fourteen days after t
 1. **The drift is a 2025 phenomenon in this sample.** Pooled: hit rate
    59.5 % against a base rate of 56.2 %, mean pre-cliff return
    -2.7 %, -2.5 % vs BTC and
-   -5.7 % β-adjusted. By year the effect sits in 2025 and is
+   -3.1 % β-adjusted. By year the effect sits in 2025 and is
    absent in 2026; with clustered standard errors of a few points per year, the 2026 reading
    is not distinguishable from the base rate.
 2. **The placebo removes part of the pooled effect.** Placebo dates on the same tokens and

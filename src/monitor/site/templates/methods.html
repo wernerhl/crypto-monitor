@@ -32,6 +32,8 @@
 <div class="panel"><p class="meta" id="val-meta">loading data/daily.json …</p><div id="hitrates"></div><div id="cliffstudy"></div><div id="ics"></div></div>
 <h2>Fragility index: components and definitions</h2>
 <div class="panel"><p>Φ is the mean of five components. Four are 250-day walk-forward robust z-scores (MAD × 1.4826): OI-weighted Tier 1 funding; aggregate OKX open interest over Tier 1 market cap; the negative of the BTC variance risk premium (DVOL² − RV²₃₀, the daily DVOL history plus today's live DVOL); the negative of 30-day stablecoin growth. The fifth, since 2026-09-08, is a bounded range-position score: pos₉₀ = (P − min₉₀)/(max₉₀ − min₉₀) and z_dd = 4·(pos₉₀ − ½) ∈ [−2, 2], with no standardisation. It replaces a robust z of the drawdown from the 90-day high, which is bounded at zero and, over a downtrending window, made any day near the high a tail event: on 2026-09-08 it read +2.53 for a price 2.7 % below the high. The mechanical reading is unchanged (at the top of the recent range the liquidation mass sits below). Each component carries its sample size; a component that is null while its source is fresh fails the build rather than publishing Φ on fewer components; a stale source is shown as a gap in the state reading. History and live values come from the same builder.</p></div>
+<h2>Does Φ predict the damage after a shock?</h2>
+<div class="panel"><div id="phival">loading data/daily.json …</div></div>
 <h2 id="volstate">Vol-state diagnostics</h2>
 <div class="panel"><div id="volstate-diag">loading data/hourly.json …</div></div>
 <h2>Factor model</h2>
@@ -41,9 +43,23 @@
   const d = await (await fetch('data/daily.json',{cache:'no-store'})).json();
   document.getElementById('val-meta').textContent = 'daily data ' + d.generated_at;
   const hr = d.hit_rates || {};
-  const names = {'4.1':'crowded long (negative 5-day return)','4.1p':'crowded long, partial inputs: z_FR and OI percentile only (history has no liquidation density or depth)','4.2':'capitulation (positive 5-day return)','4.2p':'capitulation, partial inputs: z_FR and 5-day OI drop only (history has no liquidation volume)','4.3':'vol underpricing (RV30 > IV at flag)','5.1':'cliff (negative return over the 14 days before the cliff)'};
+  const names = {'4.1':'crowded long (negative 5-day return)','4.1p':'crowded long, partial inputs: z_FR and OI percentile only (history has no liquidation density or depth)','4.2':'capitulation (positive 5-day return)','4.2p':'capitulation, partial inputs: z_FR and 5-day OI drop only (history has no liquidation volume)','4.3':'vol underpricing (RV30 > IV at flag)'};
   const rows = Object.entries(hr).map(([k,v])=>({rule:k, definition:names[k]||'', hit_rate: v.hit_rate==null?'n/a':(100*v.hit_rate).toFixed(0)+'%', n:v.n, horizon_days:v.horizon_days}));
   document.getElementById('hitrates').innerHTML = '<h3>Rule hit rates</h3>' + (rows.length ? '<table><thead><tr><th>rule</th><th>definition</th><th>hit rate</th><th>n</th><th>horizon (days)</th></tr></thead><tbody>' + rows.map(r=>'<tr><td>'+r.rule+'</td><td>'+r.definition+'</td><td>'+r.hit_rate+'</td><td>'+r.n+'</td><td>'+r.horizon_days+'</td></tr>').join('') + '</tbody></table><p class="meta">Only evaluations whose horizon has elapsed count. Sample sizes are small by construction (the notes: the effective sample for anything regime-dependent is the number of transitions).</p>' : '<p class="stale"><span class="badge">unavailable</span> no completed rule horizons yet (backfill / time)</p>');
+  const pv = d.fragility_validation || {};
+  if(pv.n_shocks){
+    const pc=v=>v==null?'n/a':(100*v).toFixed(1)+'%'; const tt={}; for(const r of pv.terciles) tt[r.sample+'|'+r.tercile]=r;
+    const lo=tt['shocks|low Φ']||{}, hi=tt['shocks|high Φ']||{}, plo=tt['placebo|low Φ']||{}, phi=tt['placebo|high Φ']||{};
+    const sl=(o)=>{const r=pv.slopes.find(x=>x.sample==='shocks'&&x.outcome===o); const p=pv.slopes.find(x=>x.sample==='placebo'&&x.outcome===o); const fmt=(z)=>z&&z.slope!=null?(o==='days_to_recover'?z.slope.toFixed(2)+' d':(100*z.slope).toFixed(2)+' pts')+' per unit of Φ (t = '+z.t.toFixed(1)+')':'n/a'; return 'shocks '+fmt(r)+'; placebo '+fmt(p);};
+    document.getElementById('phival').innerHTML='<p>Walk-forward test of notes §6.2 on '+pv.n_shocks+' BTC shock days ('+pv.first+' to '+pv.last+'; daily log return below its rolling 250-day 5th percentile; '+pv.n_shocks_3plus+' of them with three or more components of Φ). By pre-shock Φ tercile, the mean 20-day drawdown was '+pc(lo.mdd_20_mean)+' (low Φ) against '+pc(hi.mdd_20_mean)+' (high Φ); on placebo days with the same Φ it was '+pc(plo.mdd_20_mean)+' against '+pc(phi.mdd_20_mean)+'. Realised vol over the next 20 days: '+pc(lo.rv_20_mean)+' against '+pc(hi.rv_20_mean)+'. Newey–West slopes on Φ: 20-day drawdown '+sl('mdd_20')+'; next-20-day RV '+sl('rv_20')+'; days to recover '+sl('days_to_recover')+'. <b>'+(pv.verdict||'')+'</b> Full tables, component rows and figures: <code>docs/notes/fragility_validation.md</code>. No threshold and no definition changed as a result; the study is evidence for the next review.</p>';
+  }
+  const r43 = d.rule43_drivers || {};
+  if(r43.rows && r43.rows.length){
+    const pc=v=>v==null?'n/a':(100*v).toFixed(1)+'%'; const pr=v=>v==null?'n/a':(v>=0?'+':'')+(100*v).toFixed(1)+' pts';
+    let html='<h3>Rule 4.3 by driver (as of '+r43.as_of+')</h3><p class="meta">Hit, as implemented: realised vol over the next 30 days exceeds the implied vol (IV₁ₘ) at the flag. Driver at the flag: complacency = IV₁ₘ below its trailing 250-day median; post-shock = RV₃₀ above its trailing 250-day 90th percentile. Episodes = flags separated by at least 30 days; windows within an episode overlap, so the episode count is the sample size that matters. <b>'+(r43.review||'')+'</b></p>';
+    for(const c of ['BTC','ETH']){ const rows=r43.rows.filter(r=>r.currency===c); if(!rows.length) continue; html+='<h4 style="margin:10px 0 4px">'+c+'</h4><table><thead><tr><th>driver</th><th>flags</th><th>episodes</th><th>elapsed</th><th>hit rate</th><th>mean RV₃₀,next − IV_flag</th><th>median</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.driver+'</td><td>'+r.n+'</td><td>'+r.n_episodes+'</td><td>'+r.n_elapsed+'</td><td>'+pc(r.hit_rate)+'</td><td>'+pr(r.mean_excess)+'</td><td>'+pr(r.median_excess)+'</td></tr>').join('')+'</tbody></table>'; }
+    document.getElementById('hitrates').insertAdjacentHTML('beforeend', html);
+  }
   const cs = d.cliff_study || {};
   if(cs.rows && cs.rows.length){
     const pc=v=>v==null?'n/a':(100*v).toFixed(1)+'%'; const pr=v=>v==null?'n/a':(v>=0?'+':'')+(100*v).toFixed(1)+'%';

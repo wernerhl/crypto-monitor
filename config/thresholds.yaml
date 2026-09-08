@@ -23,7 +23,7 @@ rules:
   vol_underpricing:            # Rule 4.3
     vrp_max: 0.0
     phi_min: 1.0
-  cliff:                       # Rule 5.1
+  cliff:                       # calendar (was Rule 5.1; review decision 1, 2026-09-08). Values unchanged.
     single_unlock_float_share_min: 0.01
     single_unlock_days_of_volume_min: 2.0
   gate:                        # Rule 7.1

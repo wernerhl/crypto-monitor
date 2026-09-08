@@ -538,9 +538,11 @@ def compute_derived(as_of: date | None = None) -> dict[str, int]:
     # ---- fragility
     frag = _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now)
     phi = frag.get("phi") if frag else None
+    vh = archive.read("vrp_history")
     for om in opt_rows:
+        drv = _live_driver(vh, om["currency"]) if vh is not None else None
         fires.append(
-            rules_mod.vol_underpricing(om["currency"], now, om.get("vrp"), phi, th["rules"])
+            rules_mod.vol_underpricing(om["currency"], now, om.get("vrp"), phi, th["rules"], drv)
         )
     if pos_rows:
         df = pl.DataFrame(pos_rows).with_columns(pl.lit(sha).alias("git_sha"))
@@ -853,6 +855,25 @@ def _liq_coverage_share(liqs: pl.DataFrame | None, now: datetime, days: int = 30
     )
     good = c.group_by("hour").len().filter(pl.col("len") == len(venues)).height
     return good / (days * 24)
+
+
+def _live_driver(vh: pl.DataFrame, currency: str) -> dict | None:
+    """Driver of today's VRP sign for the 4.3 row (compute.rule43): the latest day of the
+    DVOL-based series with its 250-day percentiles."""
+    from monitor.compute import rule43
+
+    ds = rule43.driver_series(vh, currency)
+    if not ds.height:
+        return None
+    r = ds.tail(1).to_dicts()[0]
+    if r.get("driver") is None:
+        return None
+    return {
+        "driver": r["driver"],
+        "text": rule43.driver_label(r),
+        "iv_pctile_250": r["iv_pctile_250"],
+        "rv_pctile_250": r["rv_pctile_250"],
+    }
 
 
 def _liq_source(liqs: pl.DataFrame | None, days: int = 30) -> str | None:
@@ -1168,6 +1189,7 @@ def _reading(payload: dict, out: Path) -> list[dict]:
         breaches,
         low,
         gaps,
+        payload.get("calendar"),
     )
 
 
@@ -1189,6 +1211,7 @@ def latest_rule_fires(max_age_hours: int = 48) -> pl.DataFrame | None:
     if rf is None or not rf.height:
         return None
     cutoff = utc_now() - timedelta(hours=max_age_hours)
+    rf = rf.filter(pl.col("rule_id") != "5.1")  # calendar, not a trigger (review decision 1)
     tiered = tiered_symbols()
     if tiered:
         rf = rf.filter(pl.col("asset").is_in(tiered))
@@ -1197,6 +1220,24 @@ def latest_rule_fires(max_age_hours: int = 48) -> pl.DataFrame | None:
         .sort("ts")
         .unique(subset=["rule_id", "asset"], keep="last")
         .sort("rule_id", "asset")
+    )
+
+
+def latest_calendar(max_age_hours: int = 48) -> pl.DataFrame | None:
+    """Latest calendar evaluation per asset (Rule 5.1 rows, `cliff_calendar`); qualifying
+    cliffs are `fired = True`. Written by the daily context job."""
+    cc = archive.read("cliff_calendar")
+    if cc is None or not cc.height:
+        return None
+    cutoff = utc_now() - timedelta(hours=max_age_hours)
+    tiered = tiered_symbols()
+    if tiered:
+        cc = cc.filter(pl.col("asset").is_in(tiered))
+    return (
+        cc.filter(pl.col("ts") >= cutoff)
+        .sort("ts")
+        .unique(subset=["asset"], keep="last")
+        .sort("asset")
     )
 
 
@@ -1216,6 +1257,7 @@ def write_hourly_json(out: Path = SITE_DATA) -> None:
         "options": latest("options_metrics", "ts"),
         "fragility": latest("fragility", "ts"),
         "rules": (lambda r: r.to_dicts() if r is not None else [])(latest_rule_fires()),
+        "calendar": (lambda r: r.to_dicts() if r is not None else [])(latest_calendar()),
         "liquidity": [
             r for r in latest("liquidity", "date") if r.get("base") in set(tiered_symbols())
         ],

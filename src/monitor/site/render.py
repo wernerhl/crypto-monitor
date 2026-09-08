@@ -21,7 +21,7 @@ NOTICE = (
 )
 
 
-def render(out_dir: Path = SITE) -> Path:
+def render(out_dir: Path = SITE, write_meta: bool = True) -> Path:
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES)),
         autoescape=select_autoescape(["html"]),
@@ -38,7 +38,8 @@ def render(out_dir: Path = SITE) -> Path:
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     SITE_DATA.mkdir(parents=True, exist_ok=True)
-    (SITE_DATA / "build.json").write_text(json.dumps(ctx, indent=1))
+    if write_meta:  # build.json belongs to the daily job's write set (config/job_writes.yaml)
+        (SITE_DATA / "build.json").write_text(json.dumps(ctx, indent=1))
     for name in ("index.html", "universe.html", "onchain.html", "methods.html", "status.html"):
         html = env.get_template(name).render(**ctx)
         (out_dir / name).write_text(html)

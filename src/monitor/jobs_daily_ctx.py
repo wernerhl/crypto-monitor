@@ -152,7 +152,7 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
     put("unlock_supply", sups)
     put("unlock_detail", [llama.parse_unlock_detail(e) for e in E("llama_datasets_unlock_detail")])
     put("fees_tvl", [llama.parse_fees_tvl(e) for e in E("llama_api_fees_tvl")])
-    put("oi_rubik", [okx.parse_oi_rubik(e) for e in E("okx_oi_rubik_1D")])
+    # oi_rubik (1D and 1H) is parsed by the hourly job only (write sets, work order 3)
     put("macro", [fred.parse_series(e) for e in E("fred_csv_series")])
     put("onchain", [onchain.parse_coinmetrics(e) for e in E("coinmetrics_asset_metrics")])
     put("btc_chain", [onchain.parse_btc_chain(e) for e in E("blockchain_info_charts")])
@@ -305,8 +305,8 @@ def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
                 ),
             )
             counts["cliffs"] = cl.height
-        if fires:
-            archive.upsert("rule_fires", pl.DataFrame(fires))
+        if fires:  # calendar rows (review decision 1): their own table, not rule_fires
+            archive.upsert("cliff_calendar", pl.DataFrame(fires))
     else:
         cl = None
     # stablecoin growth (fragility input)
@@ -406,6 +406,8 @@ def write_daily_json(out: Path = SITE_DATA) -> None:
         "eth_staking": latest("eth_staking", "date")[:1],
         "hit_rates": _hit_rates(),
         "cliff_study": _cliff_study(),
+        "rule43_drivers": _rule43_drivers(),
+        "fragility_validation": _phi_validation(),
     }
     (out / "daily.json").write_text(dump_json(payload))
     write_history_json(out)
@@ -444,6 +446,49 @@ def _onchain_summary() -> list[dict]:
             }
         )
     return out
+
+
+def _phi_validation() -> dict:
+    """Summary of the Φ-after-shock study for the methods page (work order 3, item 5)."""
+    t = archive.read("phi_shock_terciles")
+    r = archive.read("phi_shock_regressions")
+    ev = archive.read("phi_shock_events")
+    if t is None or not t.height or ev is None or not ev.height:
+        return {}
+    as_of = t["as_of"].max()
+    evl = ev.filter(pl.col("as_of") == as_of)
+    return {
+        "as_of": str(as_of),
+        "n_shocks": evl.height,
+        "n_shocks_3plus": evl.filter(pl.col("n_components") >= 3).height,
+        "first": str(evl["date"].min()),
+        "last": str(evl["date"].max()),
+        "terciles": t.filter(pl.col("as_of") == as_of)
+        .drop("source", "fetched_at", "git_sha", "as_of")
+        .to_dicts(),
+        "slopes": r.filter((pl.col("as_of") == as_of) & (pl.col("regressor") == "phi_pre"))
+        .drop("source", "fetched_at", "git_sha", "as_of")
+        .to_dicts()
+        if r is not None
+        else [],
+        "verdict": __import__("monitor.compute.fragility_validation", fromlist=["verdict"]).verdict(
+            r.filter(pl.col("as_of") == as_of)
+        )["text"]
+        if r is not None and r.height
+        else None,
+    }
+
+
+def _rule43_drivers() -> dict:
+    t = archive.read("rule43_drivers")
+    if t is None or not t.height:
+        return {}
+    latest = t.filter(pl.col("as_of") == t["as_of"].max())
+    return {
+        "as_of": str(latest["as_of"][0]),
+        "rows": latest.drop("source", "fetched_at", "git_sha", "as_of").to_dicts(),
+        "review": "Premise under review since 2026-09-08; to be decided at the next quarterly review (December 2026) on this evidence. No threshold changed.",
+    }
 
 
 def _cliff_study() -> dict:

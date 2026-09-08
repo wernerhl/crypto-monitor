@@ -20,6 +20,7 @@ class RuleFire(BaseModel):
     inputs: dict[str, float | str | None]
     thresholds: dict[str, float]
     note: str | None = None
+    status: str = "trigger"  # "trigger" (Rules 4.1–4.3) or "calendar" (5.1, review decision 1)
 
 
 def _missing(inputs: dict) -> list[str]:
@@ -114,13 +115,30 @@ def capitulation(
 
 
 def vol_underpricing(
-    asset: str, ts: datetime, vrp: float | None, phi: float | None, th: dict
+    asset: str,
+    ts: datetime,
+    vrp: float | None,
+    phi: float | None,
+    th: dict,
+    driver: dict | None = None,
 ) -> RuleFire:
-    """Rule 4.3: VRP < 0 and Φ > 1 → no short-vol positions."""
+    """Rule 4.3: VRP < 0 and Φ > 1 → no short-vol positions. `driver` (work order 3, item 2)
+    labels why the premium is negative: complacency (IV₁ₘ below its 250-day median),
+    post-shock (RV₃₀ above its 250-day 90th percentile), both or neither; it is shown, not
+    used in the decision. The rule's premise is under review (2026-09-08)."""
     t = th["vol_underpricing"]
     inputs = {"vrp": vrp, "phi": phi}
+    if driver:
+        inputs.update(
+            {
+                "driver": driver.get("driver"),
+                "driver_text": driver.get("text"),
+                "iv_pctile_250": driver.get("iv_pctile_250"),
+                "rv_pctile_250": driver.get("rv_pctile_250"),
+            }
+        )
     thr = {"vrp_max": t["vrp_max"], "phi_min": t["phi_min"]}
-    miss = _missing(inputs)
+    miss = [k for k in ("vrp", "phi") if inputs.get(k) is None]
     if miss:
         return RuleFire(
             rule_id="4.3",
@@ -149,7 +167,11 @@ def cliff(
     th: dict,
     unlock_date: str | None = None,
 ) -> RuleFire:
-    """Rule 5.1: a single unlock exceeding 1 % of float or two days of real volume."""
+    """Rule 5.1, status `calendar` since review decision 1 (2026-09-08): a single unlock
+    exceeding 1 % of float or two days of real volume. It feeds the event strip, ESP,
+    dilution, the liquidity gate and the rolling calendar issue; it is not a trigger, has no
+    hit-rate row and does not appear under "Rules firing". Exhibit:
+    docs/notes/pre_unlock_drift.md (mechanism not distinguishable from placebo)."""
     t = th["cliff"]
     inputs = {
         "unlock_share_of_float": unlock_share_of_float,
@@ -169,6 +191,7 @@ def cliff(
             inputs=inputs,
             thresholds=thr,
             note="unavailable: no unlock schedule",
+            status="calendar",
         )
     a = (
         unlock_share_of_float is not None
@@ -179,7 +202,13 @@ def cliff(
         and unlock_days_of_volume > t["single_unlock_days_of_volume_min"]
     )
     return RuleFire(
-        rule_id="5.1", asset=asset, ts=ts, fired=bool(a or b), inputs=inputs, thresholds=thr
+        rule_id="5.1",
+        asset=asset,
+        ts=ts,
+        fired=bool(a or b),
+        inputs=inputs,
+        thresholds=thr,
+        status="calendar",
     )
 
 

@@ -27,7 +27,7 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync --frozen
-      - name: tier freeze, factor model, screen IC, hit rates
+      - name: universe, tier freeze, factor model, screens, risk panels, studies
         run: uv run monitor compute weekly
       - name: rotate raw files older than the retention windows to the data-archive branch
         run: bash scripts/rotate_raw.sh
@@ -38,12 +38,21 @@ jobs:
           git config user.name "crypto-monitor-bot"
           git config user.email "crypto-monitor-bot@users.noreply.github.com"
           git add -A data/ site/data/
-          git diff --cached --quiet || (git commit -m "data: weekly $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]" && git pull --rebase -X theirs origin main && git push origin HEAD:main)
+          if ! git diff --cached --quiet; then
+            uv run python scripts/check_write_set.py weekly
+            git commit -m "data: weekly $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+            if ! git pull --rebase origin main; then
+              echo "::error::rebase conflict; binary data is never auto-resolved. Conflicting files: $(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+              git rebase --abort
+              exit 1
+            fi
+            git push origin HEAD:main
+          fi
       - name: open the weekly review issue
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/weekly_issue.sh
-      - run: uv run monitor site render
+      - run: uv run monitor site render --no-meta
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

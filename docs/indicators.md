@@ -62,7 +62,10 @@ the unit test whose comments carry the hand-computed expected value.
 ## Rules
 | rule | function | test |
 |---|---|---|
-| 4.1 crowded long, 4.2 capitulation, 4.3 vol underpricing, 5.1 cliff, 7.1 gate | `monitor.rules.*` (thresholds only from `config/thresholds.yaml`) | `test_state_rules.py::test_rules_fire_and_report_unavailable_inputs` |
+| 4.1 crowded long, 4.2 capitulation, 4.3 vol underpricing, 7.1 gate | `monitor.rules.*` (thresholds only from `config/thresholds.yaml`) | `test_state_rules.py::test_rules_fire_and_report_unavailable_inputs` |
+| 5.1 cliff — status `calendar` since review decision 1 (2026-09-08) | `rules.cliff` → `cliff_calendar` table (daily); feeds the event strip, ESP, dilution, gate and the rolling calendar issue; no hit-rate row, not a trigger | `test_rule_51_is_a_calendar_not_a_trigger` |
+| 4.3 driver (analysis, review item) | `compute.rule43`: complacency = IV₁ₘ < trailing 250-day median; post-shock = RV₃₀ > trailing 250-day 90th percentile; both / neither; hit = RV₃₀,next > IV_flag; episodes = flags ≥ 30 days apart | `test_rule43_driver_classification` |
+| Φ after shocks (analysis) | `compute.fragility_validation`: shocks = BTC log return < rolling 250-day 5th percentile; outcomes MDD 5/20 d, RV 20 d, days to recover ≤ 60; Newey–West slopes; Φ-matched placebo; tercile tables | `test_fragility_validation_shocks_and_outcomes` |
 
 | 5.1 backfill | `compute.cliff_study` (hit = negative 14-day pre-cliff return; float backed out of the schedule; wash-filtered ADV where available, flagged otherwise; s.e. clustered by cliff week; β-adjusted return with the factor model's rolling β_MKT; placebo of 20 pseudo-cliffs per token and year; base rate on all tokens and on the Rule 5.1 tokens; by-year rows first) | `test_cliff_study_counts_hits_and_flags_bases`, `test_clustered_se_and_placebo` |
 | alerts | `monitor.alerts` (one issue per Rule 4.x firing, venue breach or dataset unavailable two runs; ONE rolling "Cliff calendar, next 30 days" issue for Rule 5.1, refreshed when the list changes; `site/alerts.xml`) | `test_alerts_open_and_close_conditions_dry_run`, `test_rule_51_firings_collapse_into_one_calendar_condition` |

@@ -8,6 +8,8 @@ them."""
 
 from __future__ import annotations
 
+import contextlib
+import json
 from datetime import date
 
 COMPONENT_NAMES = {
@@ -45,6 +47,7 @@ def state_reading(
     venue_breaches: list[str],
     low_score_breach: bool,
     gaps: list[dict] | None = None,
+    calendar: list[dict] | None = None,
 ) -> list[dict]:
     seg: list[dict] = []
     add = seg.append
@@ -77,13 +80,19 @@ def state_reading(
         add({"t": f"{as_of.isoformat()}: the fragility index is not available this run. "})
     # --- variance risk premium signs
     vr = [(o["currency"], o.get("vrp")) for o in options if o.get("currency") in ("BTC", "ETH")]
+    drivers = {}
+    for r in rules:
+        if r.get("rule_id") == "4.3":
+            with contextlib.suppress(ValueError, TypeError):
+                drivers[r["asset"]] = json.loads(r.get("inputs") or "{}").get("driver_text")
     if vr:
         bits = []
         for c, v in vr:
             if v is None:
                 bits.append(f"{c} VRP n/a")
             else:
-                bits.append(f"{c} VRP {'positive' if v > 0 else 'negative'} ({v:+.3f})")
+                dt = f": {drivers[c]}" if v < 0 and drivers.get(c) else ""
+                bits.append(f"{c} VRP {'positive' if v > 0 else 'negative'} ({v:+.3f}{dt})")
         add({"t": "Implied minus realised variance: "})
         add({"t": ", ".join(bits), "href": "#p-state"})
         add({"t": ". "})
@@ -121,7 +130,7 @@ def state_reading(
         add({"t": " over 30 days. "})
     # --- rules and venues
     firing = [r for r in rules if r.get("fired") is True and r.get("rule_id") != "5.1"]
-    cliffs = [r for r in rules if r.get("fired") is True and r.get("rule_id") == "5.1"]
+    cliffs = [r for r in (calendar or []) if r.get("fired") is True]
     unavailable = [r for r in rules if r.get("fired") is None]
     if firing:
         add({"t": "Rules firing: "})

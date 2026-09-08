@@ -26,6 +26,10 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run python scripts/check_secrets.py $(git ls-files)
       - run: uv run pytest
+      - name: no automatic merge resolution in any workflow or script
+        run: |
+          if grep -rnE --exclude=ci.yml -- '-X (theirs|ours)|--strategy-option[= ](theirs|ours)|-Xtheirs|-Xours' .github/workflows scripts; then
+            echo "::error::a workflow or script auto-resolves merge conflicts; binary data must never be auto-resolved"; exit 1; fi
         env:
           LIVE: "0"
       - run: bash scripts/check_repo_size.sh

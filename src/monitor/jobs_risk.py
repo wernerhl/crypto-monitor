@@ -359,20 +359,7 @@ def compute_trades(now: datetime, sha: str) -> pl.DataFrame:
         for r in f51.to_dicts():
             with contextlib.suppress(Exception):
                 fires[(r["asset"], json.loads(r["inputs"]).get("unlock_date"))] = r["fired"]
-        frames.append(
-            tr.unlock_short(
-                cl,
-                fires,
-                now.date(),
-                dict(zip(uni["id"], uni["tier"], strict=True)),
-                dict(zip(uni["id"], uni["symbol"], strict=True)),
-                z,
-                fd,
-                best,
-                scores,
-                fees,
-            )
-        )
+        # tr.unlock_short retired (review decision 1, 2026-09-08); the study can still call it
     frames = [f for f in frames if f.height]
     if not frames:
         return pl.DataFrame()

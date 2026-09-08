@@ -232,7 +232,8 @@ def unlock_short(
     venue_scores: dict[str, str],
     fees: dict[str, dict],
 ) -> pl.DataFrame:
-    """Short the perp on a Tier 1/2 asset with a flagged cliff 14–28 days ahead, sized by
+    """RETIRED (review decision 1, 2026-09-08): not built into the trade table. Kept so the
+    cliff study can re-run it. Exhibit: docs/notes/pre_unlock_drift.md. Short the perp on a Tier 1/2 asset with a flagged cliff 14–28 days ahead, sized by
     ESP^vol. Cost: funding paid if funding is negative (crowded short) + fees. Warning when
     z^FR < −1."""
     rows = []

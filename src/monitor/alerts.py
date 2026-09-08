@@ -46,19 +46,23 @@ PANEL = {
 def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
     """Active conditions from the archive and the published risk.json."""
     out: list[dict] = []
-    from monitor.jobs_hourly import latest_rule_fires
+    from monitor.jobs_hourly import latest_calendar, latest_rule_fires
 
+    cal = latest_calendar()
+    cliffs = []
+    if cal is not None and cal.height:
+        for r in cal.filter(pl.col("fired")).to_dicts():
+            try:
+                cliffs.append((r["asset"], json.loads(r.get("inputs") or "{}")))
+            except ValueError:
+                cliffs.append((r["asset"], {}))
     last = latest_rule_fires()
     if last is not None and last.height:
-        cliffs = []
         for r in last.filter(pl.col("fired")).sort("rule_id", "asset").to_dicts():
             try:
                 inputs = json.loads(r.get("inputs") or "{}")
             except ValueError:
                 inputs = {}
-            if r["rule_id"] == "5.1":
-                cliffs.append((r["asset"], inputs))
-                continue  # informational rule: one rolling calendar, not one issue per token
             out.append(
                 {
                     "key": f"rule:{r['rule_id']}:{r['asset']}",
@@ -67,8 +71,8 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
                     "body": f"Evaluated {r['ts']:%Y-%m-%d %H:%M} UTC. Inputs: {json.dumps(inputs, default=str)}. Thresholds: {r.get('thresholds')}. Pre-committed action per docs/indicators.md; nothing here is a forecast.",
                 }
             )
-        if cliffs:
-            out.append(cliff_calendar(cliffs))
+    if cliffs:
+        out.append(cliff_calendar(cliffs))
     rk = site_data / "risk.json"
     if rk.exists():
         try:
@@ -95,7 +99,7 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
                     "body": f"Low-score venues hold {100 * low['share_nav']:.1f}% of NAV against a limit of {100 * low['limit_share_nav']:.1f}%.",
                 }
             )
-    fs = archive.read("fetch_status")
+    fs = archive.read_fetch_status()
     if fs is not None and fs.height:
         # last two runs per (job, dataset): both failed → condition
         g = (

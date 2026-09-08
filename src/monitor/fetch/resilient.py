@@ -58,7 +58,7 @@ class FetchRun:
             pl.lit(utc_now()).alias("fetched_at"),
             pl.lit(git_sha()).alias("git_sha"),
         )
-        archive.upsert("fetch_status", df)
+        archive.upsert(f"fetch_status_{self.job}", df)  # one table per job (disjoint write sets)
         self.rows = []
 
 

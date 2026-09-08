@@ -85,6 +85,13 @@ KEYS: dict[str, list[str]] = {
     "cliff_study": ["as_of", "group_kind", "group"],
     "alerts": ["key"],
     "liq_coverage": ["hour", "venue"],
+    "cliff_calendar": ["ts", "asset"],
+    "rule43_flags": ["as_of", "currency", "date"],
+    "rule43_drivers": ["as_of", "currency", "driver"],
+    "phi_shock_events": ["as_of", "date"],
+    "phi_shock_placebo": ["as_of", "date"],
+    "phi_shock_regressions": ["as_of", "sample", "outcome", "regressor"],
+    "phi_shock_terciles": ["as_of", "sample", "tercile"],
     "fragility_series": ["date"],
     "basis_history": ["date", "base", "contract"],
 }
@@ -133,6 +140,13 @@ TIME_COL: dict[str, str] = {
     "cliff_study": "as_of",
     "alerts": "opened_at",
     "liq_coverage": "hour",
+    "cliff_calendar": "ts",
+    "rule43_flags": "as_of",
+    "rule43_drivers": "as_of",
+    "phi_shock_events": "as_of",
+    "phi_shock_placebo": "as_of",
+    "phi_shock_regressions": "as_of",
+    "phi_shock_terciles": "as_of",
     "venue_scores": "as_of",
     "book_risk": "as_of",
     "trade_structures": "as_of",
@@ -193,10 +207,25 @@ def read(table: str) -> pl.DataFrame | None:
     return pl.read_parquet(p) if p.exists() else None
 
 
+def keys_for(table: str) -> list[str]:
+    """Primary key of a table; `fetch_status_<job>` tables share the fetch_status key."""
+    if table.startswith("fetch_status"):
+        return KEYS["fetch_status"]
+    return KEYS[table]
+
+
+def read_fetch_status() -> pl.DataFrame | None:
+    """Every job's fetch-status table concatenated (each job writes its own file so the
+    jobs' write sets stay disjoint; work order 3, item 3)."""
+    frames = [pl.read_parquet(p) for p in sorted(PROCESSED.glob("fetch_status*.parquet"))]
+    frames = [f for f in frames if f.height]
+    return pl.concat(frames, how="diagonal_relaxed") if frames else None
+
+
 def upsert(table: str, new: pl.DataFrame) -> pl.DataFrame:
     """Merge `new` into the processed table on KEYS[table], newest fetched_at wins."""
     _guard()
-    keys = KEYS[table]
+    keys = keys_for(table)
     old = read(table)
     if old is not None and old.height:
         new = new.select(old.columns) if set(old.columns) == set(new.columns) else new
@@ -207,9 +236,10 @@ def upsert(table: str, new: pl.DataFrame) -> pl.DataFrame:
     PROCESSED.mkdir(parents=True, exist_ok=True)
     # archive partitions first (everything), then trim the processed copy to its window
     write_partitions(table, df)
-    if table in ROLLING_DAYS:
-        tcol = TIME_COL[table]
-        cutoff = df[tcol].max() - _dt.timedelta(days=ROLLING_DAYS[table])
+    base = "fetch_status" if table.startswith("fetch_status") else table
+    if base in ROLLING_DAYS:
+        tcol = TIME_COL[base]
+        cutoff = df[tcol].max() - _dt.timedelta(days=ROLLING_DAYS[base])
         df = df.filter(pl.col(tcol) >= cutoff)
     df.write_parquet(processed_path(table), compression="zstd")
     return df
@@ -232,7 +262,7 @@ def write_partitions(table: str, df: pl.DataFrame | None = None) -> list[Path]:
     df = df if df is not None else read(table)
     if df is None or not df.height:
         return []
-    tcol = TIME_COL[table]
+    tcol = TIME_COL["fetch_status" if table.startswith("fetch_status") else table]
     out: list[Path] = []
     d = df.with_columns(
         pl.col(tcol).cast(pl.Datetime("us", "UTC")).dt.strftime("%Y-%m").alias("_ym")

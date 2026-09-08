@@ -16,11 +16,16 @@ export PYTHONPATH="$PWD/src"
 set -a; [ -f .env ] && . ./.env; set +a
 uv run --no-sync monitor fetch "$JOB"
 uv run --no-sync monitor compute "$JOB"
+[ "$JOB" = hourly ] && { set -a; . ./.env 2>/dev/null; set +a; uv run --no-sync monitor alerts --dry-run >/dev/null 2>&1 || true; }
 find data site/data -name '* [0-9].*' -delete 2>/dev/null || true
-git add data/ site/data/
+git add data/ site/data/ site/alerts.xml 2>/dev/null || git add data/ site/data/
 if ! git diff --cached --quiet; then
+  uv run --no-sync python scripts/check_write_set.py "$JOB"
   git -c user.name=crypto-monitor-bot -c user.email=crypto-monitor-bot@users.noreply.github.com commit -qm "data: collector $JOB $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
-  git pull -q --rebase -X theirs origin main
+  if ! git pull -q --rebase origin main; then
+    echo "collector $JOB: rebase conflict, not auto-resolved: $(git diff --name-only --diff-filter=U | tr '\n' ' ')" >&2
+    git rebase --abort; exit 1
+  fi
   git push -q origin HEAD:main
 fi
 echo "collector $JOB done $(date -u +%FT%TZ)"

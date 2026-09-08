@@ -80,19 +80,24 @@ def test_rule_51_firings_collapse_into_one_calendar_condition(tmp_path, monkeypa
         }
         for i, a in enumerate(["ARB", "APT", "ZRO"])
     ]
-    rows.append(
-        {
-            "ts": now,
-            "rule_id": "4.1",
-            "asset": "BTC",
-            "fired": True,
-            "inputs": "{}",
-            "thresholds": "{}",
-            "note": None,
-            **prov,
-        }
+    archive.upsert("cliff_calendar", pl.DataFrame([{**r, "status": "calendar"} for r in rows]))
+    archive.upsert(
+        "rule_fires",
+        pl.DataFrame(
+            [
+                {
+                    "ts": now,
+                    "rule_id": "4.1",
+                    "asset": "BTC",
+                    "fired": True,
+                    "inputs": "{}",
+                    "thresholds": "{}",
+                    "note": None,
+                    **prov,
+                }
+            ]
+        ),
     )
-    archive.upsert("rule_fires", pl.DataFrame(rows))
     conds = alerts.current_conditions(site / "data")
     keys = {c["key"] for c in conds}
     assert keys == {"cliffs:calendar", "rule:4.1:BTC"}
@@ -102,11 +107,12 @@ def test_rule_51_firings_collapse_into_one_calendar_condition(tmp_path, monkeypa
     assert r["active"] == 2
     # the list changes → the same condition is refreshed, not reopened
     archive.upsert(
-        "rule_fires",
+        "cliff_calendar",
         pl.DataFrame(
             [
                 {
                     **rows[2],
+                    "status": "calendar",
                     "fired": False,
                     "ts": now + timedelta(hours=1),
                     "fetched_at": now + timedelta(hours=1),

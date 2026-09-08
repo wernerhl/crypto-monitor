@@ -22,6 +22,7 @@ import numpy as np
 import polars as pl
 
 MAD_SCALE = 1.4826
+DEGENERATE_SCALE = 0.05  # robust scale / std below this → window degenerate, z undefined
 
 
 # --------------------------------------------------------------------------- funding
@@ -90,7 +91,11 @@ def robust_z(x: np.ndarray, window: int, min_n: int = 30) -> tuple[float | None,
         return None, int(hist.size)
     med = float(np.median(hist))
     mad = float(np.median(np.abs(hist - med)))
-    if mad == 0:
+    # numerical guard (work order 3): a robust scale below 5 % of the window's ordinary
+    # standard deviation means a degenerate window (a run of near-identical values); the z is
+    # then undefined and the component counts as missing, instead of a value in the hundreds
+    # of thousands (stablecoin growth, November 2018). The formula is unchanged otherwise.
+    if mad == 0 or MAD_SCALE * mad < DEGENERATE_SCALE * float(np.std(hist)):
         return None, int(hist.size)
     return float((x[-1] - med) / (MAD_SCALE * mad)), int(hist.size)
 

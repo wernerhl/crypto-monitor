@@ -1,0 +1,33 @@
+# Which job may write which tables and site files (work order 3, item 3). The commit step of
+# every workflow and of scripts/collector.sh asserts that the staged files fall inside the
+# job's set (scripts/check_write_set.py), so concurrent jobs never touch the same file and a
+# rebase never has to resolve a binary conflict. Raw envelopes under data/raw are immutable
+# per bucket and may be written by any fetching job.
+hourly:
+  tables: [perp_snapshot, long_short, oi_rubik, oi_daily, liquidations, liq_coverage, options, dvol,
+           futures_marks, orderbook_depth, trade_stats, prices_hourly, wash_filters, liquidity,
+           positioning, options_metrics, fragility, fragility_series, rule_fires, vol_state,
+           funding_daily, vrp_history, alerts, fetch_status_hourly]
+  site: [site/data/hourly.json, site/alerts.xml]
+  raw: true
+daily:
+  tables: [markets, coin_meta, category_members, venue_listings, prices_daily,
+           stablecoins, stablecoin_total, stablecoin_growth, unlock_events, unlock_supply, unlock_detail,
+           fees_tvl, macro, macro_latest, onchain, btc_chain, eth_staking, proposals,
+           esp, dilution, cliffs, cliff_calendar, event_strip, hit_rates,
+           fetch_status_daily, fetch_status_daily-hourly-klines]
+  site: [site/data/daily.json, site/data/history.json, site/data/status.json, site/data/universe.json, site/data/build.json]
+  raw: true
+weekly:
+  tables: [universe, tier_history, factor_returns, factor_betas, screen_ic, screens,
+           venue_scores, book_risk, trade_structures, cliff_study, cliff_study_events,
+           rule43_flags, rule43_drivers, phi_shock_events, phi_shock_placebo, phi_shock_regressions, phi_shock_terciles,
+           fetch_status_weekly]
+  site: [site/data/risk.json]
+  raw: true   # the weekly job rotates raw files (deletions are staged)
+backfill:
+  tables: [prices_daily, funding_history, oi_history, market_cap_history, dvol_daily, basis_history,
+           oi_rubik, funding_daily_history, positioning_history, fragility_history, fragility_series,
+           rule_fires, fetch_status_backfill]
+  site: []
+  raw: true

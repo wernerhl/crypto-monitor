@@ -324,3 +324,71 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   build, after the A2 sign fix lowered Φ on many dates) → 76 (this build, range position);
   fired asset-days 107 → 85 between the last two. The count follows the Φ definition and
   is reported, not tuned.
+
+## 2026-09-08 — Work order 3 (after commit 06c1fba)
+* **Review decision 1 (2026-09-08): Rule 5.1 reclassified as calendar; unlock-short
+  structure retired.** Exhibit: [docs/notes/pre_unlock_drift.md](notes/pre_unlock_drift.md).
+  Reason: mechanism claim not distinguishable from placebo on 2,645 events (as implemented,
+  either leg, n = 759: hit rate 54.5 % vs 56.2 % base rate on the same tokens; pooled placebo
+  59.3 % vs 59.5 % real; β-adjusted pre-cliff residual ≈ 4 points at under two week-clustered
+  s.e., not larger for flagged cliffs than for cliffs meeting neither leg). `rules.cliff`
+  keeps computing with status `calendar` and writes `cliff_calendar` (its own table); it
+  feeds the event strip, ESP, dilution, the liquidity gate and the rolling calendar issue;
+  it has no hit-rate row and does not appear under "Rules firing" or on the triggers panel.
+  `trades.unlock_short` is kept in code, marked retired, and no longer built into panel 5.
+  The `cliff` block in `config/thresholds.yaml` is unchanged in value and re-labelled as
+  calendar thresholds. Recorded in the notes' implementation appendix against Section 5 and
+  Rule 4.
+* **Rule 4.3 by driver (review item opened 2026-09-08, decide at the December 2026
+  quarterly review).** Hit, as implemented and now stated on the methods page: realised vol
+  over the next 30 days exceeds IV₁ₘ at the flag. Every historical flag is classified at the
+  flag as complacency (IV₁ₘ below its trailing 250-day median), post-shock (RV₃₀ above its
+  trailing 250-day 90th percentile), both, or neither; hit rate, mean and median
+  (RV₃₀,next − IV_flag), flags and independent episodes (≥ 30 days apart) per class are on
+  the methods page (`rule43_drivers`, weekly). BTC, 2021–2026: 84 flags in 10 episodes;
+  complacency 20.8 % (n 24, 7 episodes), post-shock 17.9 % (39, 3), both 85.7 % (7, 3),
+  neither 50 % (6, 3). The live 4.3 row carries the driver text ("post-shock, RV at the 78th
+  percentile" / "implied vol at the 34th percentile") on the triggers panel and in the
+  reading. No threshold changed; the review item is on the weekly issue checklist.
+* **Disjoint job write sets; no automatic merge resolution.** `config/job_writes.yaml` lists
+  the tables and site files each job may write; `scripts/check_write_set.py` asserts the
+  staged files before every bot commit (workflows and `scripts/collector.sh`).
+  Consequences: the hourly job owns perp snapshots, OI (rubik), liquidations, the derived
+  hourly tables, `hourly.json`, alerts and `alerts.xml`; the daily job owns the context
+  tables, `cliff_calendar`, hit rates, `daily.json`, `history.json`, status/universe JSON
+  and `build.json`; the weekly job owns the universe and tier freeze, the factor model,
+  the risk panels (`risk.json`, so venue/book/trade panels refresh weekly), the cliff study,
+  the 4.3 driver table and the Φ validation. Fetch status is one table per job
+  (`fetch_status_<job>`; the status page and alerts read them all). `-X theirs` is removed
+  everywhere; the commit step rebases plainly and fails the run naming the conflicting
+  files; CI fails on any `-X theirs|ours` in a workflow or script; `manual.yml` is in the
+  `data-write` concurrency group. The 48-hour no-conflict acceptance runs from this
+  commit.
+* **Collector placement test (item 4): not run.** No permitted-region VPS exists in this
+  environment (no SSH hosts; the AWS CLI is configured with root credentials and no
+  instance). Provisioning a paid instance is a decision for the owner, so
+  `scripts/collector_placement_test.sh` is provided instead: it runs the websocket
+  collector for one hour and reports rows per venue. Until it is run, the finding stands
+  that Binance's futures websocket is silent from this machine and `liq_source` lists only
+  venues with rows.
+* **Φ validation after shocks (item 5).** `compute.fragility_validation` and
+  `scripts/fragility_validation_note.py` → [docs/notes/fragility_validation.md](notes/fragility_validation.md):
+  shock days (BTC daily log return below its rolling 250-day 5th percentile), Φ₍t−1₎ and
+  components, 5/20-day maximum drawdown, next-20-day realised vol, days to recover
+  (censored at 60), Newey–West slopes, tercile tables, a Φ-matched placebo. Summary
+  paragraph on the methods page. **Result on 147 BTC shock days (2018-06 to 2026-06; 96
+  with three or more components): no support — three outcomes null, the 5-day drawdown
+  opposite in sign.** Mean 20-day drawdown −15.9 % in the low-Φ
+  tercile against −14.3 % in the high-Φ tercile (placebo −7.7 % / −6.0 %); next-20-day RV
+  72.9 % against 68.7 %; median recovery 24 against 19 days, recovered within 60 days
+  63 % against 78 %. No outcome moves with pre-shock Φ in the claimed direction at |t| ≥ 2;
+  the 5-day drawdown moves against it (t = +2.3, smaller drawdown with higher Φ). Recorded
+  as evidence for the next review; no change to Φ or any threshold. A first run had 266
+  "shocks" because NaN warm-up thresholds compared as true; fixed (`shock_days`) and
+  covered by a test.
+* **Numerical guard in the robust z (found by item 5).** In November 2018 the stablecoin
+  component read −684,201 (Φ −342,101) because the 250-day window of stablecoin growth was
+  degenerate (MAD ≈ 0 against a 394 % growth reading). `robust_z` now returns undefined when
+  the robust scale is below 5 % of the window's ordinary standard deviation; the component
+  counts as missing on those 30 days. The formula is otherwise unchanged; the +11.7 VRP
+  reading of February 2026 is genuine (RV variance 0.66 against a MAD of 0.02) and stays.

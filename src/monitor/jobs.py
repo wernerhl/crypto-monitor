@@ -189,15 +189,8 @@ def compute_daily(as_of: date | None = None, rebuild: bool = False) -> dict[str,
             "venue_listings", pl.concat(frames, how="diagonal_relaxed")
         ).height
     # perps
-    frames = (
-        [binance.parse_perps(e) for e in envs("binance_usdm_perps")]
-        + [bybit.parse_perps(e) for e in envs("bybit_perps")]
-        + [okx.parse_perps(e) for e in envs("okx_perps")]
-    )
-    if frames:
-        counts["perp_snapshot"] = archive.upsert(
-            "perp_snapshot", pl.concat(frames, how="diagonal_relaxed")
-        ).height
+    # perp snapshots are parsed by the hourly job only (disjoint write sets, work order 3);
+    # the daily perp envelopes remain on disk as raw inputs
     # prices
     frames = []
     for name, mod in (
@@ -214,19 +207,11 @@ def compute_daily(as_of: date | None = None, rebuild: bool = False) -> dict[str,
             "prices_daily", pl.concat(frames, how="diagonal_relaxed")
         ).height
 
-    # universe
-    counts["universe"] = compute_universe(as_of=as_of).height
+    # the universe is recomputed by the weekly job (write sets, work order 3)
     from monitor.jobs_daily_ctx import compute_context
 
     counts.update(compute_context(as_of=as_of, rebuild=rebuild))
-    for t in (
-        "markets",
-        "coin_meta",
-        "venue_listings",
-        "perp_snapshot",
-        "prices_daily",
-        "universe",
-    ):
+    for t in ("markets", "coin_meta", "venue_listings", "prices_daily"):
         archive.write_partitions(t)
     write_site_json()
     return counts
@@ -369,7 +354,7 @@ def table_status(now: datetime | None = None) -> list[dict]:
 def write_site_json(out: Path = SITE_DATA) -> None:
     """JSON the page reads (phase 2: universe, status, build info)."""
     out.mkdir(parents=True, exist_ok=True)
-    fs = archive.read("fetch_status")
+    fs = archive.read_fetch_status()
     fetches = []
     if fs is not None and fs.height:
         latest = (

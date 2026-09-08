@@ -25,11 +25,15 @@ def version() -> None:
 
 
 @site_app.command("render")
-def site_render() -> None:
+def site_render(
+    no_meta: bool = typer.Option(
+        False, "--no-meta", help="do not write site/data/build.json (jobs other than daily)"
+    ),
+) -> None:
     """Render the static site into ./site."""
     from monitor.site.render import render
 
-    out = render()
+    out = render(write_meta=not no_meta)
     typer.echo(f"rendered {out}")
 
 
@@ -115,24 +119,24 @@ def compute(
     job: str = typer.Argument("all"),
     rebuild: bool = typer.Option(False, help="replay every raw file"),
 ) -> None:
-    """Recompute processed tables from raw files (no network)."""
-    from monitor import jobs
-
-    if job in ("all", "daily"):
-        for k, v in jobs.compute_daily(rebuild=rebuild or job == "all").items():
-            typer.echo(f"{k}: {v} rows")
-    if job in ("all", "hourly", "daily"):
+    """Recompute processed tables from raw files (no network). Each job writes only its own
+    tables and JSON (config/job_writes.yaml): hourly → positioning, options, fragility, rules,
+    liquidity, vol state, hourly.json; daily → context tables, hit rates, daily.json,
+    history.json, status/universe JSON; weekly → universe, factors, screens, risk.json,
+    studies."""
+    if job in ("all", "hourly"):
         from monitor import jobs_hourly
 
         for k, v in jobs_hourly.compute_hourly(rebuild=rebuild or job == "all").items():
             typer.echo(f"{k}: {v} rows")
+        jobs_hourly.write_hourly_json()
     if job in ("all", "daily"):
-        from monitor import jobs_risk
+        from monitor import jobs, jobs_daily_ctx, jobs_weekly
 
-        out = jobs_risk.compute_all_risk()
-        typer.echo(
-            f"risk: venues {len(out['venue']['venues'])}, trades {len(out['trades'])}, screens {len(out['screens'])}"
-        )
+        for k, v in jobs.compute_daily(rebuild=rebuild or job == "all").items():
+            typer.echo(f"{k}: {v} rows")
+        typer.echo(f"hit_rates: {jobs_weekly.compute_hit_rates().height} rows")
+        jobs_daily_ctx.write_daily_json()
     if job in ("all", "weekly"):
         from monitor import jobs_weekly
 

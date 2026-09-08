@@ -42,7 +42,7 @@
   const phi = frag ? frag.phi : null;
   const stateWord = phi==null ? 'UNKNOWN' : phi>1 ? 'FRAGILE' : phi>0 ? 'BUILDING' : 'CALM';
   const stateCol = phi==null ? '' : phi>1 ? 'red' : phi>0 ? 'amber' : 'green';
-  const firing = (h&&h.rules||[]).filter(r=>r.fired===true);
+  const firing = (h&&h.rules||[]).filter(r=>r.fired===true&&r.rule_id!=='5.1');
   const unavailable = (h&&h.rules||[]).filter(r=>r.fired==null);
   if(firing.length) banners.push({c:'red',lab:'rules firing',txt:firing.map(r=>'Rule '+r.rule_id+' on '+r.asset).join(' · ')+' — see panel 4 for the inputs and the pre-committed action.'});
   else if(h) banners.push({c:'green',lab:'no rule firing',txt:(h.rules||[]).filter(r=>r.fired===false).length+' rule evaluations quiet'+(unavailable.length?' · '+unavailable.length+' waiting for history (z-scores need 30+ days of funding)':'')+'.'});
@@ -125,20 +125,20 @@
 
   // ---------- 4 triggers
   if(h&&h.rules){
-    const names={'4.1':'crowded long → reduce or hedge longs; no adding to shorts','4.2':'capitulation → candidate 1–5 day mean-reversion long, sized by the gate','4.3':'vol underpricing → no short-vol positions; consider long convexity','5.1':'cliff → unlock short 2–4 weeks ahead (see trades)'};
+    const names={'4.1':'crowded long → reduce or hedge longs; no adding to shorts','4.2':'capitulation → candidate 1–5 day mean-reversion long, sized by the gate','4.3':'vol underpricing → no short-vol positions; consider long convexity'};
     const hr=(d&&d.hit_rates)||{};
     const chip=(label,v,thr,ok,fmtv)=>'<span class="badge '+(v==null?'':ok?'red':'green')+'" title="threshold '+thr+'">'+label+' '+(v==null?'n/a':fmtv(v))+' <span style="opacity:.6">'+thr+'</span></span>';
     const legs={
       '4.1':(i,t)=>[chip('z_FR',i.z_fr,'&gt; '+t.z_fr_min,i.z_fr>t.z_fr_min,v=>v.toFixed(2)),chip('OI pct',i.oi_rel_pctile,'≥ '+P(t.oi_rel_percentile_min,0),i.oi_rel_pctile>=t.oi_rel_percentile_min,v=>P(v,0)),chip('Λ⁻/D',i.lambda_over_depth,'&gt; '+t.lambda_over_depth_min,i.lambda_over_depth>t.lambda_over_depth_min,v=>v.toFixed(2))],
       '4.2':(i,t)=>[chip('z_FR',i.z_fr,'&lt; '+t.z_fr_max,i.z_fr<t.z_fr_max,v=>v.toFixed(2)),chip('ΔOI 5d',i.oi_change_5d,'≤ −'+P(t.oi_drop_5d_min,0),i.oi_change_5d<=-t.oi_drop_5d_min,v=>P(v,0)),chip('liq pct',i.long_liq_24h_pctile,'≥ '+P(t.long_liq_24h_percentile_min,0),i.long_liq_24h_pctile>=t.long_liq_24h_percentile_min,v=>P(v,0))],
-      '4.3':(i,t)=>[chip('VRP',i.vrp,'&lt; 0',i.vrp<t.vrp_max,v=>v.toFixed(3)),chip('Φ',i.phi,'&gt; '+t.phi_min,i.phi>t.phi_min,v=>v.toFixed(2))],
+      '4.3':(i,t)=>[chip('VRP',i.vrp,'&lt; 0',i.vrp<t.vrp_max,v=>v.toFixed(3)),chip('Φ',i.phi,'&gt; '+t.phi_min,i.phi>t.phi_min,v=>v.toFixed(2))].concat(i.driver_text?['<span class="badge purple" title="why the premium has its sign (compute.rule43)">driver: '+i.driver_text+'</span>']:[]),
       '5.1':(i,t)=>[chip('% float',i.unlock_share_of_float,'&gt; '+P(t.single_unlock_float_share_min,0),i.unlock_share_of_float>t.single_unlock_float_share_min,v=>P(v,2)),chip('days vol',i.unlock_days_of_volume,'&gt; '+t.single_unlock_days_of_volume_min,i.unlock_days_of_volume>t.single_unlock_days_of_volume_min,v=>v.toFixed(1))],
     };
-    const rows=h.rules.map(r=>{const inp=(()=>{try{return JSON.parse(r.inputs)}catch(e){return {}}})(); const th=(()=>{try{return JSON.parse(r.thresholds)}catch(e){return {}}})(); const hh=(hr[r.rule_id]&&hr[r.rule_id].n)?hr[r.rule_id]:(hr[r.rule_id+'p']||hr[r.rule_id]); const chips=(legs[r.rule_id]?legs[r.rule_id](inp,th):[]).join(' '); return {status:r.fired===true?'FIRING':r.fired===false?'quiet':'unavailable', rule:r.rule_id, asset:r.asset, inputs_vs_thresholds:chips+(r.note?' <span class="small">'+r.note+'</span>':''), hit_rate: hh&&hh.n? P(hh.hit_rate,0)+' (n='+hh.n+(hr[r.rule_id]&&hr[r.rule_id].n?'':', partial inputs')+')':'n/a (no elapsed horizons)', action:names[r.rule_id]||''};});
+    const rows=h.rules.filter(r=>r.rule_id!=='5.1'&&r.status!=='calendar').map(r=>{const inp=(()=>{try{return JSON.parse(r.inputs)}catch(e){return {}}})(); const th=(()=>{try{return JSON.parse(r.thresholds)}catch(e){return {}}})(); const hh=(hr[r.rule_id]&&hr[r.rule_id].n)?hr[r.rule_id]:(hr[r.rule_id+'p']||hr[r.rule_id]); const chips=(legs[r.rule_id]?legs[r.rule_id](inp,th):[]).join(' '); return {status:r.fired===true?'FIRING':r.fired===false?'quiet':'unavailable', rule:r.rule_id, asset:r.asset, inputs_vs_thresholds:chips+(r.note?' <span class="small">'+r.note+'</span>':''), hit_rate: hh&&hh.n? P(hh.hit_rate,0)+' (n='+hh.n+(hr[r.rule_id]&&hr[r.rule_id].n?'':', partial inputs')+')':'n/a (no elapsed horizons)', action:names[r.rule_id]||''};});
     rows.sort((a,b)=>({FIRING:0,quiet:1,unavailable:2}[a.status]-{FIRING:0,quiet:1,unavailable:2}[b.status])||a.rule.localeCompare(b.rule));
     const counts={FIRING:rows.filter(r=>r.status==='FIRING').length,quiet:rows.filter(r=>r.status==='quiet').length,unavailable:rows.filter(r=>r.status==='unavailable').length};
     document.getElementById('c-triggers').innerHTML='<p class="count"><b style="color:var(--red)">'+counts.FIRING+' firing</b> · <b style="color:var(--green)">'+counts.quiet+' quiet</b> · <b style="color:var(--muted)">'+counts.unavailable+' unavailable</b> (inputs need 30+ days of funding history or liquidation data)</p>'+(function(){const pb=(h.positioning||[]).find(r=>r.base==='BTC')||{}; return pb.liq_source?'<p class="small">liquidation sample: '+pb.liq_source+(pb.liq_coverage_share!=null?' · collector coverage: '+P(pb.liq_coverage_share,0)+' of the last 30 days\' hours (Rule 4.2 percentile uses covered hours only)':'')+'</p>':'';})()'+'<p class="small">Each chip shows the input against its frozen threshold; a red chip means that leg is met. A rule fires only when every leg is met.</p>'+CM.table(['status','rule','asset','inputs_vs_thresholds','hit_rate','action'],rows,{status:v=>'<span class="badge '+(v==='FIRING'?'red':v==='quiet'?'green':'')+'">'+v+'</span>',inputs_vs_thresholds:v=>v},r=>r.status==='FIRING'?'fire':(r.status==='unavailable'?'stale':''))+CM.csv(rows,'rules');
-    document.getElementById('m-triggers').textContent='thresholds frozen in config/thresholds.yaml · evaluated '+h.rules[0].ts.toString().slice(0,16);
+    document.getElementById('m-triggers').textContent='Rules 4.1–4.3 · thresholds frozen in config/thresholds.yaml · Rule 5.1 is a calendar since 2026-09-08 (panel 6) · evaluated '+h.rules[0].ts.toString().slice(0,16);
   }
 
   // ---------- 5 trades

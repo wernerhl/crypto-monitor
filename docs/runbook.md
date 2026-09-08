@@ -94,6 +94,17 @@ no issues (used locally). State: the `alerts` table (`key`, `opened_at`, `closed
 `issue_number`). To silence a class of alerts, close the issue and fix the condition; there
 is no mute list by design.
 
+## Job write sets (no shared files, no automatic merge resolution)
+`config/job_writes.yaml` names the tables and site files each job may write; every bot
+commit (workflows, `scripts/collector.sh`) runs `scripts/check_write_set.py <job>` on the
+staged files and refuses anything outside the set. Hourly: derived hourly tables, `hourly.json`,
+alerts. Daily: context tables, `cliff_calendar`, hit rates, `daily.json`, `history.json`,
+status/universe/build JSON, site render. Weekly: universe and tier freeze, factor model, risk
+panels (`risk.json`), the studies. Fetch status is one table per job (`fetch_status_<job>`).
+The commit step rebases plainly; a conflict fails the run with the file names and is never
+auto-resolved (CI rejects any `-X theirs|ours`). If a run fails with a conflict, the fix is
+to move the file into exactly one job's set, not to pick a side.
+
 ## Re-running by hand
 ```bash
 make fetch                 # today's raw files (skips ones that exist)

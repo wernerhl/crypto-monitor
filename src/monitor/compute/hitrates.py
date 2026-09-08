@@ -3,7 +3,7 @@
 A rule "hits" when the forward return over the rule's horizon has the sign the rule's
 action implies: 4.1 crowded long → negative h-day return; 4.2 capitulation → positive 1–5 day
 return; 4.3 vol underpricing → realised vol over the next 30 days exceeds the implied vol
-at the flag; 5.1 cliff → negative return over the 14 days before the cliff. Only rule
+at the flag. Rule 5.1 is a calendar since review decision 1 (2026-09-08) and has no row. Only rule
 evaluations with `fired = True` count; the sample size is reported with every rate."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from datetime import date, timedelta
 import numpy as np
 import polars as pl
 
-HORIZONS = {"4.1": 5, "4.1p": 5, "4.2": 5, "4.2p": 5, "4.3": 30, "5.1": 14}
+HORIZONS = {"4.1": 5, "4.1p": 5, "4.2": 5, "4.2p": 5, "4.3": 30}  # 5.1 is a calendar: no row
 
 
 def forward_return(prices: pl.DataFrame, base: str, d: date, h: int) -> float | None:

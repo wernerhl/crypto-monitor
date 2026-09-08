@@ -158,6 +158,42 @@ def compute_cliff_study(
     return {"cliff_study_events": events.height, "cliff_study": summary.height}
 
 
+def compute_rule43_drivers(as_of: date | None = None) -> dict[str, int]:
+    """Historical 4.3 flags by driver (work order 3, item 2): per-flag table and the summary
+    for the methods page. Analysis only; the rule and its thresholds are unchanged."""
+    from monitor.compute import rule43
+
+    now, sha = utc_now(), git_sha()
+    as_of = as_of or now.date()
+    fires = archive.read("rule_fires")
+    vh = archive.read("vrp_history")
+    prices = _daily_prices_by_base()
+    if fires is None or vh is None or not fires.height or not vh.height:
+        return {"rule43_flags": 0, "rule43_drivers": 0}
+    frames, summ = [], []
+    for ccy in ("BTC", "ETH"):
+        fl = rule43.classify_flags(fires, vh, prices, as_of, ccy)
+        if fl.height:
+            frames.append(fl)
+            summ.append(rule43.driver_table(fl).with_columns(pl.lit(ccy).alias("currency")))
+    prov = {
+        "as_of": pl.lit(as_of),
+        "source": pl.lit("rule_fires+vrp_history+prices_daily"),
+        "fetched_at": pl.lit(now),
+        "git_sha": pl.lit(sha),
+    }
+    n_f = n_s = 0
+    if frames:
+        f = pl.concat(frames, how="vertical").with_columns(**prov)
+        archive.replace_slice("rule43_flags", "as_of", as_of, f)
+        n_f = f.height
+    if summ:
+        t = pl.concat(summ, how="vertical").with_columns(**prov)
+        archive.replace_slice("rule43_drivers", "as_of", as_of, t)
+        n_s = t.height
+    return {"rule43_flags": n_f, "rule43_drivers": n_s}
+
+
 def freeze_tier_membership() -> int:
     """Copy the latest universe rows into `tier_history` with the freeze date (the official
     weekly membership used by backtests: membership as of date)."""
@@ -184,17 +220,63 @@ def freeze_tier_membership() -> int:
     return latest.height
 
 
+def compute_phi_validation(as_of: date | None = None) -> dict[str, int]:
+    """Does Φ predict the damage after a shock? (work order 3, item 5). Tables for the note
+    and the methods paragraph; no change to Φ or any threshold."""
+    from monitor.compute import fragility_validation as fv
+
+    now, sha = utc_now(), git_sha()
+    as_of = as_of or now.date()
+    frag = archive.read("fragility_series")
+    px = _daily_prices_by_base().filter(pl.col("base") == "BTC").select("date", "close")
+    if frag is None or not frag.height or not px.height:
+        return {"phi_shock_events": 0}
+    ev = fv.event_table(px, frag, as_of)
+    plc = fv.placebo_table(px, frag, ev, as_of)
+    reg = pl.concat(
+        [
+            fv.regressions(ev, "shocks"),
+            fv.regressions(ev.filter(pl.col("n_components") >= 3), "shocks, ≥3 components"),
+            fv.regressions(plc, "placebo"),
+        ],
+        how="vertical",
+    )
+    t_ev, edges = fv.terciles(ev, "shocks")
+    t_sub, _ = fv.terciles(ev.filter(pl.col("n_components") >= 3), "shocks, ≥3 components", edges)
+    t_pl, _ = fv.terciles(plc, "placebo", edges)
+    terc = pl.concat([t_ev, t_sub, t_pl], how="vertical")
+    prov = {
+        "as_of": pl.lit(as_of),
+        "source": pl.lit("fragility_series+prices_daily"),
+        "fetched_at": pl.lit(now),
+        "git_sha": pl.lit(sha),
+    }
+    out = {}
+    for name, df in (
+        ("phi_shock_events", ev),
+        ("phi_shock_placebo", plc),
+        ("phi_shock_regressions", reg),
+        ("phi_shock_terciles", terc),
+    ):
+        if df.height:
+            archive.replace_slice(name, "as_of", as_of, df.with_columns(**prov))
+        out[name] = df.height
+    return out
+
+
 def compute_weekly() -> dict:
-    out = {"tier_history": freeze_tier_membership()}
-    out.update(compute_factor_model(utc_now(), git_sha()))
-    h = compute_hit_rates()
-    out["hit_rates"] = h.height
-    out.update(compute_cliff_study())
-    from monitor.jobs_daily_ctx import write_daily_json
+    """Weekly job (write set in config/job_writes.yaml): universe and tier freeze, factor
+    model, risk panels (risk.json), the cliff study, the 4.3 driver table, the Φ validation."""
+    from monitor.jobs import compute_universe
     from monitor.jobs_risk import compute_all_risk
 
-    compute_all_risk()  # refresh w'B and screen ICs on the page
-    write_daily_json()  # also refreshes history.json
+    out = {"universe": compute_universe().height, "tier_history": freeze_tier_membership()}
+    out.update(compute_factor_model(utc_now(), git_sha()))
+    risk = compute_all_risk()  # venue, book, trades, screens → risk.json
+    out["risk_trades"] = len(risk["trades"])
+    out.update(compute_cliff_study())
+    out.update(compute_rule43_drivers())
+    out.update(compute_phi_validation())
     return out
 
 
