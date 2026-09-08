@@ -4,6 +4,7 @@ for the site. Target runtime < 6 minutes; the job aborts with a scope message af
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -279,6 +280,11 @@ def compute_hourly(rebuild: bool = False) -> dict[str, int]:
         [okx.parse_liquidations(e, cv) for e in E("okx_liquidations")]
         + [binance.parse_liquidations_ws(e) for e in E("binance_liquidations_ws")]
         + [bybit.parse_liquidations_ws(e) for e in E("bybit_liquidations_ws")],
+    )
+    put(
+        "liq_coverage",
+        [binance.parse_liq_coverage(e) for e in E("binance_liquidations_ws")]
+        + [bybit.parse_liq_coverage(e) for e in E("bybit_liquidations_ws")],
     )
     # options
     opt_frames, dv_frames = [], []
@@ -756,8 +762,10 @@ def _positioning_row(
         dd = dep_day.filter(pl.col("base") == base).sort("date")
         d2 = float(dd["depth_2pct_usd"][-1]) if dd.height else None
     long_liq_24h, liq_pct = None, None
+    liq_cov = _liq_coverage_share(liqs, now)
     if liqs is not None and liqs.height:
-        lq = liqs.filter((pl.col("base") == base) & (pl.col("side_closed") == "long")).with_columns(
+        lq = _covered_liquidations(liqs, now)
+        lq = lq.filter((pl.col("base") == base) & (pl.col("side_closed") == "long")).with_columns(
             pl.col("ts").dt.date().alias("d")
         )
         if lq.height:
@@ -794,17 +802,68 @@ def _positioning_row(
         "long_liq_24h_usd": long_liq_24h,
         "long_liq_24h_pctile": liq_pct,
         "liq_source": _liq_source(liqs) if long_liq_24h is not None else None,
+        "liq_coverage_share": liq_cov,
         "sigma_daily": sigma,
         "source": "perp_snapshot+prices_daily+orderbook_depth+liquidations",
         "fetched_at": now,
     }
 
 
-def _liq_source(liqs: pl.DataFrame | None) -> str | None:
-    """Label the liquidation sample by the venues actually present in the table (B1)."""
+def _covered_liquidations(
+    liqs: pl.DataFrame, now: datetime, min_share: float = 0.9
+) -> pl.DataFrame:
+    """Websocket rows minus the venue-hours recorded with collector coverage < `min_share`;
+    the OKX REST sample has no coverage record and is kept as is (work order 2, item 5)."""
+    cov = archive.read("liq_coverage")
+    if cov is None or not cov.height:
+        return liqs
+    bad = cov.filter(pl.col("connected_share") < min_share).select("hour", "venue")
+    ws = liqs.filter(pl.col("source").str.ends_with("_ws")).with_columns(
+        pl.col("ts").dt.truncate("1h").alias("hour")
+    )
+    # drop venue-hours RECORDED as under-covered; hours without a record (collector versions
+    # before coverage existed) are kept and simply do not count toward the coverage share
+    kept = ws.join(bad, on=["hour", "venue"], how="anti").drop("hour")
+    rest = liqs.filter(~pl.col("source").str.ends_with("_ws"))
+    return (
+        pl.concat([rest, kept.select(rest.columns)], how="vertical_relaxed")
+        if rest.height
+        else kept
+    )
+
+
+def _liq_coverage_share(liqs: pl.DataFrame | None, now: datetime, days: int = 30) -> float | None:
+    """Share of the last `days` × 24 hours in which every websocket venue with rows in the
+    window was connected ≥ 90 % of the hour. None when no websocket venue has rows."""
+    cov = archive.read("liq_coverage")
+    if cov is None or not cov.height or liqs is None or not liqs.height:
+        return None
+    start = now - timedelta(days=days)
+    venues = (
+        liqs.filter(pl.col("source").str.ends_with("_ws") & (pl.col("ts") >= start))["venue"]
+        .unique()
+        .to_list()
+    )
+    if not venues:
+        return None
+    c = cov.filter(
+        pl.col("venue").is_in(venues)
+        & (pl.col("hour") >= start)
+        & (pl.col("connected_share") >= 0.9)
+    )
+    good = c.group_by("hour").len().filter(pl.col("len") == len(venues)).height
+    return good / (days * 24)
+
+
+def _liq_source(liqs: pl.DataFrame | None, days: int = 30) -> str | None:
+    """Label the liquidation sample by the venues with rows in the trailing window (B1); a
+    venue whose stream is connected but silent is not listed."""
     if liqs is None or not liqs.height:
         return None
-    venues = sorted(liqs["venue"].drop_nulls().unique().to_list())
+    recent = liqs.filter(pl.col("ts") >= utc_now() - timedelta(days=days))
+    venues = sorted(recent["venue"].drop_nulls().unique().to_list())
+    if not venues:
+        return None
     kind = "single-venue sample" if len(venues) == 1 else "multi-venue"
     return f"{'+'.join(venues)} ({kind})"
 
@@ -849,8 +908,11 @@ def _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now) -> dict | 
     """A3: the live value is the last row of the shared daily series (compute.fragility)."""
     from monitor.compute import fragility as frag_mod
 
-    series = build_fragility_series(fd, prices, mcap, tier1, th, as_of)
-    if series is None or not series.height:
+    built = build_fragility_series(fd, prices, mcap, tier1, th, as_of)
+    if built is None:
+        return None
+    series, source_dates = built
+    if not series.height:
         return None
     archive.upsert(
         "fragility_series",
@@ -863,13 +925,16 @@ def _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now) -> dict | 
     r = frag_mod.last_row(series, as_of)
     if r is None:
         return None
+    gaps = frag_mod.check_components(r, source_dates, as_of)  # raises when a fresh source is null
     return {
         "ts": now,
         "date": r["date"],
         "phi": r["phi"],
         "n_components": int(r["n_components"]),
         **{c: r.get(c) for c in frag_mod.COMPONENTS},
-        **{f"{c}_n": None for c in frag_mod.COMPONENTS},
+        **{f"{c}_n": r.get(f"{c}_n") for c in frag_mod.COMPONENTS},
+        "component_gaps": json.dumps(gaps),
+        "pos_90": r.get("pos_90"),
         "z_fr_age_days": r.get("fr_age_days"),
         "z_oi_age_days": r.get("oi_rel_age_days"),
         "z_vrp_neg_age_days": r.get("vrp_neg_age_days"),
@@ -918,16 +983,71 @@ def build_fragility_series(fd, prices, mcap, tier1, th, as_of):
         if cap_t1
         else None
     )
-    vh = archive.read("vrp_history")
+    vrp_all = live_vrp_history(prices)
     vrp = (
-        vh.filter(pl.col("currency") == "BTC").select("date", "vrp")
-        if vh is not None and vh.height
+        vrp_all.filter(pl.col("currency") == "BTC").select("date", "vrp")
+        if vrp_all.height
         else None
     )
     btc = prices.filter(pl.col("base") == "BTC").select("date", "close")
     sc = archive.read("stablecoin_growth")
     scg = sc.select("date", "growth_30d") if sc is not None and sc.height else None
-    return frag_mod.build_series(fund, oi_rel, vrp, btc, scg, as_of, window=w)
+    series = frag_mod.build_series(fund, oi_rel, vrp, btc, scg, as_of, window=w)
+    source_dates = {
+        "z_fr": fund["date"].max() if fund.height else None,
+        "z_oi": oi_rel["date"].max() if oi_rel is not None and oi_rel.height else None,
+        "z_vrp_neg": vrp["date"].max() if vrp is not None and vrp.height else None,
+        "z_dd": btc["date"].max() if btc.height else None,
+        "z_sc_neg": scg["date"].max() if scg is not None and scg.height else None,
+    }
+    return series, source_dates
+
+
+def live_vrp_history(prices: pl.DataFrame) -> pl.DataFrame:
+    """DVOL-based VRP on every day: the daily DVOL history plus today's live DVOL (the daily
+    index lags a day), against RV²₃₀ from daily closes. Written back to `vrp_history` so the
+    weekly hit rates see the same series. (Work order 2, item 1: the A3 refactor read a
+    stale `vrp_history` and the component went null after two days.)"""
+    from monitor.backfill import vrp_history
+
+    dd = archive.read("dvol_daily")
+    live = archive.read("dvol")
+    frames = []
+    if dd is not None and dd.height:
+        frames.append(dd.select("date", "currency", "dvol"))
+    if live is not None and live.height:
+        last = live.filter(pl.col("ts") == live["ts"].max())
+        frames.append(
+            last.select(pl.col("ts").dt.date().alias("date"), "currency", "dvol").with_columns(
+                pl.col("dvol").cast(pl.Float64)
+            )
+        )
+    if not frames:
+        return pl.DataFrame(
+            schema={
+                "date": pl.Date,
+                "currency": pl.Utf8,
+                "iv30": pl.Float64,
+                "rv30_var": pl.Float64,
+                "vrp": pl.Float64,
+            }
+        )
+    dv = (
+        pl.concat(frames, how="vertical_relaxed")
+        .sort("date")
+        .unique(subset=["date", "currency"], keep="last")
+    )
+    out = pl.concat([vrp_history(dv, prices, c) for c in ("BTC", "ETH")], how="vertical")
+    if out.height:
+        archive.upsert(
+            "vrp_history",
+            out.with_columns(
+                pl.lit("dvol_daily+dvol+prices_daily").alias("source"),
+                pl.lit(utc_now()).alias("fetched_at"),
+                pl.lit(git_sha()).alias("git_sha"),
+            ),
+        )
+    return out
 
 
 def _vol_state(prices, now, sha) -> dict | None:
@@ -1031,6 +1151,10 @@ def _reading(payload: dict, out: Path) -> list[dict]:
             low = bool((v.get("low_score") or {}).get("breach"))
         except (OSError, ValueError):
             pass
+    gaps = []
+    if frag and frag.get("component_gaps"):
+        with contextlib.suppress(ValueError, TypeError):
+            gaps = json.loads(frag["component_gaps"])
     return state_reading(
         utc_now().date(),
         frag,
@@ -1043,6 +1167,7 @@ def _reading(payload: dict, out: Path) -> list[dict]:
         payload["rules"],
         breaches,
         low,
+        gaps,
     )
 
 

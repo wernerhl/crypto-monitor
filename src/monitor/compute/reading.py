@@ -2,7 +2,9 @@
 numbers on the page, regenerated with the hourly job. No adjectives that are not implied by a
 threshold or a sign; every number is a segment that links to the panel it came from.
 
-Segments are dicts {"t": text} or {"t": text, "href": "#panel-id"}. The page joins them."""
+Segments are dicts {"t": text} or {"t": text, "href": "#panel-id"}; a segment with
+"cls": "alert" is rendered in the alert style (a missing fragility component). The page joins
+them."""
 
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ COMPONENT_NAMES = {
     "z_fr": "funding",
     "z_oi": "open interest to cap",
     "z_vrp_neg": "the negative of the variance risk premium",
-    "z_dd": "drawdown from the 90-day high",
+    "z_dd": "the 90-day range position",
     "z_sc_neg": "the negative of stablecoin growth",
 }
 
@@ -42,6 +44,7 @@ def state_reading(
     rules: list[dict],
     venue_breaches: list[str],
     low_score_breach: bool,
+    gaps: list[dict] | None = None,
 ) -> list[dict]:
     seg: list[dict] = []
     add = seg.append
@@ -52,6 +55,15 @@ def state_reading(
         add({"t": f"{as_of.isoformat()}: the fragility index is "})
         add({"t": f"{phi:+.2f}", "href": "#p-state"})
         add({"t": f" ({word}, {frag.get('n_components') or 0} of 5 components)"})
+        for g in gaps or []:
+            add(
+                {
+                    "t": f"component {COMPONENT_NAMES.get(g['component'], g['component'])} unavailable ({g['reason']})",
+                    "cls": "alert",
+                    "href": "#p-state",
+                }
+            )
+            add({"t": "; "})
         comps = [(k, frag.get(k)) for k in COMPONENT_NAMES if frag.get(k) is not None]
         comps.sort(key=lambda kv: -abs(kv[1]))
         if comps:
@@ -108,7 +120,8 @@ def state_reading(
         add({"t": _pct(sc_growth_30d), "href": "#p-state"})
         add({"t": " over 30 days. "})
     # --- rules and venues
-    firing = [r for r in rules if r.get("fired") is True]
+    firing = [r for r in rules if r.get("fired") is True and r.get("rule_id") != "5.1"]
+    cliffs = [r for r in rules if r.get("fired") is True and r.get("rule_id") == "5.1"]
     unavailable = [r for r in rules if r.get("fired") is None]
     if firing:
         add({"t": "Rules firing: "})
@@ -120,7 +133,7 @@ def state_reading(
         )
         add({"t": ". "})
     else:
-        add({"t": "No pre-committed rule is firing"})
+        add({"t": "No pre-committed 4.x rule is firing"})
         add(
             {
                 "t": f" ({len(unavailable)} unavailable)" if unavailable else "",
@@ -128,6 +141,15 @@ def state_reading(
             }
         )
         add({"t": ". "})
+    if cliffs:
+        add({"t": "Cliff calendar: "})
+        add(
+            {
+                "t": f"{len(cliffs)} token{'s' if len(cliffs) != 1 else ''} meet Rule 5.1 in the next 30 days",
+                "href": "#p-events",
+            }
+        )
+        add({"t": " (informational; the 2026 pre-cliff drift is at the base rate). "})
     if venue_breaches or low_score_breach:
         add({"t": "Venue limits breached on the example book: "})
         add(

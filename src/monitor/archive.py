@@ -84,6 +84,7 @@ KEYS: dict[str, list[str]] = {
     "cliff_study_events": ["as_of", "id", "date"],
     "cliff_study": ["as_of", "group_kind", "group"],
     "alerts": ["key"],
+    "liq_coverage": ["hour", "venue"],
     "fragility_series": ["date"],
     "basis_history": ["date", "base", "contract"],
 }
@@ -131,6 +132,7 @@ TIME_COL: dict[str, str] = {
     "cliff_study_events": "as_of",
     "cliff_study": "as_of",
     "alerts": "opened_at",
+    "liq_coverage": "hour",
     "venue_scores": "as_of",
     "book_risk": "as_of",
     "trade_structures": "as_of",
@@ -168,6 +170,20 @@ ROLLING_DAYS: dict[str, int] = {
 }
 
 
+_GUARDED = False
+
+
+def _guard() -> None:
+    """Once per process: no archive writes from a cloud-synced clone (paths.assert_not_synced).
+    CI and the collector clone pass; the development clone under ~/Documents does not."""
+    global _GUARDED
+    if not _GUARDED:
+        from monitor.paths import assert_not_synced
+
+        assert_not_synced(PROCESSED.parent.parent)
+        _GUARDED = True
+
+
 def processed_path(table: str) -> Path:
     return PROCESSED / f"{table}.parquet"
 
@@ -179,6 +195,7 @@ def read(table: str) -> pl.DataFrame | None:
 
 def upsert(table: str, new: pl.DataFrame) -> pl.DataFrame:
     """Merge `new` into the processed table on KEYS[table], newest fetched_at wins."""
+    _guard()
     keys = KEYS[table]
     old = read(table)
     if old is not None and old.height:

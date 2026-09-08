@@ -273,11 +273,17 @@ def test_alerts_open_and_close_conditions_dry_run(tmp_path, monkeypatch):
 def test_liq_source_label_names_the_venues_present():
     from monitor.jobs_hourly import _liq_source
 
+    from monitor.meta import utc_now
+
+    now = utc_now()
     assert _liq_source(None) is None
-    one = pl.DataFrame({"venue": ["okx", "okx"]})
+    one = pl.DataFrame({"venue": ["okx", "okx"], "ts": [now, now]})
     assert _liq_source(one) == "okx (single-venue sample)"
-    two = pl.DataFrame({"venue": ["okx", "binance", "bybit"]})
+    two = pl.DataFrame({"venue": ["okx", "binance", "bybit"], "ts": [now] * 3})
     assert _liq_source(two) == "binance+bybit+okx (multi-venue)"
+    # a venue whose rows are older than the window is not listed
+    old = pl.DataFrame({"venue": ["okx", "binance"], "ts": [now, now - timedelta(days=40)]})
+    assert _liq_source(old) == "okx (single-venue sample)"
 
 
 def test_drawdown_helper_in_fragility_builder_is_non_positive():
@@ -309,7 +315,7 @@ def test_alerts_live_run_creates_issues_for_conditions_opened_in_a_dry_run(tmp_p
             [
                 {
                     "ts": now,
-                    "rule_id": "5.1",
+                    "rule_id": "4.1",
                     "asset": "ARB",
                     "fired": True,
                     "inputs": "{}",
@@ -337,7 +343,7 @@ def test_alerts_live_run_creates_issues_for_conditions_opened_in_a_dry_run(tmp_p
     r = alerts.sync(site_out=site, dry_run=False)
     assert r["live"] is True
     assert any(c[:2] == ("issue", "create") for c in calls)
-    assert archive.read("alerts").filter(pl.col("key") == "rule:5.1:ARB")["issue_number"][0] == 42
+    assert archive.read("alerts").filter(pl.col("key") == "rule:4.1:ARB")["issue_number"][0] == 42
     # second live run: nothing new is created
     n = len(calls)
     alerts.sync(site_out=site, dry_run=False)

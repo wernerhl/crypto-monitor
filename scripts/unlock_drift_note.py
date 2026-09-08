@@ -32,12 +32,13 @@ def pr(x):
 
 def tbl(rows):
     out = [
-        "| group | n | hit rate | s.e. | mean pre 14 d | median pre 14 d | mean pre vs BTC | mean post 14 d | median post 14 d |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| group | n | weeks | hit rate | s.e. (i.i.d.) | s.e. (clustered by week) | mean pre 14 d | s.e. pre (clustered) | median pre 14 d | mean pre vs BTC | mean pre β-adjusted (n) | mean post 14 d | median post 14 d |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in rows:
+        nb = r.get("n_beta") or 0
         out.append(
-            f"| {r['group']} | {r['n']} | {pc(r['hit_rate'])} | {'' if r['se'] is None else pc(r['se'])} | {pr(r['mean_pre'])} | {pr(r['median_pre'])} | {pr(r['mean_pre_vs_btc'])} | {pr(r['mean_post'])} | {pr(r['median_post'])} |"
+            f"| {r['group']} | {r['n']} | {r.get('n_clusters') or ''} | {pc(r['hit_rate'])} | {'' if r['se'] is None else pc(r['se'])} | {'' if r.get('se_cluster') is None else pc(r['se_cluster'])} | {pr(r['mean_pre'])} | {'' if r.get('se_pre_cluster') is None else pc(r['se_pre_cluster'])} | {pr(r['median_pre'])} | {pr(r['mean_pre_vs_btc'])} | {pr(r.get('mean_pre_beta_adj'))}{f' ({nb})' if nb else ''} | {pr(r['mean_post'])} | {pr(r['median_post'])} |"
         )
     return "\n".join(out)
 
@@ -247,60 +248,125 @@ def main() -> None:
     n_wash = int((ev["adv_basis"] == "wash-filtered venues, current pass set").sum())
     n_unf = int((ev["adv_basis"] == "exchange klines, unfiltered").sum())
     by_year = {r["group"]: r for r in g("year")}
-    unknown_n = next((r["n"] for r in g("recipient class") if r["group"] == "unknown"), 0)
     a_all = allr["all cliffs with price coverage"]
     rr = ruler[rule_row]
+    by_year = {r["group"]: r for r in g("year")}
+    y25, y26 = by_year.get("2025", {}), by_year.get("2026", {})
+    plc = {r["group"]: r for r in g("placebo")}
+    plc_year = {r["group"]: r for r in g("placebo year")}
+    p25, p26 = plc_year.get("2025", {}), plc_year.get("2026", {})
+
+    def _diff(cy: dict, py: dict) -> tuple[float, float]:
+        """β-adjusted cliff minus placebo mean, in points, and its size in clustered s.e.
+        (pre-return s.e. of each row combined in quadrature)."""
+        a_, b_ = cy.get("mean_pre_beta_adj"), py.get("mean_pre_beta_adj")
+        if a_ is None or b_ is None:
+            return float("nan"), float("nan")
+        se = (
+            (cy.get("se_pre_cluster") or 0.0) ** 2 + (py.get("se_pre_cluster") or 0.0) ** 2
+        ) ** 0.5
+        return 100 * (a_ - b_), abs(a_ - b_) / se if se else float("nan")
+
+    d25, r25 = _diff(y25, p25)
+    d26, r26 = _diff(y26, p26)
+    plc_all = plc.get("pseudo-cliffs: 20 non-cliff days per token and year", {})
+    plc_rule = plc.get("pseudo-cliffs on the Rule 5.1 tokens only", {})
+    brs = {r["group"]: r for r in g("base rate")}
+    br_sub = brs.get("all days, Rule 5.1 tokens only", {})
     md = f"""# Pre-unlock drift: what the schedule says, 2021–2026
 
-*Research note for work-order item D. Generated {as_of} from `cliff_study_events` and
-`cliff_study` (`monitor.compute.cliff_study`, weekly job) by `scripts/unlock_drift_note.py`.
-Nothing here changes a threshold; Rule 5.1 keeps
+*Research note for work-order item D, revised under work order 2 (item 3). Generated {as_of}
+from `cliff_study_events` and `cliff_study` (`monitor.compute.cliff_study`, weekly job) by
+`scripts/unlock_drift_note.py`. Nothing here changes a threshold; Rule 5.1 keeps
 `single_unlock_float_share_min = {th["single_unlock_float_share_min"]:.0%}` and
 `single_unlock_days_of_volume_min = {th["single_unlock_days_of_volume_min"]:g}`.*
+
+## The result, year by year first
+
+{tbl(g("year"))}
+
+![hit rate by year](figures/unlock_hit_by_year.svg)
+
+Placebo dates of the same tokens, by year (the row a cliff year should be read against):
+
+{tbl(g("placebo year"))}
+
+The pooled numbers below are carried by 2025, and the placebo says most of that year's drift
+was not cliff-specific. In 2025 (n = {y25.get("n", 0)}) a cliff was preceded by a negative
+fourteen-day return {pc(y25.get("hit_rate"))} of the time (clustered s.e.
+{pc(y25.get("se_cluster"))}), with a mean pre-cliff return of {pr(y25.get("mean_pre"))} and
+{pr(y25.get("mean_pre_vs_btc"))} relative to BTC; the placebo dates of the same tokens in 2025
+read {pc(p25.get("hit_rate"))} and {pr(p25.get("mean_pre"))}: the tokens that had cliffs were
+falling on ordinary days too. In 2026 (n = {y26.get("n", 0)}) the cliff hit rate is
+{pc(y26.get("hit_rate"))} (clustered s.e. {pc(y26.get("se_cluster"))}), at the base rate, and
+the BTC-relative drift is {pr(y26.get("mean_pre_vs_btc"))}; by those two measures the drift has
+faded in the most recent year, which is what one expects of a public schedule being
+arbitraged. The β-adjusted column tells a more cautious story: cliffs read
+{pr(y25.get("mean_pre_beta_adj"))} against {pr(p25.get("mean_pre_beta_adj"))} on the placebo in
+2025 ({d25:+.1f} points, about {r25:.1f} clustered standard errors) and
+{pr(y26.get("mean_pre_beta_adj"))} against {pr(p26.get("mean_pre_beta_adj"))} in 2026
+({d26:+.1f} points, about {r26:.1f} standard errors). A residual of that size on rolling
+26-week betas of small tokens is suggestive, not established. Either way Rule 5.1 stays
+informational: the thresholds are kept, the trade table carries the caveat, and the cliff
+calendar is one rolling list rather than a trigger per token.
 
 ## Question
 
 Rule 5.1 (notes §5) shorts a token two to four weeks ahead of a scheduled cliff that is large
 relative to the float and to real volume, on the argument that recipients who can hedge do so
-before the date and that the market front-runs the supply. The rule's live hit rate has almost
-no sample (the monitor is days old), so this note asks the schedule itself: over every cliff
-DefiLlama records since 2021 with price coverage, did the token drift down over the fourteen
-days before the date, and does the size of the event or the class of the recipient change the
-answer?
+before the date and that the market front-runs the supply. This note asks the schedule
+itself: over every cliff DefiLlama records since 2021 with price coverage, did the token
+drift down over the fourteen days before the date, does the size of the event or the class
+of the recipient change the answer, and does the effect survive a placebo?
 
 ## Data and definitions
 
 * **Events.** {ev.height} scheduled cliffs (rows of `unlock_events` with `kind = cliff`,
   positive amount, grouped by token and date) between 2021-01-01 and {as_of} minus 14 days,
   for tokens with daily exchange klines on Binance, OKX, Bybit, Coinbase or Kraken. The
-  schedule is heavily weighted to 2025–26 ({by_year.get("2025", {}).get("n", 0)} and
-  {by_year.get("2026", {}).get("n", 0)} events) because DefiLlama's emissions coverage grew with
-  the launches of that period; 2021–23 hold {sum(by_year.get(y, {}).get("n", 0) for y in ("2021", "2022", "2023"))} events.
+  schedule is heavily weighted to 2025–26 ({y25.get("n", 0)} and {y26.get("n", 0)} events)
+  because DefiLlama's emissions coverage grew with the launches of that period; 2021–23 hold
+  {sum(by_year.get(y, {}).get("n", 0) for y in ("2021", "2022", "2023"))} events.
 * **Hit.** Negative log return over the fourteen days ending on the cliff date (the same
   definition as the live hit-rate table). Post-return is the fourteen days after.
+* **Standard errors.** Two are reported: the i.i.d. binomial one, and one clustered by cliff
+  week (cliffs bunch on the 1st and 15th and share the market factor). The clustered one is
+  the one to read.
+* **Market adjustment.** Two columns: the return relative to BTC, and a β-adjusted return
+  using the factor model's rolling β_MKT for the token as of the cliff date (weekly
+  estimate, latest on or before the date) times BTC's fourteen-day return. Small tokens
+  have β above one, so the BTC-relative column overstates the effect in a falling market.
+  Tokens without a β estimate are excluded from that column (n shown).
+* **Placebo.** For each token and year with a cliff, twenty pseudo-cliff dates drawn
+  uniformly from that token's non-cliff days, with the same windows and definitions. The
+  conditional effect is the cliff row minus the placebo row.
 * **Size.** Share of float = tokens unlocked ÷ float at the cliff date, where float is backed
   out of today's circulating supply by removing every later scheduled cliff and the current
   linear rate times the elapsed days ({n_float} of {ev.height} events; burns and re-issuance
   are ignored, so shares for old events are approximate). Days of volume = USD value at the
   cliff ÷ average daily quote volume over the thirty days ending fifteen days before the
   date, on venues passing the *current* wash filters where a wash row exists ({n_wash}
-  events) and on every venue otherwise ({n_unf} events, flagged `unfiltered`). Wash filters
-  cannot be evaluated historically; the book depth they need is not archived.
-* **Base rate.** The unconditional share of negative fourteen-day returns over the same tokens
-  and period: {pc(br)}. A cliff hit rate is only informative against this number, because the
-  sample sits in a period when most of these tokens fell.
+  events) and on every venue otherwise ({n_unf} events, flagged `unfiltered`).
+* **Base rates.** The unconditional share of negative fourteen-day returns over the same
+  period, once on all tokens with cliffs ({pc(br)}) and once on the tokens that form the
+  Rule 5.1 subset ({pc(br_sub.get("hit_rate"))}, n = {br_sub.get("n", 0)} token-days).
+  Low-float tokens have a higher unconditional share of down fortnights, so the subset base
+  rate is the one the Rule 5.1 row should be read against.
 
 ## Results
 
-### Headline
+### Headline, placebo and base rates
 
-{tbl(g("all") + g("rule") + g("base rate"))}
+{tbl(g("all") + g("rule") + g("placebo") + g("base rate"))}
 
-Read: {pc(a_all["hit_rate"])} of all cliffs were preceded by a negative fourteen-day return
-against a base rate of {pc(br)}; cliffs that met both Rule 5.1 legs were preceded by a
-negative return {pc(rr["hit_rate"])} of the time (n = {rr["n"]}, s.e. {pc(rr["se"])}), with a
-mean pre-cliff return of {pr(rr["mean_pre"])} and {pr(rr["mean_pre_vs_btc"])} relative to BTC.
-The BTC-relative figure matters: it removes the market's own drift over the same windows.
+Read: cliffs meeting both Rule 5.1 legs were preceded by a negative return
+{pc(rr["hit_rate"])} of the time (n = {rr["n"]}, clustered s.e. {pc(rr.get("se_cluster"))}),
+against {pc(plc_rule.get("hit_rate"))} on the placebo dates of the same tokens (clustered s.e.
+{pc(plc_rule.get("se_cluster"))}) and a subset base rate of {pc(br_sub.get("hit_rate"))}. The
+mean pre-cliff return of the subset is {pr(rr["mean_pre"])} ({pr(rr["mean_pre_vs_btc"])} vs BTC,
+{pr(rr.get("mean_pre_beta_adj"))} β-adjusted on {rr.get("n_beta", 0)} events) against
+{pr(plc_rule.get("mean_pre"))} on the placebo. The conditional effect is the difference between
+those rows, and its uncertainty is the clustered standard error, not the i.i.d. one.
 
 ### By recipient class (dominant class by amount)
 
@@ -320,12 +386,6 @@ The BTC-relative figure matters: it removes the market's own drift over the same
 
 ![hit rate by days of volume](figures/unlock_hit_by_dov.svg)
 
-### By year
-
-{tbl(g("year"))}
-
-![hit rate by year](figures/unlock_hit_by_year.svg)
-
 ### Event-time paths
 
 Average cumulative log return from fourteen days before to fourteen days after the cliff
@@ -335,54 +395,42 @@ Average cumulative log return from fourteen days before to fourteen days after t
 
 ## What the numbers support, and what they do not
 
-1. **A pre-cliff drift exists but it is modest and mostly a market effect.** All cliffs: hit
-   rate {pc(a_all["hit_rate"])} against a base rate of {pc(br)}; mean pre-cliff return
-   {pr(a_all["mean_pre"])}, of which {pr(a_all["mean_pre_vs_btc"])} is relative to BTC. The
-   difference from the base rate is a few percentage points with a standard error near one
-   point: real, small.
-2. **Size selects.** The Rule 5.1 subset (> {th["single_unlock_float_share_min"]:.0%} of float and
-   > {th["single_unlock_days_of_volume_min"]:g} days of volume) has the higher hit rate and the more
-   negative BTC-relative drift of the two halves of the sample. Within the size buckets the
-   effect is not monotone: the largest events (> 5 % of float) show a strongly negative
-   pre-cliff drift and a *positive* mean post-cliff return, the pattern of supply being
-   front-run and then absorbed, while events of one to two days of volume look worse before
-   the date than events of more than five days, whose tokens are often illiquid names where
-   the volume denominator is unreliable. With buckets of 50–350 events the standard errors
-   are three to seven points; ranking the buckets is not supported, the direction of the
-   overall effect is.
-3. **Recipient class matters in the direction the notes assume.** Investor-dominated cliffs
-   have the most negative pre-cliff drift relative to BTC and the most negative post-cliff
-   return; ecosystem and community cliffs also drift down before the date; team cliffs are
-   in between. The `unknown` class (the largest, {unknown_n} events) is close to the base
-   rate, which is what one expects when the label carries no information. `public` has nine
-   events: ignore.
-4. **The post-cliff return is not a mirror image.** Median post-cliff returns are negative in
-   most groups, so the supply is not fully priced by the date; but the means are pulled up by
-   a tail of rebounds. A structure that holds a short through the date is a different trade
-   from the one Rule 5.1 describes (short two to four weeks before, cover into the date), and
-   this sample does not favour it.
-5. **Regime dependence is large.** 2021 cliffs (n = {by_year.get("2021", {}).get("n", 0)}) were preceded by
-   *positive* returns (a rising market); 2025 shows the strongest drift. The effective sample
-   for anything regime-dependent is the number of regimes, not the number of events.
+1. **The drift is a 2025 phenomenon in this sample.** Pooled: hit rate
+   {pc(a_all["hit_rate"])} against a base rate of {pc(br)}, mean pre-cliff return
+   {pr(a_all["mean_pre"])}, {pr(a_all["mean_pre_vs_btc"])} vs BTC and
+   {pr(a_all.get("mean_pre_beta_adj"))} β-adjusted. By year the effect sits in 2025 and is
+   absent in 2026; with clustered standard errors of a few points per year, the 2026 reading
+   is not distinguishable from the base rate.
+2. **The placebo removes part of the pooled effect.** Placebo dates on the same tokens and
+   years show a hit rate of {pc(plc_all.get("hit_rate"))} and a mean pre-window return of
+   {pr(plc_all.get("mean_pre"))}: the tokens with cliffs were falling on ordinary days too.
+   What survives is the difference, concentrated in the larger events.
+3. **Size selects, weakly.** The Rule 5.1 subset has the higher hit rate and the more
+   negative market-adjusted drift of the two halves; within the size buckets the pattern is
+   not monotone and the clustered standard errors of three to eight points do not support
+   ranking the buckets.
+4. **Recipient class matters in the direction the notes assume**, with investor-dominated
+   cliffs the most negative before and after the date; the `unknown` class is at the base
+   rate, as a label without information should be. `public` has nine events: ignore.
+5. **The post-cliff return is not a mirror image.** Medians are negative in most groups, so
+   the supply is not fully priced by the date, but the means are pulled up by rebounds; a
+   short held through the date is a different trade from the one Rule 5.1 describes.
 
 ## Implications for the rule
 
-* The thresholds stay where they are. The study supports the *sign* of the rule and the
-  choice to condition on size and class; it does not identify a better threshold, and a
-  threshold moved to fit this sample would be fitted to a 2025-heavy schedule.
-* The float approximation is the weakest input. For tokens whose supply history is known
-  exactly (the DefiLlama per-protocol detail), `share_of_float` could be recomputed from the
-  detail rather than backed out; that is a data task, not a calibration.
-* Days of volume should be read with `adv_basis`. Only {n_wash} events use wash-filtered
-  volume; the rest use unfiltered exchange volume and overstate liquidity for names with
-  wash-prone venues, which makes their `days_of_volume` too small and keeps some genuine
-  Rule 5.1 events out of the subset.
+* Thresholds unchanged. The study supports the sign of the rule in 2025 and not in 2026; a
+  threshold fitted to this sample would be fitted to one year.
+* Rule 5.1 is informational on the dashboard: the unlock-short rows carry the caveat "2026
+  pre-cliff drift ≈ base rate", and the alerts carry one rolling cliff calendar rather than an
+  issue per token.
+* The float approximation is the weakest input; the per-protocol DefiLlama detail could
+  replace it for the tokens it covers. Days of volume should be read with `adv_basis`.
 
 ## Reproduction
 
 ```bash
-uv run monitor compute weekly                                   # rebuilds the cliff_study tables
-PYTHONPATH=src uv run --no-sync python scripts/unlock_drift_note.py   # this note and its figures
+uv run monitor compute weekly                                          # rebuilds the cliff_study tables
+PYTHONPATH=src uv run --no-sync python scripts/unlock_drift_note.py    # this note and its figures
 ```
 """
     (OUT / "pre_unlock_drift.md").write_text(md)

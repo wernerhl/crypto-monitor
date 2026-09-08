@@ -258,3 +258,69 @@ No threshold in `config/thresholds.yaml` changed; none of these items is a calib
   `rule_fires.parquet` twice (torn writes); the table was rebuilt from its archive partitions.
   Local recomputes now run one at a time from the clone outside the synced folder
   (`docs/runbook.md`).
+
+## 2026-09-08 — Work order 2 (after commit 340e04e)
+No threshold in `config/thresholds.yaml` changed. Item 2 is a definition change and is
+recorded as such here, in `docs/indicators.md`, on the methods page and in the notes
+(Section 13, "Revisions after the first audits").
+* **1 — VRP component regression (fixed).** The A3 refactor read `vrp_history`, a table
+  the backfill wrote once; the one-day carry hid it for a day, then `z_vrp_neg` went null
+  and Φ was published on four components (0.65 instead of ≈ 1.09 on 2026-09-08 11:10Z).
+  The builder now derives VRP every run from the daily DVOL history plus today's live DVOL
+  against RV²₃₀ (`live_vrp_history`, written back to `vrp_history`). Per-component sample
+  sizes (`z_<c>_n`, finite input days in the window) are restored. A component that is
+  null while its source table is fresh is a build failure (`check_components` raises and
+  the hourly job fails); only a stale source degrades to "n of 5", and the state reading
+  prints "component X unavailable (reason)" in the alert style. Regression test: five fresh
+  synthetic sources must give `n_components = 5` with sizes. Live after the fix:
+  5 of 5 components, `z_vrp_neg = +2.33` (n = 250), Rule 4.3 evaluated on the restored Φ.
+* **2 — Fourth component: 90-day range position (definition change).** Old: robust z of
+  DD₉₀ = P/max₉₀ − 1 (sign fixed under work order 1). It is bounded at zero and, over a
+  downtrending 250-day window, made any day near the high a tail event: +2.53 for a price
+  2.7 % below the high on 2026-09-08. New: pos₉₀ = (P − min₉₀)/(max₉₀ − min₉₀),
+  z_dd := 4·(pos₉₀ − ½) ∈ [−2, 2], no standardisation. Same mechanical reading (liquidation
+  mass sits below when the price is at the top of the recent range), bounded contribution,
+  no dependence on the standardisation window. History rebuilt.
+  **Φ before → after on the 3,033 dates with both values: mean |Δ| 0.354, max |Δ| 2.94, the
+  state word (calm/building/fragile) differs on 688 dates (first 2018-07-21, last
+  2026-09-04).** Live on 2026-09-08: z_dd = +1.62 for pos₉₀ = 0.905 (the price is 2.7 %
+  below the high but the 90-day range is about 28 % wide, so the close sits near its top;
+  the order's "near 0 to +1" assumed a 5 % range).
+* **3 — Cliff study statistics and framing.** `compute.cliff_study` now reports, per group,
+  standard errors clustered by cliff week (pooled 2.6 % against 1.0 % i.i.d.; 2025 4.0 %),
+  a β-adjusted pre-cliff return using the factor model's rolling β_MKT as of the cliff
+  date, a placebo of 20 pseudo-cliff dates per token and year with the same treatment,
+  base rates on all tokens and on the Rule 5.1 tokens, and by-year rows first. The note
+  (`docs/notes/pre_unlock_drift.md`) leads with the year table: 2025 carries the pooled
+  result and its placebo shows the tokens with cliffs were falling on ordinary days too;
+  2026 is at the base rate by hit rate and BTC-relative drift; a β-adjusted residual of
+  about four points remains in both years at under two clustered standard errors. The
+  unlock-short rows in the trade table carry "2026 pre-cliff drift ≈ base rate" as
+  dominant risk; Rule 5.1 stays informational; thresholds unchanged.
+* **4 — Alert noise.** Rule 5.1 no longer opens one issue per token: one rolling issue
+  "Cliff calendar, next 30 days (N qualifying)" carries the list as a table and is edited
+  in place when the list changes; the 15 per-token issues are closed as superseded.
+  Per-condition issues remain for Rules 4.1–4.3, venue-limit breaches and datasets
+  unavailable for two runs. Same grouping in `site/alerts.xml` and in the state reading.
+* **5 — Liquidation collector coverage.** The collector records connected seconds per
+  venue and hour in the envelope meta; `liq_coverage` (hour, venue, connected_share,
+  n_messages) is parsed from it. Rule 4.2's 30-day percentile uses only venue-hours with
+  coverage ≥ 0.9; the triggers panel shows the sample's venues and "collector coverage:
+  X % of the last 30 days' hours". `liq_source` lists only venues with rows in the window.
+  Bybit subscribes to the Tier 1 list from the universe (was the fixed default of 10).
+  **Binance finding:** `fstream.binance.com` accepts the websocket from this machine
+  (HTTP 101) and then sends nothing on any futures stream (`!forceOrder@arr`,
+  `btcusdt@forceOrder`, `btcusdt@aggTrade`, `btcusdt@markPrice`), while the spot stream
+  and REST fapi work. The parser is verified on fixtures; the label therefore reads
+  "bybit+okx", and Binance hours appear in `liq_coverage` as connected with zero messages.
+  Runbook: a sleeping machine produces holes, holes are shown and not interpolated.
+* **6 — Housekeeping.** The clone under the synced Documents folder is marked read-only
+  (`chmod -R a-w`), and `archive.upsert` refuses to run from any clone under a cloud-synced
+  path (`paths.assert_not_synced`; `MONITOR_ALLOW_SYNCED=1` overrides).
+  The "3,176 common dates" in the A3 check counted the full `fragility_series` and
+  `fragility_history` tables (2017-12-29 to 2026-09-08, 3,176 calendar days, 3,062 with a
+  Φ value); `history.json` carries only the last 730 days, hence 731 rows there.
+  Rule 4.3 historical n: 168 (build of 2026-09-07, original drawdown sign) → 91 (11:10Z
+  build, after the A2 sign fix lowered Φ on many dates) → 76 (this build, range position);
+  fired asset-days 107 → 85 between the last two. The count follows the Φ definition and
+  is reported, not tuned.

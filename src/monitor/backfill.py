@@ -906,7 +906,8 @@ def walk_forward() -> dict:
         for r in uni_now.select("symbol", "market_cap_usd").to_dicts()
     }
     tier1_df = uni_now.filter(pl.col("tier") == 1)
-    series = build_fragility_series(fd_all, prices, mcap_map, tier1_df, th, utc_now().date())
+    built = build_fragility_series(fd_all, prices, mcap_map, tier1_df, th, utc_now().date())
+    series = built[0] if built is not None else None
     frag_rows = []
     if series is not None and series.height:
         archive.upsert(

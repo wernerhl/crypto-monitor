@@ -47,9 +47,9 @@ the unit test whose comments carry the hand-computed expected value.
 ## Market state (notes Section 3)
 | indicator | notes ref | formula | source table | function | test |
 |---|---|---|---|---|---|
-| `phi` (live and history) | Def. 3.1 | one builder for both: `compute.fragility.build_series` writes `fragility_series`; the live row is its last row, so live == history on every common date | `fragility`, `fragility_series` | `compute.fragility.build_series` | `test_fragility_index_mean_of_available_components` |
+| `phi` (live and history) | Def. 3.1 | one builder for both: `compute.fragility.build_series` writes `fragility_series`; the live row is its last row, so live == history on every common date. Every component carries `z_<c>_n` (finite input days in the 250-day window). A component that is null while its source is fresh fails the job (`check_components`); a stale source is listed as a gap in the reading. VRP comes from the daily DVOL history plus today's live DVOL (`live_vrp_history`), so the component never lags the chain. | `fragility`, `fragility_series` | `compute.fragility.build_series` | `test_all_five_fresh_sources_yield_five_components_with_sizes`, `test_null_component_with_fresh_source_is_a_build_failure` |
 | `phi` | Def. 3.1 | ⅕ Σ of five 250-day robust z components; mean of the available ones with `n_components` | `fragility` | `state.fragility_index` | `test_fragility_index_mean_of_available_components` |
-| `z_dd` input | Def. 3.1 | dd₉₀ = P_t / max₉₀ P − 1 ≤ 0 (current close vs the 90-day high, per the notes; not the minimum over the window). The z-score is taken of dd₉₀ itself, so being at the high (dd ≈ 0, above its typical negative level) gives a positive z: liquidation mass sits just below. A deep drawdown gives a negative z. Carried at most one period (`z_dd_age_days`). | `prices_daily` → `fragility_series` | `compute.fragility.build_series` (`_drawdown`) | `test_drawdown_component_positive_near_the_90_day_high` |
+| `z_dd` (range position) | work order 2, item 2 (replaces Def. 3.1 fourth component) | pos₉₀ = (P_t − min₉₀ P)/(max₉₀ P − min₉₀ P); z_dd = 4·(pos₉₀ − ½) ∈ [−2, 2], no standardisation. Top of the 90-day range is fragile (liquidation mass just below), bottom is calm. `dd_90` = P/max₉₀ − 1 is kept for the reading. Old form (robust z of P/max₉₀ − 1, bounded at zero) made any day near the high a tail event of its own downtrend. | `prices_daily` → `fragility_series` | `compute.fragility._drawdown`, `range_position_score` | `test_range_position_component_is_bounded_and_near_zero_in_a_narrow_range` |
 | `net_liquidity` | §3.3 | WALCL/1e3 − WTREGEN/1e3 − RRPONTSYD (USD bn) | `macro` | `state.net_liquidity` | `test_net_liquidity_units` (5768.594) |
 | `p_high` | eq. 3.3 | two-state Markov switching on log RV, filtered probabilities, 1/(1 − p_jj) | `vol_state` | `state.vol_state_model` | `test_vol_state_model_on_synthetic_two_regime_series` |
 
@@ -57,13 +57,15 @@ the unit test whose comments carry the hand-computed expected value.
 | `basis_term` | §5 (basis) | current annualised basis by expiry and venue for BTC/ETH | hourly.json | `jobs_hourly._basis_term` | — |
 | state reading | C1 | deterministic paragraph from the live rows (Φ, two largest components, VRP signs, front basis sign, OI percentile, 90-day and cycle drawdown, stablecoin growth, rules, venue breaches) | hourly.json `reading` | `compute.reading.state_reading` | `test_state_reading_is_deterministic_and_links_numbers` |
 
+| `liq_coverage` | B1 / work order 2 item 5 | per websocket venue and hour: connected seconds / 3600 and message count from the collector; Rule 4.2's 30-day liquidation percentile uses only venue-hours with coverage ≥ 0.9; `liq_source` lists the venues with rows in the window (a connected but silent stream is not listed); `liq_coverage_share` = share of the last 30 days' hours fully covered | `liq_coverage`, `positioning` | `fetch.liq_ws.HourBuffer`, `jobs_hourly._covered_liquidations` | `test_liq_coverage_parser_and_covered_hours` |
+
 ## Rules
 | rule | function | test |
 |---|---|---|
 | 4.1 crowded long, 4.2 capitulation, 4.3 vol underpricing, 5.1 cliff, 7.1 gate | `monitor.rules.*` (thresholds only from `config/thresholds.yaml`) | `test_state_rules.py::test_rules_fire_and_report_unavailable_inputs` |
 
-| 5.1 backfill | `compute.cliff_study` (hit = negative 14-day pre-cliff return; float backed out of the schedule; wash-filtered ADV where available, flagged otherwise; base rate reported) | `test_cliff_study_counts_hits_and_flags_bases` |
-| alerts | `monitor.alerts` (one issue per condition, auto-closed; `site/alerts.xml`) | `test_alerts_open_and_close_conditions_dry_run` |
+| 5.1 backfill | `compute.cliff_study` (hit = negative 14-day pre-cliff return; float backed out of the schedule; wash-filtered ADV where available, flagged otherwise; s.e. clustered by cliff week; β-adjusted return with the factor model's rolling β_MKT; placebo of 20 pseudo-cliffs per token and year; base rate on all tokens and on the Rule 5.1 tokens; by-year rows first) | `test_cliff_study_counts_hits_and_flags_bases`, `test_clustered_se_and_placebo` |
+| alerts | `monitor.alerts` (one issue per Rule 4.x firing, venue breach or dataset unavailable two runs; ONE rolling "Cliff calendar, next 30 days" issue for Rule 5.1, refreshed when the list changes; `site/alerts.xml`) | `test_alerts_open_and_close_conditions_dry_run`, `test_rule_51_firings_collapse_into_one_calendar_condition` |
 
 ## Scheduled supply (notes Section 5)
 | indicator | notes ref | formula | source table | function | test |

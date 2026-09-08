@@ -15,6 +15,7 @@ issue_number) so the feed shows when each condition opened and closed."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -34,7 +35,12 @@ from monitor.paths import SITE
 log = logging.getLogger("monitor.alerts")
 LABEL = "alert"
 SITE_URL = "https://wernerhl.github.io/crypto-monitor/"
-PANEL = {"rule": "#p-triggers", "venue": "#p-venue", "dataset": "status.html"}
+PANEL = {
+    "rule": "#p-triggers",
+    "cliffs": "#p-events",
+    "venue": "#p-venue",
+    "dataset": "status.html",
+}
 
 
 def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
@@ -44,11 +50,15 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
 
     last = latest_rule_fires()
     if last is not None and last.height:
+        cliffs = []
         for r in last.filter(pl.col("fired")).sort("rule_id", "asset").to_dicts():
             try:
                 inputs = json.loads(r.get("inputs") or "{}")
             except ValueError:
                 inputs = {}
+            if r["rule_id"] == "5.1":
+                cliffs.append((r["asset"], inputs))
+                continue  # informational rule: one rolling calendar, not one issue per token
             out.append(
                 {
                     "key": f"rule:{r['rule_id']}:{r['asset']}",
@@ -57,6 +67,8 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
                     "body": f"Evaluated {r['ts']:%Y-%m-%d %H:%M} UTC. Inputs: {json.dumps(inputs, default=str)}. Thresholds: {r.get('thresholds')}. Pre-committed action per docs/indicators.md; nothing here is a forecast.",
                 }
             )
+        if cliffs:
+            out.append(cliff_calendar(cliffs))
     rk = site_data / "risk.json"
     if rk.exists():
         try:
@@ -126,6 +138,37 @@ def _gh(*args: str) -> str:
     ).stdout
 
 
+def cliff_calendar(cliffs: list[tuple[str, dict]]) -> dict:
+    """One rolling condition for Rule 5.1 (work order 2, item 4): the qualifying cliffs of the
+    next 30 days as a table. The key is constant, so the issue is reused and its body is
+    refreshed when the list changes; the weekly review reads this list."""
+    rows = sorted(cliffs, key=lambda c: (str(c[1].get("unlock_date") or ""), c[0]))
+    lines = [
+        "| token | cliff date | share of float | days of volume | USD |",
+        "|---|---|---:|---:|---:|",
+    ]
+    for asset, i in rows:
+        sh, dv, usd = (
+            i.get("unlock_share_of_float"),
+            i.get("unlock_days_of_volume"),
+            i.get("unlock_usd"),
+        )
+        lines.append(
+            f"| {asset} | {i.get('unlock_date', '?')} | {'' if sh is None else f'{100 * sh:.1f} %'} | {'' if dv is None else f'{dv:.1f}'} | {'' if usd is None else f'{usd / 1e6:,.1f} M'} |"
+        )
+    return {
+        "key": "cliffs:calendar",
+        "kind": "cliffs",
+        "title": f"Cliff calendar, next 30 days ({len(rows)} qualifying)",
+        "body": "Scheduled cliffs meeting both Rule 5.1 legs (share of float > 1 %, > 2 days of real volume). The 2021–2026 backfill puts the 2026 pre-cliff drift at the base rate (docs/notes/pre_unlock_drift.md), so this list is informational.\n\n"
+        + "\n".join(lines),
+    }
+
+
+def _issue_body(c: dict) -> str:
+    return f"{c['body']}\n\nPanel: {SITE_URL}{PANEL.get(c['kind'], '')}\n\nThis issue closes automatically when the condition clears.\n\n<!-- alert-key: {c['key']} -->"
+
+
 def _open_issues() -> dict[str, int]:
     """key → issue number for open issues carrying the alert label."""
     try:
@@ -168,10 +211,23 @@ def sync(site_out: Path = SITE, dry_run: bool | None = None) -> dict:
     for key, c in conds.items():
         s = state.get(key)
         if s and s.get("closed_at") is None and (s.get("issue_number") or not live):
+            if s.get("body") != c["body"]:  # the rolling calendar changed: refresh in place
+                s["body"], s["title"] = c["body"], c["title"]
+                if live and s.get("issue_number"):
+                    with contextlib.suppress(subprocess.CalledProcessError):
+                        _gh(
+                            "issue",
+                            "edit",
+                            str(s["issue_number"]),
+                            "--title",
+                            f"[alert] {c['title']}",
+                            "--body",
+                            _issue_body(c),
+                        )
             continue  # already open, and it has its issue (or this is a dry run)
         num = issues.get(key) or (s.get("issue_number") if s else None)
         if live and num is None:
-            body = f"{c['body']}\n\nPanel: {SITE_URL}{PANEL.get(c['kind'], '')}\n\nThis issue closes automatically when the condition clears.\n\n<!-- alert-key: {key} -->"
+            body = _issue_body(c)
             try:
                 _gh(
                     "label",
@@ -220,7 +276,11 @@ def sync(site_out: Path = SITE, dry_run: bool | None = None) -> dict:
                     "close",
                     str(num),
                     "--comment",
-                    f"Condition cleared at {now:%Y-%m-%d %H:%M} UTC (automatic).",
+                    (
+                        "Superseded by the rolling cliff-calendar issue (one issue for Rule 5.1, not one per token)."
+                        if key.startswith("rule:5.1:")
+                        else f"Condition cleared at {now:%Y-%m-%d %H:%M} UTC (automatic)."
+                    ),
                 )
             except subprocess.CalledProcessError as e:
                 log.warning("issue close failed for %s: %s", key, e.stderr[:200])

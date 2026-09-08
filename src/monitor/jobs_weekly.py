@@ -95,8 +95,21 @@ def compute_cliff_study(
         w = wash.filter(pl.col("date") == wash["date"].max()).filter(pl.col("pass"))
         for b, g in w.group_by("base"):
             wash_pass[b[0] if isinstance(b, tuple) else b] = g["venue"].unique().to_list()
-    events = cs.event_table(ev, vp, symbol_of, float_now, upd, as_of, start, wash_pass)
-    summary = cs.summarise(events, th)
+    betas = archive.read("factor_betas")
+    events = cs.event_table(ev, vp, symbol_of, float_now, upd, as_of, start, wash_pass, betas)
+    placebo = cs.placebo_table(events, vp, betas=betas)
+    summary = cs.summarise(events, th, placebo)
+    rule_bases = (
+        events.filter(
+            (pl.col("share_of_float") > th["single_unlock_float_share_min"])
+            & (pl.col("days_of_volume") > th["single_unlock_days_of_volume_min"])
+        )["base"]
+        .unique()
+        .to_list()
+        if events.height
+        else []
+    )
+    br_sub, n_sub = cs.base_rate(vp, rule_bases, start, as_of) if rule_bases else (None, 0)
     br, n_br = (
         cs.base_rate(vp, events["base"].unique().to_list(), start, as_of)
         if events.height
@@ -114,7 +127,14 @@ def compute_cliff_study(
                             "group": "all days, same assets and period (share of negative 14-day returns)",
                             "n": n_br,
                             "hit_rate": br,
-                        }
+                        },
+                        {
+                            **{c: None for c in summary.columns},
+                            "group_kind": "base rate",
+                            "group": "all days, Rule 5.1 tokens only",
+                            "n": n_sub,
+                            "hit_rate": br_sub,
+                        },
                     ]
                 )
                 .select(summary.columns)

@@ -30,6 +30,8 @@
 
 <h2>Validation tables (walk-forward)</h2>
 <div class="panel"><p class="meta" id="val-meta">loading data/daily.json …</p><div id="hitrates"></div><div id="cliffstudy"></div><div id="ics"></div></div>
+<h2>Fragility index: components and definitions</h2>
+<div class="panel"><p>Φ is the mean of five components. Four are 250-day walk-forward robust z-scores (MAD × 1.4826): OI-weighted Tier 1 funding; aggregate OKX open interest over Tier 1 market cap; the negative of the BTC variance risk premium (DVOL² − RV²₃₀, the daily DVOL history plus today's live DVOL); the negative of 30-day stablecoin growth. The fifth, since 2026-09-08, is a bounded range-position score: pos₉₀ = (P − min₉₀)/(max₉₀ − min₉₀) and z_dd = 4·(pos₉₀ − ½) ∈ [−2, 2], with no standardisation. It replaces a robust z of the drawdown from the 90-day high, which is bounded at zero and, over a downtrending window, made any day near the high a tail event: on 2026-09-08 it read +2.53 for a price 2.7 % below the high. The mechanical reading is unchanged (at the top of the recent range the liquidation mass sits below). Each component carries its sample size; a component that is null while its source is fresh fails the build rather than publishing Φ on fewer components; a stale source is shown as a gap in the state reading. History and live values come from the same builder.</p></div>
 <h2 id="volstate">Vol-state diagnostics</h2>
 <div class="panel"><div id="volstate-diag">loading data/hourly.json …</div></div>
 <h2>Factor model</h2>

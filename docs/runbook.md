@@ -72,12 +72,24 @@ and `monitor compute hourly` parses them into `liquidations`. Log:
 `~/Library/Logs/crypto-monitor-liq.log`. `liq_source` on the positioning row names the venues
 present; Rule 4.2's liquidation percentile needs 30 days of this sample.
 
+**Coverage and holes.** The collector only sees what it is connected to. Each venue-hour's
+connected share and message count go into `liq_coverage`; Rule 4.2's percentile uses hours
+with coverage ≥ 0.9 and the triggers panel prints the covered share of the last 30 days. A
+machine that sleeps produces holes; holes are shown, never interpolated. Run the collector on
+a machine that does not sleep (a Mac with `caffeinate -s`, or any always-on box outside the
+US address ranges the venues block). Binance's futures websocket (`fstream.binance.com`)
+accepts the connection from this machine and sends nothing (verified 2026-09-08 on four
+streams; the spot stream works), so Binance hours show as connected with zero messages and
+`liq_source` lists only venues with rows.
+
 ## Alerts (GitHub issues and RSS)
 `uv run monitor alerts` (run by the hourly and daily workflows with `GH_TOKEN`) opens one
-issue per active condition — a rule firing (`rule:<id>:<asset>`), a venue limit breached on
-the example book (`venue:<venue>`), a dataset unavailable in two consecutive runs of its job
-(`dataset:<name>`) — labelled `alert`, and closes it with a comment when the condition
-clears. The same items are published at `site/alerts.xml` (RSS 2.0). `--dry-run` touches
+issue per active condition — a Rule 4.1–4.3 firing (`rule:<id>:<asset>`), a venue limit
+breached on the example book (`venue:<venue>`), a dataset unavailable in two consecutive runs
+of its job (`dataset:<name>`) — labelled `alert`, and closes it with a comment when the
+condition clears. Rule 5.1 is informational and gets ONE rolling issue, "Cliff calendar,
+next 30 days", whose body (the qualifying list as a table) is edited in place when the list
+changes; open issues = active 4.x/venue/dataset conditions + 1. The same items are published at `site/alerts.xml` (RSS 2.0). `--dry-run` touches
 no issues (used locally). State: the `alerts` table (`key`, `opened_at`, `closed_at`,
 `issue_number`). To silence a class of alerts, close the issue and fix the condition; there
 is no mute list by design.
@@ -92,7 +104,10 @@ uv run monitor alerts --dry-run
 PYTHONPATH=src uv run --no-sync python scripts/unlock_drift_note.py   # docs/notes/pre_unlock_drift.md
 ```
 **Run local recomputes one at a time, and from the clone outside the synced folder
-(`~/crypto-monitor`).** The development clone under `~/Documents` is managed by a file-sync
+(`~/crypto-monitor`).** The code enforces it: `archive.upsert` refuses to write from a clone
+whose path contains `Documents`, `Desktop`, `Downloads`, `Library/CloudStorage`, `Dropbox`,
+`Google Drive` or `OneDrive` (`MONITOR_ALLOW_SYNCED=1` overrides, knowingly). The old clone
+under `~/Documents/whl._Trading/crypto-monitor` is read-only since 2026-09-08. The development clone under `~/Documents` is managed by a file-sync
 agent: writes there are slow while it syncs (a 12-second `compute context` took 27 minutes)
 and two overlapping recomputes tore `rule_fires.parquet` twice on 2026-09-08. A torn table
 shows up as `parquet: File out of specification`; rebuild it from `data/archive/<table>/*.parquet`

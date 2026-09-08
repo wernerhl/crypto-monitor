@@ -452,3 +452,38 @@ def parse_liquidations_ws(env: Envelope) -> pl.DataFrame:
                     )
                 )
     return rows_to_df(LiquidationRow, rows)
+
+
+def parse_liq_coverage(env: Envelope) -> pl.DataFrame:
+    """Collector coverage for one venue-hour from the websocket envelope's meta: connected
+    seconds / 3600 and the number of messages (work order 2, item 5)."""
+    from datetime import datetime
+
+    cov = (env.meta or {}).get("coverage") or {}
+    hour = cov.get("hour") or (env.meta or {}).get("hour")
+    schema = {
+        "hour": pl.Datetime("us", "UTC"),
+        "venue": pl.Utf8,
+        "connected_share": pl.Float64,
+        "n_messages": pl.Int64,
+        "source": pl.Utf8,
+        "fetched_at": pl.Datetime("us", "UTC"),
+        "git_sha": pl.Utf8,
+    }
+    if not hour:
+        return pl.DataFrame(schema=schema)
+    n_msgs = int(cov.get("n_messages") or sum(len(r.body or []) for r in env.records))
+    return pl.DataFrame(
+        [
+            {
+                "hour": datetime.fromisoformat(hour),
+                "venue": "bybit",
+                "connected_share": min(1.0, float(cov.get("connected_seconds") or 0.0) / 3600.0),
+                "n_messages": n_msgs,
+                "source": "bybit_ws",
+                "fetched_at": datetime.fromisoformat(env.fetched_at),
+                "git_sha": env.git_sha,
+            }
+        ],
+        schema=schema,
+    )
