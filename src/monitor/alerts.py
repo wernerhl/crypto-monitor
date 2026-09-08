@@ -102,6 +102,9 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
     fs = archive.read_fetch_status()
     if fs is not None and fs.height:
         # last two runs per (job, dataset): both failed → condition
+        # a geo-block (HTTP 451/403 from a GitHub runner) is a documented, expected outcome of
+        # that runner, not an outage: it neither counts as a failure nor breaks a streak
+        fs = fs.filter(~pl.col("reason").fill_null("").str.contains(r"HTTP (451|403)"))
         g = (
             fs.sort("ts")
             .group_by("job", "dataset")

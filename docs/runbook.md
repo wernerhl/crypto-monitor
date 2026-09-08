@@ -63,6 +63,12 @@ push rights (`gh auth` is used by git) and the `.env` with keys. `scripts/instal
 --remove` uninstalls. Both paths write the same idempotent raw buckets, so the Actions jobs
 simply reuse whatever the collector already fetched.
 
+Since 2026-09-08 the agents run from a dedicated clone, `~/crypto-monitor-collector`, that
+nobody edits: development work in `~/crypto-monitor` (uncommitted changes) blocked the
+collector's `git pull --rebase` for six hours, which left only runner (geo-blocked) fetch rows
+and opened six dataset alerts. Geo-block responses (HTTP 451/403) from runners are ignored by
+the dataset alert, which fires on real outages only.
+
 The same installer also loads `com.wernerhl.crypto-monitor.liq`, a `KeepAlive` agent running
 `scripts/liq_collector.sh` (`python -m monitor.fetch.liq_ws`): the resident websocket
 collector for Binance `!forceOrder@arr` and Bybit `allLiquidation.*`. It writes one raw

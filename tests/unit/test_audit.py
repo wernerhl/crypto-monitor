@@ -206,7 +206,7 @@ def test_alerts_open_and_close_conditions_dry_run(tmp_path, monkeypatch):
                     "job": "hourly",
                     "dataset": "bybit_perps",
                     "ok": False,
-                    "reason": "HTTP 403",
+                    "reason": "network error: ReadTimeout",
                     **prov,
                 },
                 {
@@ -214,7 +214,7 @@ def test_alerts_open_and_close_conditions_dry_run(tmp_path, monkeypatch):
                     "job": "hourly",
                     "dataset": "bybit_perps",
                     "ok": False,
-                    "reason": "HTTP 403",
+                    "reason": "network error: ReadTimeout",
                     **prov,
                 },
                 {
@@ -231,6 +231,22 @@ def test_alerts_open_and_close_conditions_dry_run(tmp_path, monkeypatch):
                     "dataset": "okx_perps",
                     "ok": False,
                     "reason": "timeout",
+                    **prov,
+                },
+                {
+                    "ts": now - timedelta(hours=1),
+                    "job": "hourly",
+                    "dataset": "binance_perps",
+                    "ok": False,
+                    "reason": "HTTP 451 from fapi.binance.com: geo-blocked",
+                    **prov,
+                },
+                {
+                    "ts": now,
+                    "job": "hourly",
+                    "dataset": "binance_perps",
+                    "ok": False,
+                    "reason": "HTTP 451 from fapi.binance.com: geo-blocked",
                     **prov,
                 },
             ]
