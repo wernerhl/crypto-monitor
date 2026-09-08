@@ -57,7 +57,7 @@ jobs:
             echo "no data changes"
           else
             git commit -m "data: daily $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
-            git pull --rebase origin main
+            git pull --rebase -X theirs origin main
             git push origin HEAD:main
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

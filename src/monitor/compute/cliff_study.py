@@ -478,29 +478,15 @@ def summarise(
         pl.col("share_of_float").is_not_null() & pl.col("days_of_volume").is_not_null()
     )
     rows.append(_summ(sized, "all", "cliffs with float and volume measured"))
-    rule = sized.filter(
-        (pl.col("share_of_float") > cliff_th["single_unlock_float_share_min"])
-        & (pl.col("days_of_volume") > cliff_th["single_unlock_days_of_volume_min"])
-    )
-    rows.append(
-        _summ(
-            rule,
-            "rule",
-            f"Rule 5.1 (> {cliff_th['single_unlock_float_share_min']:.0%} of float and > {cliff_th['single_unlock_days_of_volume_min']:g} days of volume)",
-        )
-    )
-    rows.append(
-        _summ(
-            sized.filter(
-                ~(
-                    (pl.col("share_of_float") > cliff_th["single_unlock_float_share_min"])
-                    & (pl.col("days_of_volume") > cliff_th["single_unlock_days_of_volume_min"])
-                )
-            ),
-            "rule",
-            "below either threshold",
-        )
-    )
+    leg_a = pl.col("share_of_float") > cliff_th["single_unlock_float_share_min"]
+    leg_b = pl.col("days_of_volume") > cliff_th["single_unlock_days_of_volume_min"]
+    rule = sized.filter(leg_a | leg_b)  # the rule as implemented (rules.cliff: a or b)
+    both = sized.filter(leg_a & leg_b)
+    lab = f"> {cliff_th['single_unlock_float_share_min']:.0%} of float"
+    lab_b = f"> {cliff_th['single_unlock_days_of_volume_min']:g} days of volume"
+    rows.append(_summ(rule, "rule", f"Rule 5.1 as implemented ({lab} or {lab_b})"))
+    rows.append(_summ(both, "rule", f"both legs ({lab} and {lab_b})"))
+    rows.append(_summ(sized.filter(~(leg_a | leg_b)), "rule", "neither leg"))
     if placebo is not None and placebo.height:
         for y in sorted(placebo["date"].dt.year().unique().to_list()):
             rows.append(

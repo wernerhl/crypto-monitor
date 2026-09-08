@@ -286,7 +286,7 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   2026-09-04).** Live on 2026-09-08: z_dd = +1.62 for pos₉₀ = 0.905 (the price is 2.7 %
   below the high but the 90-day range is about 28 % wide, so the close sits near its top;
   the order's "near 0 to +1" assumed a 5 % range).
-* **3 — Cliff study statistics and framing.** `compute.cliff_study` now reports, per group,
+* **3 — Cliff study statistics and framing.** Correction first: the work-order-1 study defined the "Rule 5.1 subset" with both legs (share > 1 % AND > 2 days of volume, n = 311); the rule itself fires on either leg (`rules.cliff`, `a or b`), so the subset is now the OR set and the tables and note are regenerated on it. `compute.cliff_study` now reports, per group,
   standard errors clustered by cliff week (pooled 2.6 % against 1.0 % i.i.d.; 2025 4.0 %),
   a β-adjusted pre-cliff return using the factor model's rolling β_MKT as of the cliff
   date, a placebo of 20 pseudo-cliff dates per token and year with the same treatment,

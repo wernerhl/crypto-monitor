@@ -88,7 +88,7 @@ of the recipient change the answer, and does the effect survive a placebo?
   events) and on every venue otherwise (2433 events, flagged `unfiltered`).
 * **Base rates.** The unconditional share of negative fourteen-day returns over the same
   period, once on all tokens with cliffs (56.2 %) and once on the tokens that form the
-  Rule 5.1 subset (56.2 %, n = 35394 token-days).
+  Rule 5.1 subset (56.2 %, n = 39321 token-days).
   Low-float tokens have a higher unconditional share of down fortnights, so the subset base
   rate is the one the Rule 5.1 row should be read against.
 
@@ -100,21 +100,25 @@ of the recipient change the answer, and does the effect survive a placebo?
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | all cliffs with price coverage | 2645 | 243 | 59.5 % | 1.0 % | 2.6 % | -2.7 % | 1.2 % | -3.7 % | -2.5 % | -5.7 % (2194) | -1.1 % | -2.6 % |
 | cliffs with float and volume measured | 2583 | 243 | 58.8 % | 1.0 % | 2.6 % | -2.3 % | 1.2 % | -3.5 % | -2.2 % | -5.7 % (2191) | -1.1 % | -2.6 % |
-| Rule 5.1 (> 1% of float and > 2 days of volume) | 311 | 147 | 63.0 % | 2.7 % | 3.5 % | -3.9 % | 1.4 % | -4.0 % | -4.1 % | -5.6 % (275) | -0.3 % | -2.4 % |
-| below either threshold | 2272 | 222 | 58.3 % | 1.0 % | 2.7 % | -2.1 % | 1.3 % | -3.4 % | -1.9 % | -5.7 % (1916) | -1.2 % | -2.6 % |
-| pseudo-cliffs on the Rule 5.1 tokens only | 1840 | 273 | 59.2 % | 1.1 % | 2.4 % | -2.4 % | 1.2 % | -3.6 % | -2.2 % | -1.8 % (1474) | -1.5 % | -2.7 % |
+| Rule 5.1 as implemented (> 1% of float or > 2 days of volume) | 759 | 183 | 54.5 % | 1.8 % | 3.5 % | -0.7 % | 1.5 % | -1.7 % | -2.1 % | -8.8 % (634) | -1.5 % | -2.1 % |
+| both legs (> 1% of float and > 2 days of volume) | 311 | 147 | 63.0 % | 2.7 % | 3.5 % | -3.9 % | 1.4 % | -4.0 % | -4.1 % | -5.6 % (275) | -0.3 % | -2.4 % |
+| neither leg | 1824 | 200 | 60.6 % | 1.1 % | 2.6 % | -3.0 % | 1.2 % | -4.2 % | -2.2 % | -4.4 % (1557) | -1.0 % | -2.7 % |
+| pseudo-cliffs on the Rule 5.1 tokens only | 2040 | 273 | 59.2 % | 1.1 % | 2.5 % | -2.7 % | 1.3 % | -3.7 % | -2.5 % | -1.6 % (1576) | -1.8 % | -2.9 % |
 | pseudo-cliffs: 20 non-cliff days per token and year | 2180 | 279 | 59.3 % | 1.1 % | 2.4 % | -2.9 % | 1.2 % | -3.7 % | -2.7 % | -1.7 % (1684) | -1.8 % | -2.8 % |
-| all days, Rule 5.1 tokens only | 35394 |  | 56.2 % |  |  | n/a |  | n/a | n/a | n/a | n/a | n/a |
+| all days, Rule 5.1 tokens only | 39321 |  | 56.2 % |  |  | n/a |  | n/a | n/a | n/a | n/a | n/a |
 | all days, same assets and period (share of negative 14-day returns) | 42984 |  | 56.1 % |  |  | n/a |  | n/a | n/a | n/a | n/a | n/a |
 
-Read: cliffs meeting both Rule 5.1 legs were preceded by a negative return
-63.0 % of the time (n = 311, clustered s.e. 3.5 %),
+Read: the rule as implemented fires on either leg. Those cliffs (n = 759) were preceded
+by a negative return 54.5 % of the time (clustered s.e. 3.5 %),
 against 59.2 % on the placebo dates of the same tokens (clustered s.e.
-2.4 %) and a subset base rate of 56.2 %. The
-mean pre-cliff return of the subset is -3.9 % (-4.1 % vs BTC,
--5.6 % β-adjusted on 275 events) against
--2.4 % on the placebo. The conditional effect is the difference between
-those rows, and its uncertainty is the clustered standard error, not the i.i.d. one.
+2.5 %) and a subset base rate of 56.2 %; their
+mean pre-cliff return is -0.7 % (-2.1 % vs BTC,
+-8.8 % β-adjusted on 634 events) against
+-2.7 % on the placebo. The intersection of both legs (n = 311)
+reads 63.0 % (clustered s.e. 3.5 %), mean
+-3.9 %, -4.1 % vs BTC. The conditional effect is the
+difference between a cliff row and its placebo row, and its uncertainty is the clustered
+standard error, not the i.i.d. one.
 
 ### By recipient class (dominant class by amount)
 
@@ -171,10 +175,13 @@ Average cumulative log return from fourteen days before to fourteen days after t
    years show a hit rate of 59.3 % and a mean pre-window return of
    -2.9 %: the tokens with cliffs were falling on ordinary days too.
    What survives is the difference, concentrated in the larger events.
-3. **Size selects, weakly.** The Rule 5.1 subset has the higher hit rate and the more
-   negative market-adjusted drift of the two halves; within the size buckets the pattern is
-   not monotone and the clustered standard errors of three to eight points do not support
-   ranking the buckets.
+3. **The rule's own set shows no drift; only the intersection does.** Cliffs meeting either
+   leg (the rule as implemented, n = 759) have a hit rate of 54.5 % and a mean
+   pre-cliff return of -0.7 %: at the subset base rate. Cliffs meeting both legs
+   (n = 311) read 63.0 % and -3.9 %. Whatever
+   size effect exists sits in the intersection, and with clustered standard errors of three to
+   five points on those rows it is suggestive, not established. Within the size buckets the
+   pattern is not monotone.
 4. **Recipient class matters in the direction the notes assume**, with investor-dominated
    cliffs the most negative before and after the date; the `unknown` class is at the base
    rate, as a label without information should be. `public` has nine events: ignore.

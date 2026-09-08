@@ -160,7 +160,7 @@ def cliff_calendar(cliffs: list[tuple[str, dict]]) -> dict:
         "key": "cliffs:calendar",
         "kind": "cliffs",
         "title": f"Cliff calendar, next 30 days ({len(rows)} qualifying)",
-        "body": "Scheduled cliffs meeting both Rule 5.1 legs (share of float > 1 %, > 2 days of real volume). The 2021–2026 backfill puts the 2026 pre-cliff drift at the base rate (docs/notes/pre_unlock_drift.md), so this list is informational.\n\n"
+        "body": "Scheduled cliffs meeting either Rule 5.1 leg (share of float > 1 % or > 2 days of real volume). The 2021–2026 backfill puts the 2026 pre-cliff drift at the base rate (docs/notes/pre_unlock_drift.md), so this list is informational.\n\n"
         + "\n".join(lines),
     }
 
@@ -265,6 +265,18 @@ def sync(site_out: Path = SITE, dry_run: bool | None = None) -> dict:
             "issue_number": num,
         }
         opened += 1
+    if live:  # rows closed by an earlier (dry or failed) run whose issue is still open on GitHub
+        for key, s in state.items():
+            num = s.get("issue_number") or issues.get(key)
+            if key not in conds and s.get("closed_at") is not None and num in issues.values():
+                with contextlib.suppress(subprocess.CalledProcessError):
+                    _gh(
+                        "issue",
+                        "close",
+                        str(num),
+                        "--comment",
+                        "Condition no longer active (automatic, reconciled).",
+                    )
     for key, s in state.items():
         if key in conds or s.get("closed_at") is not None:
             continue

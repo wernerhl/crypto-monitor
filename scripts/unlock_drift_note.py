@@ -161,7 +161,7 @@ def main() -> None:
                 cnt += 1
         return [float(a / c) if c else None for a, c in zip(acc, cnt, strict=True)], int(cnt[0])
 
-    meets = (pl.col("share_of_float") > th["single_unlock_float_share_min"]) & (
+    meets = (pl.col("share_of_float") > th["single_unlock_float_share_min"]) | (
         pl.col("days_of_volume") > th["single_unlock_days_of_volume_min"]
     )
     rule = ev.filter(meets)
@@ -244,6 +244,7 @@ def main() -> None:
     allr = {r["group"]: r for r in g("all")}
     ruler = {r["group"]: r for r in g("rule")}
     rule_row = next(r for r in ruler if r.startswith("Rule 5.1"))
+    rb = next((ruler[r] for r in ruler if r.startswith("both legs")), {})
     n_float = int(ev["float_basis"].is_not_null().sum())
     n_wash = int((ev["adv_basis"] == "wash-filtered venues, current pass set").sum())
     n_unf = int((ev["adv_basis"] == "exchange klines, unfiltered").sum())
@@ -359,14 +360,17 @@ of the recipient change the answer, and does the effect survive a placebo?
 
 {tbl(g("all") + g("rule") + g("placebo") + g("base rate"))}
 
-Read: cliffs meeting both Rule 5.1 legs were preceded by a negative return
-{pc(rr["hit_rate"])} of the time (n = {rr["n"]}, clustered s.e. {pc(rr.get("se_cluster"))}),
+Read: the rule as implemented fires on either leg. Those cliffs (n = {rr["n"]}) were preceded
+by a negative return {pc(rr["hit_rate"])} of the time (clustered s.e. {pc(rr.get("se_cluster"))}),
 against {pc(plc_rule.get("hit_rate"))} on the placebo dates of the same tokens (clustered s.e.
-{pc(plc_rule.get("se_cluster"))}) and a subset base rate of {pc(br_sub.get("hit_rate"))}. The
-mean pre-cliff return of the subset is {pr(rr["mean_pre"])} ({pr(rr["mean_pre_vs_btc"])} vs BTC,
+{pc(plc_rule.get("se_cluster"))}) and a subset base rate of {pc(br_sub.get("hit_rate"))}; their
+mean pre-cliff return is {pr(rr["mean_pre"])} ({pr(rr["mean_pre_vs_btc"])} vs BTC,
 {pr(rr.get("mean_pre_beta_adj"))} β-adjusted on {rr.get("n_beta", 0)} events) against
-{pr(plc_rule.get("mean_pre"))} on the placebo. The conditional effect is the difference between
-those rows, and its uncertainty is the clustered standard error, not the i.i.d. one.
+{pr(plc_rule.get("mean_pre"))} on the placebo. The intersection of both legs (n = {rb.get("n", 0)})
+reads {pc(rb.get("hit_rate"))} (clustered s.e. {pc(rb.get("se_cluster"))}), mean
+{pr(rb.get("mean_pre"))}, {pr(rb.get("mean_pre_vs_btc"))} vs BTC. The conditional effect is the
+difference between a cliff row and its placebo row, and its uncertainty is the clustered
+standard error, not the i.i.d. one.
 
 ### By recipient class (dominant class by amount)
 
@@ -405,10 +409,13 @@ Average cumulative log return from fourteen days before to fourteen days after t
    years show a hit rate of {pc(plc_all.get("hit_rate"))} and a mean pre-window return of
    {pr(plc_all.get("mean_pre"))}: the tokens with cliffs were falling on ordinary days too.
    What survives is the difference, concentrated in the larger events.
-3. **Size selects, weakly.** The Rule 5.1 subset has the higher hit rate and the more
-   negative market-adjusted drift of the two halves; within the size buckets the pattern is
-   not monotone and the clustered standard errors of three to eight points do not support
-   ranking the buckets.
+3. **The rule's own set shows no drift; only the intersection does.** Cliffs meeting either
+   leg (the rule as implemented, n = {rr["n"]}) have a hit rate of {pc(rr["hit_rate"])} and a mean
+   pre-cliff return of {pr(rr["mean_pre"])}: at the subset base rate. Cliffs meeting both legs
+   (n = {rb.get("n", 0)}) read {pc(rb.get("hit_rate"))} and {pr(rb.get("mean_pre"))}. Whatever
+   size effect exists sits in the intersection, and with clustered standard errors of three to
+   five points on those rows it is suggestive, not established. Within the size buckets the
+   pattern is not monotone.
 4. **Recipient class matters in the direction the notes assume**, with investor-dominated
    cliffs the most negative before and after the date; the `unknown` class is at the base
    rate, as a label without information should be. `public` has nine events: ignore.

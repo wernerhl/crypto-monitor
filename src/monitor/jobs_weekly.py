@@ -102,7 +102,7 @@ def compute_cliff_study(
     rule_bases = (
         events.filter(
             (pl.col("share_of_float") > th["single_unlock_float_share_min"])
-            & (pl.col("days_of_volume") > th["single_unlock_days_of_volume_min"])
+            | (pl.col("days_of_volume") > th["single_unlock_days_of_volume_min"])
         )["base"]
         .unique()
         .to_list()
