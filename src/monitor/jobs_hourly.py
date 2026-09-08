@@ -103,6 +103,16 @@ def fetch_hourly(
     fr.run("binance_long_short", lambda: binance.fetch_long_short(b1, ts=ts, force=force))
     fr.run("binance_coinm", lambda: binance.fetch_coinm_marks(ts=ts, force=force))
     fr.run("okx_futures", lambda: okx.fetch_futures_marks(ts=ts, force=force))
+    fr.run(
+        "okx_oi_rubik_1h",
+        lambda: okx.fetch_oi_rubik(
+            [s.split("-")[0] for s in _syms(sm, (1, 2), "perp", "okx")],
+            period="1H",
+            ts=ts,
+            force=force,
+            freq="hourly",
+        ),
+    )
     check()
     # liquidations (OKX, mode a): page back to the previous hour's fetch
     prev = archive.read("liquidations")
@@ -234,6 +244,11 @@ def compute_hourly(rebuild: bool = False) -> dict[str, int]:
         + okx_p,
     )
     put("long_short", [binance.parse_long_short(e) for e in E("binance_usdm_long_short")])
+    put(
+        "oi_rubik",
+        [okx.parse_oi_rubik(e) for e in E("okx_oi_rubik_1H")]
+        + [okx.parse_oi_rubik(e) for e in E("okx_oi_rubik_1D")],
+    )
     # dated futures
     listings = archive.read("venue_listings")
     fut = (
@@ -259,7 +274,12 @@ def compute_hourly(rebuild: bool = False) -> dict[str, int]:
     if listings is not None:
         ok = listings.filter((pl.col("venue") == "okx") & (pl.col("market") == "perp"))
         cv = dict(zip(ok["symbol"], ok["multiplier"], strict=True))
-    put("liquidations", [okx.parse_liquidations(e, cv) for e in E("okx_liquidations")])
+    put(
+        "liquidations",
+        [okx.parse_liquidations(e, cv) for e in E("okx_liquidations")]
+        + [binance.parse_liquidations_ws(e) for e in E("binance_liquidations_ws")]
+        + [bybit.parse_liquidations_ws(e) for e in E("bybit_liquidations_ws")],
+    )
     # options
     opt_frames, dv_frames = [], []
     for e in E("deribit_options"):
@@ -328,6 +348,56 @@ def _daily_prices_by_base() -> pl.DataFrame:
     )
 
 
+def oi_daily_grid() -> pl.DataFrame:
+    """A4: one OKX-rubik OI value per (date, base) — the 1D series for closed days, today's last
+    1H point for the current day. Suspect jumps (|Δlog| > 0.4) are kept but flagged."""
+    r = archive.read("oi_rubik")
+    schema = {
+        "date": pl.Date,
+        "base": pl.Utf8,
+        "oi_usd": pl.Float64,
+        "suspect": pl.Boolean,
+        "source": pl.Utf8,
+    }
+    if r is None or not r.height:
+        return pl.DataFrame(schema=schema)
+    d1 = (
+        r.filter(pl.col("period") == "1D")
+        .with_columns(pl.col("ts").dt.date().alias("date"))
+        .sort("ts")
+        .unique(subset=["date", "base"], keep="last")
+    )
+    h1 = (
+        r.filter(pl.col("period") == "1H")
+        .with_columns(pl.col("ts").dt.date().alias("date"))
+        .sort("ts")
+        .unique(subset=["date", "base"], keep="last")
+    )
+    last_daily = d1.group_by("base").agg(pl.col("date").max().alias("dmax"))
+    h1 = (
+        h1.join(last_daily, on="base", how="left")
+        .filter(pl.col("dmax").is_null() | (pl.col("date") > pl.col("dmax")))
+        .drop("dmax")
+    )
+    out = pl.concat(
+        [
+            d1.select("date", "base", "oi_usd", "suspect").with_columns(
+                pl.lit("okx_rubik_1D").alias("source")
+            ),
+            h1.select("date", "base", "oi_usd", "suspect").with_columns(
+                pl.lit("okx_rubik_1H (today)").alias("source")
+            ),
+        ],
+        how="vertical_relaxed",
+    )
+    now = utc_now()
+    archive.upsert(
+        "oi_daily",
+        out.with_columns(pl.lit(now).alias("fetched_at"), pl.lit(git_sha()).alias("git_sha")),
+    )
+    return out.sort("base", "date")
+
+
 def compute_derived(as_of: date | None = None) -> dict[str, int]:
     th = _cfg("thresholds.yaml")
     sha, now = git_sha(), utc_now()
@@ -365,6 +435,23 @@ def compute_derived(as_of: date | None = None) -> dict[str, int]:
                 .unique(subset=["date", "base"], keep="last")
                 .sort("base", "date")
             )
+        # A5: funding_daily holds the full daily-grid series (history + live), not just live days
+        archive.upsert(
+            "funding_daily",
+            fd.with_columns(
+                pl.lit("funding_history+perp_snapshot").alias("source"),
+                pl.lit(now).alias("fetched_at"),
+                pl.lit(sha).alias("git_sha"),
+            ),
+        )
+    oi_grid = oi_daily_grid()
+    if oi_grid.height:
+        # the OI statistics use the rubik grid; funding weights keep their own OI
+        fd = fd.drop("oi_usd_okx").join(
+            oi_grid.select("date", "base", pl.col("oi_usd").alias("oi_usd_okx")),
+            on=["date", "base"],
+            how="left",
+        )
 
     # ---- liquidity: depth aggregate, wash filters, real ADV
     depth = archive.read("orderbook_depth")
@@ -706,11 +793,20 @@ def _positioning_row(
         else None,
         "long_liq_24h_usd": long_liq_24h,
         "long_liq_24h_pctile": liq_pct,
-        "liq_source": "okx-only sample" if long_liq_24h is not None else None,
+        "liq_source": _liq_source(liqs) if long_liq_24h is not None else None,
         "sigma_daily": sigma,
         "source": "perp_snapshot+prices_daily+orderbook_depth+liquidations",
         "fetched_at": now,
     }
+
+
+def _liq_source(liqs: pl.DataFrame | None) -> str | None:
+    """Label the liquidation sample by the venues actually present in the table (B1)."""
+    if liqs is None or not liqs.height:
+        return None
+    venues = sorted(liqs["venue"].drop_nulls().unique().to_list())
+    kind = "single-venue sample" if len(venues) == 1 else "multi-venue"
+    return f"{'+'.join(venues)} ({kind})"
 
 
 def _options_row(cur, opts, prices, now) -> dict | None:
@@ -750,72 +846,88 @@ def _options_row(cur, opts, prices, now) -> dict | None:
 
 
 def _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now) -> dict | None:
+    """A3: the live value is the last row of the shared daily series (compute.fragility)."""
+    from monitor.compute import fragility as frag_mod
+
+    series = build_fragility_series(fd, prices, mcap, tier1, th, as_of)
+    if series is None or not series.height:
+        return None
+    archive.upsert(
+        "fragility_series",
+        series.with_columns(
+            pl.lit("compute.fragility.build_series").alias("source"),
+            pl.lit(now).alias("fetched_at"),
+            pl.lit(git_sha()).alias("git_sha"),
+        ),
+    )
+    r = frag_mod.last_row(series, as_of)
+    if r is None:
+        return None
+    return {
+        "ts": now,
+        "date": r["date"],
+        "phi": r["phi"],
+        "n_components": int(r["n_components"]),
+        **{c: r.get(c) for c in frag_mod.COMPONENTS},
+        **{f"{c}_n": None for c in frag_mod.COMPONENTS},
+        "z_fr_age_days": r.get("fr_age_days"),
+        "z_oi_age_days": r.get("oi_rel_age_days"),
+        "z_vrp_neg_age_days": r.get("vrp_neg_age_days"),
+        "z_dd_age_days": r.get("dd_age_days"),
+        "z_sc_neg_age_days": r.get("sc_neg_age_days"),
+        "funding_ann_t1": r.get("funding_ann_t1"),
+        "oi_rel_t1": r.get("oi_rel_t1"),
+        "dd_90": r.get("dd_90"),
+        "source": "fragility_series (shared live/history builder)",
+        "fetched_at": now,
+    }
+
+
+def build_fragility_series(fd, prices, mcap, tier1, th, as_of):
+    """Inputs on the daily grid for the shared builder: Tier 1 OI-weighted funding, Σ OKX OI /
+    Σ Tier 1 cap, DVOL-based VRP (plus today's chain value when the DVOL day is missing), BTC
+    close, stablecoin 30-day growth."""
+    from monitor.compute import fragility as frag_mod
+
     if fd is None or not fd.height:
         return None
     w = th["robust_z"]["window_days_fragility"]
     t1 = set(tier1["symbol"].to_list())
     f = fd.filter(pl.col("base").is_in(t1)).sort("date")
-    # aggregate OI-weighted funding across Tier 1 and OI / Σ market cap
-    day = (
+    fund = (
         f.group_by("date")
         .agg(
-            ((pl.col("funding_ann") * pl.col("oi_usd")).sum() / pl.col("oi_usd").sum()).alias("fr"),
-            pl.col("oi_usd_okx").sum().alias("oi"),  # OKX series: continuous history (see backfill)
+            (
+                (pl.col("funding_ann") * pl.col("oi_usd").fill_null(1.0)).sum()
+                / pl.col("oi_usd").fill_null(1.0).sum()
+            ).alias("fr")
         )
         .sort("date")
     )
     cap_t1 = sum(v for k, v in mcap.items() if k in t1 and v)
-    # days before the OI history starts sum to zero: they are missing, not zero
-    day = day.with_columns(pl.when(pl.col("oi") > 0).then(pl.col("oi")).otherwise(None).alias("oi"))
-    z = state_mod.fragility_components(
-        {
-            "z_fr": day["fr"].to_numpy(),
-            "z_oi": day["oi"].to_numpy() / cap_t1 if cap_t1 else np.array([]),
-        },
-        w,
+    oi = (
+        f.group_by("date")
+        .agg(
+            pl.col("oi_usd_okx").sum().alias("oi"),
+            pl.col("oi_usd_okx").is_not_null().sum().alias("n"),
+        )
+        .filter(pl.col("n") > 0)
     )
-    # VRP history from options_metrics (negative sign), drawdown from BTC close
-    # VRP history: DVOL-based daily series from the backfill, then today's chain-based VRP
+    oi_rel = (
+        oi.with_columns((pl.col("oi") / cap_t1).alias("oi_rel")).select("date", "oi_rel")
+        if cap_t1
+        else None
+    )
     vh = archive.read("vrp_history")
-    cur = next((r["vrp"] for r in opt_rows if r["currency"] == "BTC"), None)
-    if vh is not None and vh.height:
-        v = vh.filter(pl.col("currency") == "BTC").sort("date")["vrp"].to_numpy()
-    else:
-        om = archive.read("options_metrics")
-        v = (
-            om.filter(pl.col("currency") == "BTC").sort("ts")["vrp"].drop_nulls().to_numpy()
-            if om is not None and om.height
-            else np.array([])
-        )
-    hist = np.append(v, cur) if cur is not None else v
-    if hist.size:
-        zz = state_mod.fragility_components({"z_vrp_neg": -hist}, w)
-        z.update({k: zz[k] for k in ("z_vrp_neg", "z_vrp_neg_n")})
-    btc = prices.filter(pl.col("base") == "BTC").sort("date")["close"].to_numpy()
-    if btc.size > 90:
-        dd_series = np.array(
-            [state_mod.drawdown_from_high(btc[: i + 1]) for i in range(btc.size)], dtype=float
-        )
-        zz = state_mod.fragility_components({"z_dd": -dd_series}, w)
-        z.update({k: zz[k] for k in ("z_dd", "z_dd_n")})
+    vrp = (
+        vh.filter(pl.col("currency") == "BTC").select("date", "vrp")
+        if vh is not None and vh.height
+        else None
+    )
+    btc = prices.filter(pl.col("base") == "BTC").select("date", "close")
     sc = archive.read("stablecoin_growth")
-    if sc is not None and sc.height:
-        zz = state_mod.fragility_components(
-            {"z_sc_neg": -sc.sort("date")["growth_30d"].to_numpy()}, w
-        )
-        z.update({k: zz[k] for k in ("z_sc_neg", "z_sc_neg_n")})
-    phi, n = state_mod.fragility_index(z)
-    return {
-        "ts": now,
-        "date": as_of,
-        "phi": phi,
-        "n_components": n,
-        **z,
-        "funding_ann_t1": float(day["fr"][-1]) if day.height else None,
-        "oi_rel_t1": float(day["oi"][-1] / cap_t1) if (day.height and cap_t1) else None,
-        "source": "funding_daily+options_metrics+prices_daily+stablecoin_growth",
-        "fetched_at": now,
-    }
+    scg = sc.select("date", "growth_30d") if sc is not None and sc.height else None
+    return frag_mod.build_series(fund, oi_rel, vrp, btc, scg, as_of, window=w)
 
 
 def _vol_state(prices, now, sha) -> dict | None:
@@ -845,6 +957,124 @@ def _vol_state(prices, now, sha) -> dict | None:
 
 
 # --------------------------------------------------------------------------- site JSON
+def _basis_term() -> list[dict]:
+    """Current dated-futures basis by expiry for BTC and ETH on every venue with marks: the
+    term structure of basis shown next to Φ (A6). Spot is the venue's index price at the mark's
+    timestamp (daily close only as a fallback); expiries under seven days are left out, as in
+    the trade table, because annualising a few days of basis is noise."""
+    from monitor.compute.trades import annualised_basis
+    from monitor.jobs_risk import _daily_close_by_base, _index_spot, latest_marks
+
+    last = latest_marks()
+    if last is None or not last.height:
+        return []
+    now = utc_now()
+    px = _daily_close_by_base()
+    spot = {
+        r["base"]: r["close"]
+        for r in px.sort("date").group_by("base").agg(pl.col("close").last()).to_dicts()
+    }
+    spot.update(_index_spot(last))
+    out = []
+    for r in (
+        last.filter(
+            pl.col("base").is_in(["BTC", "ETH"]) & (pl.col("expiry") > now + timedelta(days=7))
+        )
+        .sort("expiry")
+        .to_dicts()
+    ):
+        p = spot.get(r["base"])
+        b = annualised_basis(r["mark_price"], p, r["expiry"], now) if p else None
+        if b is None:
+            continue
+        out.append(
+            {
+                "base": r["base"],
+                "venue": r["venue"],
+                "symbol": r["symbol"],
+                "expiry": str(r["expiry"].date()),
+                "days": (r["expiry"] - now).total_seconds() / 86400,
+                "basis_ann": b,
+                "spot_basis": "index" if r["base"] in _index_spot(last) else "daily close",
+            }
+        )
+    return out
+
+
+def _reading(payload: dict, out: Path) -> list[dict]:
+    """State-reading segments (C1) from the same rows the page shows."""
+    import json
+
+    from monitor.compute.reading import state_reading
+
+    frag = payload["fragility"][0] if payload["fragility"] else None
+    pos = next((r for r in payload["positioning"] if r.get("base") == "BTC"), None)
+    dd90 = dd_cycle = None
+    px = _daily_prices_by_base()
+    btc = px.filter(pl.col("base") == "BTC").sort("date")
+    if btc.height:
+        c = btc["close"].to_numpy()
+        dd90 = float(c[-1] / c[-90:].max() - 1)
+        dd_cycle = float(c[-1] / c.max() - 1)
+    sc = archive.read("stablecoin_growth")
+    sc30 = None
+    if sc is not None and sc.height:
+        sc30 = sc.sort("date")["growth_30d"].drop_nulls().to_list()
+        sc30 = sc30[-1] if sc30 else None
+    breaches: list[str] = []
+    low = False
+    rk = out / "risk.json"
+    if rk.exists():
+        try:
+            v = json.loads(rk.read_text()).get("venue") or {}
+            breaches = [e["venue"] for e in v.get("exposure", []) if e.get("breach")]
+            low = bool((v.get("low_score") or {}).get("breach"))
+        except (OSError, ValueError):
+            pass
+    return state_reading(
+        utc_now().date(),
+        frag,
+        payload["options"],
+        payload["basis_term"],
+        pos,
+        dd90,
+        dd_cycle,
+        sc30,
+        payload["rules"],
+        breaches,
+        low,
+    )
+
+
+def tiered_symbols() -> list[str]:
+    """Symbols with a tier in the latest universe; excluded names (stablecoins, wrapped,
+    tokenised assets) are dropped from every live listing even if older rows exist."""
+    uni = archive.read("universe")
+    if uni is None or not uni.height:
+        return []
+    u = uni.filter((pl.col("as_of") == uni["as_of"].max()) & pl.col("tier").is_not_null())
+    return u["symbol"].to_list()
+
+
+def latest_rule_fires(max_age_hours: int = 48) -> pl.DataFrame | None:
+    """The latest evaluation of every (rule, asset) pair, whichever job produced it. Rules
+    4.x are evaluated hourly, Rule 5.1 by the daily context job; filtering on one timestamp
+    would drop whichever ran earlier."""
+    rf = archive.read("rule_fires")
+    if rf is None or not rf.height:
+        return None
+    cutoff = utc_now() - timedelta(hours=max_age_hours)
+    tiered = tiered_symbols()
+    if tiered:
+        rf = rf.filter(pl.col("asset").is_in(tiered))
+    return (
+        rf.filter(pl.col("ts") >= cutoff)
+        .sort("ts")
+        .unique(subset=["rule_id", "asset"], keep="last")
+        .sort("rule_id", "asset")
+    )
+
+
 def write_hourly_json(out: Path = SITE_DATA) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
@@ -860,8 +1090,12 @@ def write_hourly_json(out: Path = SITE_DATA) -> None:
         "positioning": latest("positioning", "ts"),
         "options": latest("options_metrics", "ts"),
         "fragility": latest("fragility", "ts"),
-        "rules": latest("rule_fires", "ts"),
-        "liquidity": latest("liquidity", "date"),
+        "rules": (lambda r: r.to_dicts() if r is not None else [])(latest_rule_fires()),
+        "liquidity": [
+            r for r in latest("liquidity", "date") if r.get("base") in set(tiered_symbols())
+        ],
         "vol_state": latest("vol_state", "date"),
+        "basis_term": _basis_term(),
     }
+    payload["reading"] = _reading(payload, out)
     (out / "hourly.json").write_text(dump_json(payload))

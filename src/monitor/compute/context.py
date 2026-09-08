@@ -76,13 +76,26 @@ def event_strip(
     manual_events: list[dict],
     expiries: pl.DataFrame | None,
     symbols: dict[str, str],
+    cliff_th: dict | None = None,
+    expiry_oi_share_min: float = 0.10,
 ) -> pl.DataFrame:
-    """Next-four-weeks strip: cliffs (days of volume), governance, hand-maintained events
-    (upgrades, listings, regulatory), large options expiries."""
+    """Next-four-weeks strip: qualifying cliffs (Rule 5.1: > 1 % of float or > 2 days of real
+    volume — linear vesting is aggregated in ESP, not listed), governance, hand-maintained
+    events (upgrades, listings, regulatory), and options expiries that are monthly/quarterly
+    (last Friday of the month) or hold at least `expiry_oi_share_min` of the currency's OI."""
     end = as_of + timedelta(days=horizon_days)
+    th = cliff_th or {
+        "single_unlock_float_share_min": 0.01,
+        "single_unlock_days_of_volume_min": 2.0,
+    }
     rows = []
     if cliffs is not None and cliffs.height:
         for r in cliffs.to_dicts():
+            big = (r.get("share_of_float") or 0) > th["single_unlock_float_share_min"] or (
+                r.get("days_of_volume") or 0
+            ) > th["single_unlock_days_of_volume_min"]
+            if not big:
+                continue
             rows.append(
                 {
                     "date": r["date"],
@@ -126,20 +139,30 @@ def event_strip(
                 }
             )
     if expiries is not None and expiries.height:
+        tot = {
+            r["currency"]: r["oi"]
+            for r in expiries.group_by("currency")
+            .agg(pl.col("total_oi").sum().alias("oi"))
+            .to_dicts()
+        }
         for r in expiries.to_dicts():
             d = r["expiry"].date()
-            if as_of <= d <= end:
-                rows.append(
-                    {
-                        "date": d,
-                        "kind": "options expiry",
-                        "asset": r["currency"],
-                        "title": f"OI {r['total_oi']:,.0f} contracts; largest strike {r['max_oi_strike']:,.0f}",
-                        "detail": None,
-                        "source": "deribit",
-                        "link": None,
-                    }
-                )
+            if not (as_of <= d <= end):
+                continue
+            share = r["total_oi"] / tot[r["currency"]] if tot.get(r["currency"]) else 0.0
+            if not (is_last_friday(d) or share >= expiry_oi_share_min):
+                continue
+            rows.append(
+                {
+                    "date": d,
+                    "kind": "options expiry",
+                    "asset": r["currency"],
+                    "title": f"OI {r['total_oi']:,.0f} contracts ({share * 100:.0f} % of {r['currency']} OI); largest strike {r['max_oi_strike']:,.0f}",
+                    "detail": "monthly/quarterly expiry" if is_last_friday(d) else "large expiry",
+                    "source": "deribit",
+                    "link": None,
+                }
+            )
     schema = {
         "date": pl.Date,
         "kind": pl.Utf8,
@@ -150,3 +173,7 @@ def event_strip(
         "link": pl.Utf8,
     }
     return pl.DataFrame(rows, schema=schema).sort("date") if rows else pl.DataFrame(schema=schema)
+
+
+def is_last_friday(d: date) -> bool:
+    return d.weekday() == 4 and (d + timedelta(days=7)).month != d.month

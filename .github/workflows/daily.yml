@@ -10,6 +10,7 @@ on:
         default: false
 permissions:
   contents: write
+  issues: write
   pages: write
   id-token: write
 concurrency:
@@ -42,12 +43,16 @@ jobs:
         run: uv run monitor fetch daily ${{ inputs.force && '--force' || '' }}
       - name: compute processed tables from raw files (daily + hourly derived + risk)
         run: uv run monitor compute daily
+      - name: alerts (one issue per condition, auto-closed; site/alerts.xml)
+        run: uv run monitor alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: commit data as the bot
         id: commit
         run: |
           git config user.name "crypto-monitor-bot"
           git config user.email "crypto-monitor-bot@users.noreply.github.com"
-          git add data/ site/data/
+          git add data/ site/data/ site/alerts.xml
           if git diff --cached --quiet; then
             echo "no data changes"
           else

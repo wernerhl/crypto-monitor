@@ -26,6 +26,24 @@ def test_drawdown_from_high():
     assert state_mod.drawdown_from_high(np.array([100, 120, 130.0]), 90) == 0.0
 
 
+def test_drawdown_component_positive_near_the_90_day_high():
+    """A2: a path that fell 40 % and recovered to 1 % below its 90-day high must give a positive
+    z for the drawdown component (the component is DD ≤ 0, largest at the high)."""
+    rng = np.random.default_rng(3)
+    path = [100.0]
+    for _ in range(300):
+        path.append(path[-1] * (1 + rng.normal(0, 0.03)))
+    p = np.array(path)
+    p[-90:] = np.linspace(p[-90] * 0.6, p[-90] * 0.99, 90)  # deep drawdown then recovery
+    p[-1] = p[-2] * 0.99  # the 90-day high is p[-2]; last close 1 % below it
+    dd = np.array(
+        [state_mod.drawdown_from_high(p[: i + 1], 90) for i in range(p.size)], dtype=float
+    )
+    assert dd[-1] == pytest.approx(-0.01, abs=1e-9)
+    z = state_mod.fragility_components({"z_dd": dd}, window=250, min_n=30)
+    assert z["z_dd"] is not None and z["z_dd"] > 0
+
+
 def test_fragility_index_mean_of_available_components():
     hist = np.array(list(range(1, 42)), dtype=float)
     series = {"z_fr": np.append(hist, 51.0), "z_oi": np.append(hist, 21.0)}  # z = 30/14.826 and 0

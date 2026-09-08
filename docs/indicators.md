@@ -47,15 +47,23 @@ the unit test whose comments carry the hand-computed expected value.
 ## Market state (notes Section 3)
 | indicator | notes ref | formula | source table | function | test |
 |---|---|---|---|---|---|
+| `phi` (live and history) | Def. 3.1 | one builder for both: `compute.fragility.build_series` writes `fragility_series`; the live row is its last row, so live == history on every common date | `fragility`, `fragility_series` | `compute.fragility.build_series` | `test_fragility_index_mean_of_available_components` |
 | `phi` | Def. 3.1 | ⅕ Σ of five 250-day robust z components; mean of the available ones with `n_components` | `fragility` | `state.fragility_index` | `test_fragility_index_mean_of_available_components` |
-| `z_dd` input | Def. 3.1 | −(P_t / max₉₀ P − 1) | `prices_daily` | `state.drawdown_from_high` | `test_drawdown_from_high` |
+| `z_dd` input | Def. 3.1 | dd₉₀ = P_t / max₉₀ P − 1 ≤ 0 (current close vs the 90-day high, per the notes; not the minimum over the window). The z-score is taken of dd₉₀ itself, so being at the high (dd ≈ 0, above its typical negative level) gives a positive z: liquidation mass sits just below. A deep drawdown gives a negative z. Carried at most one period (`z_dd_age_days`). | `prices_daily` → `fragility_series` | `compute.fragility.build_series` (`_drawdown`) | `test_drawdown_component_positive_near_the_90_day_high` |
 | `net_liquidity` | §3.3 | WALCL/1e3 − WTREGEN/1e3 − RRPONTSYD (USD bn) | `macro` | `state.net_liquidity` | `test_net_liquidity_units` (5768.594) |
 | `p_high` | eq. 3.3 | two-state Markov switching on log RV, filtered probabilities, 1/(1 − p_jj) | `vol_state` | `state.vol_state_model` | `test_vol_state_model_on_synthetic_two_regime_series` |
+
+| `basis_history` | §5 (basis) | (F − I)/I · 365/days for Binance COIN-M CURRENT/NEXT_QUARTER continuous klines against the index price, daily since 2020-06 | `basis_history` | `backfill.parse_basis_history` | `test_quarterly_delivery_dates` |
+| `basis_term` | §5 (basis) | current annualised basis by expiry and venue for BTC/ETH | hourly.json | `jobs_hourly._basis_term` | — |
+| state reading | C1 | deterministic paragraph from the live rows (Φ, two largest components, VRP signs, front basis sign, OI percentile, 90-day and cycle drawdown, stablecoin growth, rules, venue breaches) | hourly.json `reading` | `compute.reading.state_reading` | `test_state_reading_is_deterministic_and_links_numbers` |
 
 ## Rules
 | rule | function | test |
 |---|---|---|
 | 4.1 crowded long, 4.2 capitulation, 4.3 vol underpricing, 5.1 cliff, 7.1 gate | `monitor.rules.*` (thresholds only from `config/thresholds.yaml`) | `test_state_rules.py::test_rules_fire_and_report_unavailable_inputs` |
+
+| 5.1 backfill | `compute.cliff_study` (hit = negative 14-day pre-cliff return; float backed out of the schedule; wash-filtered ADV where available, flagged otherwise; base rate reported) | `test_cliff_study_counts_hits_and_flags_bases` |
+| alerts | `monitor.alerts` (one issue per condition, auto-closed; `site/alerts.xml`) | `test_alerts_open_and_close_conditions_dry_run` |
 
 ## Scheduled supply (notes Section 5)
 | indicator | notes ref | formula | source table | function | test |

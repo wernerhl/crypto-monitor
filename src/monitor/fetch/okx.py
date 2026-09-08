@@ -3,6 +3,7 @@ Daily candles use `bar=1Dutc` (verified) so days align with Binance/Bybit UTC da
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -520,3 +521,78 @@ def parse_futures_marks(env: Envelope, index: dict[str, float] | None = None) ->
             )
         )
     return rows_to_df(FuturesMarkRow, rows)
+
+
+def fetch_oi_rubik(
+    ccys: list[str],
+    period: str = "1D",
+    ts: datetime | None = None,
+    force: bool = False,
+    freq: str = "daily",
+) -> Path:
+    """`rubik/stat/contracts/open-interest-volume` — OI (USD) for ALL contracts of a currency
+    (USDT and USD swaps, futures). 1D returns 180 days, 1H returns 30 days (verified 2026-09-08).
+    This is the one OI series that is both historical and reachable from every runner, so every
+    OI statistic (percentile, 5-day change, quadrant, liquidation density, z_OI) is computed on it."""
+
+    def go(c) -> list[Record]:
+        return [
+            c.get(
+                "/api/v5/rubik/stat/contracts/open-interest-volume",
+                params={"ccy": s, "period": period},
+            )
+            for s in ccys
+        ]
+
+    return run_dataset(
+        "okx",
+        f"oi_rubik_{period}",
+        freq,
+        go,
+        ts=ts,
+        force=force,
+        meta={"ccys": ccys, "period": period},
+    )
+
+
+def parse_oi_rubik(env: Envelope) -> pl.DataFrame:
+    """Rows: ts, base, oi_usd, vol_usd, suspect (day-over-day |Δlog OI| > 0.4 — a units or
+    contract-listing change rather than positioning; A4)."""
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec, ccy in zip(env.records, env.meta["ccys"], strict=True):
+        pts = sorted(
+            ((int(x[0]), float(x[1]), float(x[2])) for x in rec.body.get("data") or []),
+            key=lambda t: t[0],
+        )
+        prev = None
+        for t, oi, vol in pts:
+            suspect = prev is not None and prev > 0 and oi > 0 and abs(math.log(oi / prev)) > 0.4
+            rows.append(
+                {
+                    "ts": _ms(t),
+                    "base": ccy,
+                    "venue": VENUE,
+                    "oi_usd": oi,
+                    "vol_usd": vol,
+                    "suspect": bool(suspect),
+                    "period": env.meta["period"],
+                    "source": "okx_rubik",
+                    "fetched_at": fetched,
+                    "git_sha": env.git_sha,
+                }
+            )
+            prev = oi
+    schema = {
+        "ts": pl.Datetime("us", "UTC"),
+        "base": pl.Utf8,
+        "venue": pl.Utf8,
+        "oi_usd": pl.Float64,
+        "vol_usd": pl.Float64,
+        "suspect": pl.Boolean,
+        "period": pl.Utf8,
+        "source": pl.Utf8,
+        "fetched_at": pl.Datetime("us", "UTC"),
+        "git_sha": pl.Utf8,
+    }
+    return pl.DataFrame(rows, schema=schema)

@@ -171,3 +171,90 @@
   walk-forward z-scores with sample sizes, missing fragility components, weekly-RV switching
   model, tiering with measured depth, sector seeding), validation on the history that exists
   (partial-input rule variants, Rule 4.3 full walk-forward, screen ICs), governance in practice.
+
+## 2026-09-08 — Audit work order (A1–A10, B1–B2, C1–C2, D)
+No threshold in `config/thresholds.yaml` changed; none of these items is a calibration.
+* **A1 — commodity tokens out of the tiers.** XAUT, PAXG and every CoinGecko "Tokenized
+  Gold/Silver/Commodities/Stocks/Treasuries/…" or "Commodity-backed Stablecoin" member is
+  excluded with reason `commodity-backed / tokenised traditional asset`
+  (`config/universe.yaml: tokenised_asset_category_regex`). They no longer appear in
+  positioning, rules, trades or screens. Tier 1 on 2026-09-08 loses XAUT.
+* **A2 — drawdown component.** Kept the notes' definition (current close against the 90-day
+  high, not the minimum over the window) and fixed the sign: being at the high is the fragile
+  reading (z_dd positive), a deep drawdown is the calm one. The audit's alternative (largest
+  drawdown inside the window) is not used; it measures a different thing (what has already
+  flushed), and the notes' definition measures where the liquidation mass sits now.
+  Tile label reads "drawdown z (90-day high)" with sign-aware readings.
+* **A3 — one fragility builder.** `compute/fragility.py` builds the daily component grid,
+  robust z-scores and Φ for both the live row and the history (`fragility_series`); the
+  live value is the last row of the same series, so history and live agree to 1e-6 on every
+  common date. Each component carries `<c>_age_days` (0 = today, 1 = carried one period,
+  null = missing); nothing is carried further than one period.
+* **A4 — open-interest history and the −30 % five-day change.** The only OI series that is
+  both historical and reachable from every runner is OKX `rubik/stat/contracts/open-interest-volume`
+  (all contracts of a currency; 1D for 180 days, 1H for 30 days). It now feeds every OI
+  statistic (percentile, five-day change, quadrant, liquidation density) through a daily grid
+  (`oi_daily`), with `suspect = true` on any |Δlog OI| > 0.4 step. **The −30 % five-day change
+  reported for BTC on 2026-09-07 was an artefact:** the live figure was the USDT-swap-only OI
+  of one instrument (≈ 2.1 bn) compared against a history built from the all-contracts rubik
+  series (≈ 2.85 bn). On the consistent series the five-day change was within a few percent.
+* **A5 — funding carry needs 30 days.** The merged funding series (backfilled history plus live
+  rows) is written back to `funding_daily`, so every Tier 1 name with history has n ≥ 30 and
+  the funding-carry structure is populated instead of "insufficient history".
+* **A6 — backwardation and the basis term structure.** When the annualised basis is negative
+  the trade table shows the reverse carry (long the dated future, short spot or perp; cost =
+  fees plus funding paid on a short perp; dominant risk a short squeeze and venue exposure on
+  both legs). Panel 3 gains the current basis term structure across venues and expiries and a
+  two-year basis history from Binance COIN-M continuous quarterly klines against the index
+  (`basis_history`, 2020-06 onward, verified endpoints).
+* **A7 — event strip.** Cliffs are listed only when they meet either Rule 5.1 leg (share of
+  float > 1 % or > 2 days of volume); options expiries only on the monthly/quarterly (last
+  Friday) dates or when the expiry holds ≥ `events.expiry_oi_share_min` (10 %) of open
+  interest. Both numbers are configuration, not rule thresholds.
+* **A8 — Rule 5.1 backfill.** `compute/cliff_study.py`: 2 668 scheduled cliffs since 2021 with
+  price coverage (`cliff_study_events`), hit rate = negative 14-day pre-cliff return, mean and
+  median pre/post returns by recipient class, float-share bucket, days-of-volume bucket and
+  year, plus the unconditional base rate of negative 14-day returns on the same assets and
+  period. Float at the cliff date is backed out of today's circulating supply through the
+  schedule (flagged); ADV uses exchange quote volume restricted to venues passing the current
+  wash filters where a wash row exists, flagged `unfiltered` otherwise. Tables on the methods
+  page; the rule's thresholds are unchanged.
+* **A9 — ages.** Table ages are computed from the row's `fetched_at` for date-keyed tables and
+  clamped at zero; the status page can no longer print a negative age.
+* **A10 — IC sentence.** The screens panel text is generated from the numbers (IC, standard
+  error, ratio) and says when the ratio exceeds three; the caveat that screens condition
+  attention and are not forecasts is kept regardless of the trailing IC.
+* **B1 — liquidations from more than one venue.** `monitor.fetch.liq_ws` is a resident
+  websocket collector (Binance `!forceOrder@arr`, Bybit `allLiquidation.*`) writing hourly raw
+  envelopes; `scripts/liq_collector.sh` and a `KeepAlive` launchd agent
+  (`com.wernerhl.crypto-monitor.liq`, installed by `install_collector_macos.sh`) keep it up on
+  the collector Mac. The hourly compute parses both into `liquidations` next to the OKX REST
+  sample and `liq_source` names the venues actually present ("okx (single-venue sample)"
+  until the collector has run). Rule 4.2's liquidation percentile still needs 30 days of
+  sample; it accrues from the collector's start.
+* **B2 — example-book banners.** Panels 1 and 2 carry an EXAMPLE BOOK banner: the positions
+  are the illustrative `config/book.yaml`, the scores, limits, pegs, covariance and vol
+  state are live.
+* **C1 — state reading.** A deterministic paragraph at the top of the front page
+  (`compute/reading.py`, regenerated with hourly.json): Φ and its two largest components,
+  VRP signs, the front-basis sign, the OI percentile, the 90-day and cycle drawdowns,
+  30-day stablecoin growth, rules firing, venue breaches; every number links to its panel.
+* **C2 — alerts.** `monitor alerts` (run by the hourly and daily workflows with the
+  repository token) opens one GitHub issue per condition — a rule firing, a venue-limit
+  breach, a dataset unavailable for two consecutive runs — labelled `alert`, and closes it
+  with a comment when the condition clears; the same items are published as RSS at
+  `site/alerts.xml`. State is in the `alerts` table.
+* **D — pre-unlock drift note.** `docs/notes/pre_unlock_drift.md` reports the A8 study with
+  tables and figures; conclusions are stated with their sample sizes and the base rate.
+* Also fixed while verifying: the front page and the alerts took the rule evaluations from a
+  single timestamp, so whichever job ran last (hourly for 4.x, daily context for 5.1) hid
+  the other's rows; both now take the latest evaluation per (rule, asset) within 48 hours.
+  The trade table is replaced per `as_of` instead of merged, so a basis that flips sign no
+  longer leaves the old structure beside the new one. The basis (trade table and term
+  structure) uses the venue's index price at the mark's timestamp; the previous daily close
+  was up to a day stale and showed a false ETH backwardation of several hundred percent
+  annualised on the near expiries.
+* Operational: two overlapping local recomputes on the sync-agent-managed clone corrupted
+  `rule_fires.parquet` twice (torn writes); the table was rebuilt from its archive partitions.
+  Local recomputes now run one at a time from the clone outside the synced folder
+  (`docs/runbook.md`).

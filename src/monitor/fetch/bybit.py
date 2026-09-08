@@ -413,3 +413,42 @@ def parse_futures_marks(env: Envelope) -> pl.DataFrame:
             )
         )
     return rows_to_df(FuturesMarkRow, rows)
+
+
+def parse_liquidations_ws(env: Envelope) -> pl.DataFrame:
+    """`allLiquidation.<symbol>` messages (v5 linear) collected by monitor.fetch.liq_ws.
+    `S` is the position side that was liquidated per Bybit's docs (Buy = a long was closed)."""
+    from monitor.schema.tables import LiquidationRow
+
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec in env.records:
+        for m in rec.body or []:
+            for d in m.get("data") or []:
+                sym = d.get("s")
+                if not sym:
+                    continue
+                base, mult = split_multiplier(
+                    sym.removesuffix("USDT").removesuffix("PERP").removesuffix("USDC")
+                )
+                px, v = float(d.get("p") or 0), float(d.get("v") or 0)
+                if px <= 0 or v <= 0:
+                    continue
+                notional = v * px
+                v, px = v * mult, px / mult
+                rows.append(
+                    LiquidationRow(
+                        ts=datetime.fromtimestamp(int(d.get("T") or m.get("ts")) / 1000, tz=UTC),
+                        venue=VENUE,
+                        symbol=sym,
+                        base=base,
+                        side_closed="long" if d.get("S") == "Buy" else "short",
+                        price=px,
+                        size_base=v,
+                        notional_usd=notional,
+                        source="bybit_ws",
+                        fetched_at=fetched,
+                        git_sha=env.git_sha,
+                    )
+                )
+    return rows_to_df(LiquidationRow, rows)

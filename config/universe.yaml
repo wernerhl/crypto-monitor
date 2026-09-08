@@ -14,6 +14,10 @@ exclusions:
   - tokenized-btc
   - bridged-tokens
   stablecoin_category_regex: ^(?!Stablecoin Issuer$)(?!Stable Ecosystem$)(.* Stablecoin|Stablecoins)$
+  # commodity-backed and tokenised traditional assets (XAUT, PAXG, tokenised stocks, treasuries,
+  # money-market funds) track an off-chain price and carry no crypto positioning signal: excluded
+  # from every tier like stablecoins (protocol tokens tagged "Real World Assets (RWA)" stay)
+  tokenised_asset_category_regex: '^Tokenized (Gold|Silver|Commodities|Stocks|Treasuries|Money Market Fund.*|Credit|Private Credit)$|^Commodity-backed Stablecoin$'
   wrapped_or_lst_category_regex: ^(Wrapped-Tokens|Tokenized BTC|Bridged-Tokens|Bridged .*|Liquid Staked .*|Liquid Restaked
     .*|Liquid Staking Tokens|Liquid Restaking Tokens)$
   exchange_internal_ids: []

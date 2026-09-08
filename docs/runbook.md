@@ -63,13 +63,41 @@ push rights (`gh auth` is used by git) and the `.env` with keys. `scripts/instal
 --remove` uninstalls. Both paths write the same idempotent raw buckets, so the Actions jobs
 simply reuse whatever the collector already fetched.
 
+The same installer also loads `com.wernerhl.crypto-monitor.liq`, a `KeepAlive` agent running
+`scripts/liq_collector.sh` (`python -m monitor.fetch.liq_ws`): the resident websocket
+collector for Binance `!forceOrder@arr` and Bybit `allLiquidation.*`. It writes one raw
+envelope per venue and hour (`binance_liquidations_ws_HH00`, `bybit_liquidations_ws_HH00`),
+merging into an hour already on disk after a restart; the hourly collector run commits them
+and `monitor compute hourly` parses them into `liquidations`. Log:
+`~/Library/Logs/crypto-monitor-liq.log`. `liq_source` on the positioning row names the venues
+present; Rule 4.2's liquidation percentile needs 30 days of this sample.
+
+## Alerts (GitHub issues and RSS)
+`uv run monitor alerts` (run by the hourly and daily workflows with `GH_TOKEN`) opens one
+issue per active condition — a rule firing (`rule:<id>:<asset>`), a venue limit breached on
+the example book (`venue:<venue>`), a dataset unavailable in two consecutive runs of its job
+(`dataset:<name>`) — labelled `alert`, and closes it with a comment when the condition
+clears. The same items are published at `site/alerts.xml` (RSS 2.0). `--dry-run` touches
+no issues (used locally). State: the `alerts` table (`key`, `opened_at`, `closed_at`,
+`issue_number`). To silence a class of alerts, close the issue and fix the condition; there
+is no mute list by design.
+
 ## Re-running by hand
 ```bash
 make fetch                 # today's raw files (skips ones that exist)
 make compute               # replay every raw file into data/processed and data/archive
 make site                  # render ./site
 uv run monitor universe show --tier 1
+uv run monitor alerts --dry-run
+PYTHONPATH=src uv run --no-sync python scripts/unlock_drift_note.py   # docs/notes/pre_unlock_drift.md
 ```
+**Run local recomputes one at a time, and from the clone outside the synced folder
+(`~/crypto-monitor`).** The development clone under `~/Documents` is managed by a file-sync
+agent: writes there are slow while it syncs (a 12-second `compute context` took 27 minutes)
+and two overlapping recomputes tore `rule_fires.parquet` twice on 2026-09-08. A torn table
+shows up as `parquet: File out of specification`; rebuild it from `data/archive/<table>/*.parquet`
+(concatenate, `unique` on `archive.KEYS[table]`, write to `data/processed/`), or restore it
+with `git checkout origin/main -- data/processed/<table>.parquet` and recompute.
 
 ## Raw retention and rotation
 Daily raw files stay in the repo for 90 days; hourly raw files (books, trades, perps,

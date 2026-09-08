@@ -114,6 +114,67 @@ def test_exclusions(cfg):
     assert m.filter(pl.col("is_stablecoin"))["id"].to_list() == ["tether"]
 
 
+def test_tokenised_assets_never_in_a_tier(cfg):
+    """A1: gold, silver, commodity, stock, treasury and money-market tokens are excluded like
+    stablecoins; RWA protocol tokens are not."""
+    mk = pl.DataFrame(
+        [
+            dict(
+                as_of=AS_OF,
+                id=i,
+                symbol=sym,
+                name=i,
+                rank=k + 1,
+                market_cap_usd=1e9,
+                source="coingecko",
+                fetched_at=TS,
+                git_sha="t",
+            )
+            for k, (i, sym) in enumerate(
+                [
+                    ("tether-gold", "XAUT"),
+                    ("pax-gold", "PAXG"),
+                    ("xstock", "TSLAX"),
+                    ("ondo-finance", "ONDO"),
+                    ("chainlink", "LINK"),
+                ]
+            )
+        ]
+    )
+    meta = pl.DataFrame(
+        {
+            "id": ["tether-gold", "pax-gold", "xstock", "ondo-finance", "chainlink"],
+            "categories": [
+                ["Tokenized Gold", "Real World Assets (RWA)"],
+                ["Tokenized Commodities", "Tokenized Gold"],
+                ["Tokenized Stocks"],
+                ["Real World Assets (RWA)", "RWA Protocol"],
+                ["Oracle", "Real World Assets (RWA)"],
+            ],
+            "fetched_at": [TS] * 5,
+        }
+    )
+    m = univ.classify_exclusions(mk, meta, cfg)
+    r = dict(zip(m["id"], m["excluded_reason"], strict=True))
+    assert (
+        r["tether-gold"]
+        == r["pax-gold"]
+        == r["xstock"]
+        == "commodity-backed / tokenised traditional asset"
+    )
+    assert r["ondo-finance"] is None and r["chainlink"] is None
+    sm = univ.resolve_symbols(m, _listings())
+    oi = pl.DataFrame({"id": mk["id"], "oi_median_usd": [1e12] * 5, "oi_window_days": [30] * 5})
+    adv = pl.DataFrame({"id": mk["id"], "adv_30d_usd": [1e12] * 5, "adv_window_days": [30] * 5})
+    uni = univ.tier(m, sm, oi, adv, cfg, AS_OF, source="coingecko", fetched_at=TS, git_sha="t")
+    assert (
+        uni.filter(
+            pl.col("id").is_in(["tether-gold", "pax-gold", "xstock"]) & pl.col("tier").is_not_null()
+        ).height
+        == 0
+    )
+
+
 def test_category_membership_lists_exclude_without_per_coin_meta(cfg):
     members = pl.DataFrame(
         {"category_id": ["stablecoins", "wrapped-tokens"], "id": ["dupe-sol", "tinycap"]}

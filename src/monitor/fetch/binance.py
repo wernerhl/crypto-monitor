@@ -10,7 +10,13 @@ import polars as pl
 
 from monitor.fetch.base import Envelope, Record, SanityError, run_dataset, trim_book
 from monitor.fetch.symbols import split_multiplier
-from monitor.schema.tables import DailyPriceRow, PerpSnapshotRow, VenueListingRow, rows_to_df
+from monitor.schema.tables import (
+    DailyPriceRow,
+    LiquidationRow,
+    PerpSnapshotRow,
+    VenueListingRow,
+    rows_to_df,
+)
 
 VENUE = "binance"
 
@@ -519,3 +525,44 @@ def parse_coinm_marks(env: Envelope) -> pl.DataFrame:
                 )
             )
     return rows_to_df(FuturesMarkRow, rows)
+
+
+def parse_liquidations_ws(env: Envelope) -> pl.DataFrame:
+    """`!forceOrder@arr` messages collected by monitor.fetch.liq_ws. `o.S` is the side of the
+    forced order: SELL closes a long, BUY closes a short. Quantity `q` is in base units for
+    USDⓈ-M contracts; `ap` is the average fill price (falls back to `p`)."""
+    from datetime import datetime
+
+    fetched = datetime.fromisoformat(env.fetched_at)
+    rows = []
+    for rec in env.records:
+        for m in rec.body or []:
+            o = m.get("o") or {}
+            if not o or "s" not in o:
+                continue
+            sym = o["s"]
+            base, mult = split_multiplier(
+                sym.removesuffix("USDT").removesuffix("USDC").removesuffix("BUSD")
+            )
+            px = float(o.get("ap") or o.get("p") or 0)
+            q = float(o.get("z") or o.get("q") or 0)
+            if px <= 0 or q <= 0:
+                continue
+            notional = q * px  # contract quantity × contract price, whatever the multiplier
+            q, px = q * mult, px / mult  # base units and price per base unit
+            rows.append(
+                LiquidationRow(
+                    ts=datetime.fromtimestamp(int(o.get("T") or m.get("E")) / 1000, tz=UTC),
+                    venue="binance",
+                    symbol=sym,
+                    base=base,
+                    side_closed="long" if o.get("S") == "SELL" else "short",
+                    price=px,
+                    size_base=q,
+                    notional_usd=notional,
+                    source="binance_ws",
+                    fetched_at=fetched,
+                    git_sha=env.git_sha,
+                )
+            )
+    return rows_to_df(LiquidationRow, rows)

@@ -32,10 +32,15 @@ def basis_table(
     fees: dict[str, dict],
     venue_scores: dict[str, str],
     stable_borrow: float,
+    funding_ann: dict[str, float] | None = None,
 ) -> pl.DataFrame:
-    """One row per dated future with ≥ 7 days to expiry: gross annualised basis, cost
-    (stablecoin financing + round-trip fees annualised over the holding period), net."""
+    """One row per dated future with ≥ 7 days to expiry. b > 0: cash-and-carry (long spot, short
+    future) with cost = stablecoin financing + fees. b < 0 (backwardation): the live structure is
+    the REVERSE carry (short spot or short perp, long future): gross = −b, cost = fees plus the
+    funding paid on a short perp when funding is positive (or the spot borrow), dominant risk a
+    short squeeze on the short leg and the venue (A6)."""
     rows = []
+    fa = funding_ann or {}
     for r in marks.to_dicts():
         p = spot.get(r["base"])
         if not p:
@@ -46,23 +51,43 @@ def basis_table(
         days = (r["expiry"] - now).total_seconds() / 86400.0
         fee = fees.get(r["venue"], {}).get("taker", 0.0005)
         fee_ann = 4 * fee * 365.0 / days  # open + close on both legs
-        cost = stable_borrow + fee_ann
-        rows.append(
-            {
-                "structure": "cash-and-carry basis",
-                "asset": r["base"],
-                "instrument": r["symbol"],
-                "venue": r["venue"],
-                "venue_score": venue_scores.get(r["venue"]),
-                "expiry": r["expiry"],
-                "days": days,
-                "gross_ann": b,
-                "cost_ann": cost,
-                "net_ann": b - cost,
-                "dominant_risk": "counterparty risk on the futures venue; margin calls on the short leg in a squeeze; basis blow-out if closed early",
-                "source": r["source"],
-            }
-        )
+        if b >= 0:
+            cost = stable_borrow + fee_ann
+            rows.append(
+                {
+                    "structure": "cash-and-carry basis",
+                    "asset": r["base"],
+                    "instrument": r["symbol"],
+                    "venue": r["venue"],
+                    "venue_score": venue_scores.get(r["venue"]),
+                    "expiry": r["expiry"],
+                    "days": days,
+                    "gross_ann": b,
+                    "cost_ann": cost,
+                    "net_ann": b - cost,
+                    "dominant_risk": "counterparty risk on the futures venue; margin calls on the short leg in a squeeze; basis blow-out if closed early",
+                    "source": r["source"],
+                }
+            )
+        else:
+            f_paid = max(fa.get(r["base"], 0.0), 0.0)  # a short perp pays positive funding
+            cost = fee_ann + f_paid
+            rows.append(
+                {
+                    "structure": "reverse carry (backwardation)",
+                    "asset": r["base"],
+                    "instrument": f"long {r['symbol']} / short perp",
+                    "venue": r["venue"],
+                    "venue_score": venue_scores.get(r["venue"]),
+                    "expiry": r["expiry"],
+                    "days": days,
+                    "gross_ann": -b,
+                    "cost_ann": cost,
+                    "net_ann": -b - cost,
+                    "dominant_risk": "short squeeze on the short leg (spot borrow recall or perp funding spike); venue risk on both legs; front-month backwardation is a post-deleveraging reading, not a carry to hold through a rally",
+                    "source": r["source"],
+                }
+            )
     schema = {
         "structure": pl.Utf8,
         "asset": pl.Utf8,

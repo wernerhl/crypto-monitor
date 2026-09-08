@@ -60,6 +60,7 @@ def classify_exclusions(
         )
     stable_re = re.compile(ex["stablecoin_category_regex"])
     wrap_re = re.compile(ex["wrapped_or_lst_category_regex"])
+    asset_re = re.compile(ex.get("tokenised_asset_category_regex") or "$^")
     manual: dict[str, str] = ex.get("manual") or {}
     internal = set(ex.get("exchange_internal_ids") or [])
     cats: dict[str, list[str]] = {}
@@ -84,6 +85,8 @@ def classify_exclusions(
                 return "stablecoin"
             if any(wrap_re.match(x) for x in c):
                 return "wrapped / liquid-staking derivative"
+            if any(asset_re.match(x) for x in c):
+                return "commodity-backed / tokenised traditional asset"
         return None
 
     ids = markets["id"].to_list()

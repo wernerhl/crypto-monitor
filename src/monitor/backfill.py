@@ -19,7 +19,7 @@ Depth cannot be backfilled: the liquidity-gate history before go-live uses the v
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import polars as pl
@@ -27,7 +27,6 @@ import polars as pl
 from monitor import archive
 from monitor import rules as rules_mod
 from monitor.compute import positioning as pos
-from monitor.compute import state as state_mod
 from monitor.fetch import binance, bybit, okx
 from monitor.fetch.base import RawStore, Record, run_dataset
 from monitor.fetch.resilient import FetchRun
@@ -411,6 +410,132 @@ def vrp_history(dvol: pl.DataFrame, prices: pl.DataFrame, currency: str = "BTC")
     return out.filter(pl.col("vrp").is_finite()).select(list(schema)).sort("date")
 
 
+def fetch_basis_history(
+    bases: tuple[str, ...] = ("BTC", "ETH"),
+    start: date = date(2020, 6, 1),
+    ts: datetime | None = None,
+    force: bool = False,
+):
+    """Binance COIN-M continuous quarterly klines (`dapi/v1/continuousKlines`, CURRENT_QUARTER and
+    NEXT_QUARTER, 1500/page with `endTime`, verified to 2020-06) and index klines; the basis is
+    close/index − 1 annualised over the days to the contract's quarterly delivery."""
+
+    def go(c) -> list[Record]:
+        recs = []
+        for b in bases:
+            for ct in ("CURRENT_QUARTER", "NEXT_QUARTER"):
+                end = None
+                for _ in range(6):
+                    params = {
+                        "pair": f"{b}USD",
+                        "contractType": ct,
+                        "interval": "1d",
+                        "limit": 1500,
+                    }
+                    if end:
+                        params["endTime"] = end
+                    r = c.get("/dapi/v1/continuousKlines", params=params)
+                    recs.append(r)
+                    if not r.body or int(r.body[0][0]) <= _ms(start) or len(r.body) < 1500:
+                        break
+                    end = int(r.body[0][0]) - 1
+            end = None
+            for _ in range(6):
+                params = {"pair": f"{b}USD", "interval": "1d", "limit": 1500}
+                if end:
+                    params["endTime"] = end
+                r = c.get("/dapi/v1/indexPriceKlines", params=params)
+                recs.append(r)
+                if not r.body or int(r.body[0][0]) <= _ms(start) or len(r.body) < 1500:
+                    break
+                end = int(r.body[0][0]) - 1
+        return recs
+
+    return run_dataset(
+        "binance_coinm",
+        "basis_history",
+        "daily",
+        go,
+        ts=ts,
+        force=force,
+        meta={"bases": list(bases), "start": str(start)},
+    )
+
+
+def quarterly_delivery(d: date) -> date:
+    """Binance quarterly delivery: last Friday of March, June, September, December — the first
+    such date on or after `d`."""
+    y, m = d.year, d.month
+    for _ in range(8):
+        qm = ((m - 1) // 3 + 1) * 3
+        last = date(y, qm, 28) + timedelta(days=3)
+        while last.month != qm:
+            last -= timedelta(days=1)
+        while last.weekday() != 4:
+            last -= timedelta(days=1)
+        if last >= d:
+            return last
+        m = qm + 1
+        if m > 12:
+            m, y = 1, y + 1
+    return d
+
+
+def parse_basis_history(env) -> pl.DataFrame:
+    rows = []
+    idx: dict[tuple[str, date], float] = {}
+    conts: list[tuple[str, str, date, float]] = []
+    for rec in env.records:
+        url = rec.url
+        b = url.split("pair=")[1].split("USD")[0]
+        if "indexPriceKlines" in url:
+            for k in rec.body:
+                idx[(b, datetime.fromtimestamp(k[0] / 1000, tz=UTC).date())] = float(k[4])
+        else:
+            ct = url.split("contractType=")[1].split("&")[0]
+            for k in rec.body:
+                conts.append(
+                    (b, ct, datetime.fromtimestamp(k[0] / 1000, tz=UTC).date(), float(k[4]))
+                )
+    for b, ct, d, f in conts:
+        p = idx.get((b, d))
+        if not p:
+            continue
+        exp = quarterly_delivery(d + timedelta(days=1))
+        if ct == "NEXT_QUARTER":
+            exp = quarterly_delivery(exp + timedelta(days=1))
+        days = (exp - d).days + 8 / 24
+        if days < 2:
+            continue
+        rows.append(
+            {
+                "date": d,
+                "base": b,
+                "contract": ct,
+                "future": f,
+                "index": p,
+                "days_to_expiry": days,
+                "basis_ann": (f / p - 1) * 365.0 / days,
+            }
+        )
+    schema = {
+        "date": pl.Date,
+        "base": pl.Utf8,
+        "contract": pl.Utf8,
+        "future": pl.Float64,
+        "index": pl.Float64,
+        "days_to_expiry": pl.Float64,
+        "basis_ann": pl.Float64,
+    }
+    return (
+        pl.DataFrame(rows, schema=schema)
+        .unique(subset=["date", "base", "contract"], keep="last")
+        .sort("base", "contract", "date")
+        if rows
+        else pl.DataFrame(schema=schema)
+    )
+
+
 def fetch_market_caps(ids: list[str], ts: datetime | None = None, force: bool = False):
     return run_dataset(
         "coingecko",
@@ -456,6 +581,7 @@ def backfill(start: date, ts: datetime | None = None, force: bool = False) -> di
     )
     fr.run("market_caps_365d", lambda: fetch_market_caps(t12["id"].to_list(), ts, force))
     fr.run("dvol_history", lambda: fetch_dvol_history(start, ts, force))
+    fr.run("basis_history", lambda: fetch_basis_history(ts=ts, force=force))
     fr.flush()
     counts = rebuild_history()
     return {**fr.out, **counts}
@@ -563,6 +689,21 @@ def rebuild_history() -> dict:
             )
         )
         counts["dvol_daily"] = archive.upsert("dvol_daily", d).height
+    bh = [parse_basis_history(e) for e in envs("binance_coinm_basis_history")]
+    bh = [f for f in bh if f.height]
+    if bh:
+        counts["basis_history"] = archive.upsert(
+            "basis_history",
+            pl.concat(bh).with_columns(
+                pl.lit("binance_coinm").alias("source"),
+                pl.lit(now).alias("fetched_at"),
+                pl.lit(sha).alias("git_sha"),
+            ),
+        ).height
+    rub = [okx.parse_oi_rubik(e) for e in envs("okx_oi_rubik_1D")]
+    rub = [f for f in rub if f.height]
+    if rub:
+        counts["oi_rubik"] = archive.upsert("oi_rubik", pl.concat(rub)).height
     counts.update(walk_forward())
     return counts
 
@@ -628,6 +769,15 @@ def walk_forward() -> dict:
         return {"walk_forward": 0}
     oi_hist = archive.read("oi_history")
     daily = _daily_funding_from_history(fh, oi_hist)
+    from monitor.jobs_hourly import oi_daily_grid
+
+    grid = oi_daily_grid()
+    if grid.height:  # A4: OI statistics on the rubik daily grid (all OKX contracts, 180 d + today)
+        daily = daily.drop("oi_usd_okx").join(
+            grid.select("date", "base", pl.col("oi_usd").alias("oi_usd_okx")),
+            on=["date", "base"],
+            how="left",
+        )
     # merge with the live funding_daily (which is OI-weighted with all venues) — live rows win
     live = archive.read("funding_daily")
     if live is not None and live.height:
@@ -644,6 +794,14 @@ def walk_forward() -> dict:
             .sort("origin")
             .unique(subset=["date", "base"], keep="last")
             .sort("base", "date")
+        )
+    if grid.height:
+        # the live rows carry no OKX-only column; re-attach the grid after the merge so every
+        # date keeps its all-contracts OKX OI (A4)
+        daily = daily.drop("oi_usd_okx").join(
+            grid.select("date", "base", pl.col("oi_usd").alias("oi_usd_okx")),
+            on=["date", "base"],
+            how="left",
         )
     archive.upsert(
         "funding_daily_history",
@@ -677,7 +835,7 @@ def walk_forward() -> dict:
                     "base": base,
                     "funding_ann": float(fr_[i]),
                     "z_fr": None if np.isnan(z[i]) else float(z[i]),
-                    "oi_usd": float(oi[i]) if oi[i] else None,
+                    "oi_usd": float(oi[i]) if np.isfinite(oi[i]) and oi[i] > 0 else None,
                     "oi_change_5d": oi_chg,
                 }
             )
@@ -730,88 +888,59 @@ def walk_forward() -> dict:
         pl.lit(sha).alias("git_sha"),
     )
     archive.upsert("positioning_history", hist)
-    # fragility history from the components available in history: z_fr (Tier 1 aggregate), z_dd (BTC), z_sc_neg
-    uni = archive.read("universe")
-    t1 = set(
-        uni.filter((pl.col("as_of") == uni["as_of"].max()) & (pl.col("tier") == 1))[
-            "symbol"
-        ].to_list()
-    )
-    agg = (
-        daily.filter(pl.col("base").is_in(t1))
-        .group_by("date")
-        .agg(
-            (
-                (pl.col("funding_ann") * pl.col("oi_usd").fill_null(1.0)).sum()
-                / pl.col("oi_usd").fill_null(1.0).sum()
-            ).alias("fr")
+    # fragility history (A3): the shared builder, so history == live for any common date
+    from monitor.jobs_hourly import build_fragility_series, oi_daily_grid
+
+    grid = oi_daily_grid()
+    fd_all = archive.read("funding_daily_history")
+    if grid.height and fd_all is not None:
+        fd_all = fd_all.drop("oi_usd_okx").join(
+            grid.select("date", "base", pl.col("oi_usd").alias("oi_usd_okx")),
+            on=["date", "base"],
+            how="left",
         )
-        .sort("date")
-    )
-    w250 = th["robust_z"]["window_days_fragility"]
-    zfr = pos.robust_z_series(agg["fr"].to_numpy(), w250)
-    btc = prices.filter(pl.col("base") == "BTC").sort("date")
-    dd = np.array(
-        [state_mod.drawdown_from_high(btc["close"].to_numpy()[: i + 1]) for i in range(btc.height)],
-        dtype=float,
-    )
-    zdd = pos.robust_z_series(-dd, w250)
-    dd_map = dict(zip(btc["date"].to_list(), zdd, strict=True))
-    sc = archive.read("stablecoin_growth")
-    zsc_map = {}
-    if sc is not None and sc.height:
-        s = sc.sort("date")
-        zs = pos.robust_z_series(-s["growth_30d"].fill_null(np.nan).to_numpy(), w250)
-        zsc_map = dict(zip(s["date"].to_list(), zs, strict=True))
-    # VRP history from DVOL (the fifth component) → also Rule 4.3 walk-forward
-    dvd = archive.read("dvol_daily")
-    zvrp_map, vrp_map = {}, {}
-    if dvd is not None and dvd.height:
-        vh = vrp_history(dvd, prices, "BTC")
-        if vh.height:
-            archive.upsert(
-                "vrp_history",
-                vh.with_columns(
-                    pl.lit("deribit dvol + prices_daily").alias("source"),
-                    pl.lit(now).alias("fetched_at"),
-                    pl.lit(sha).alias("git_sha"),
-                ),
-            )
-            zv = pos.robust_z_series(-vh["vrp"].to_numpy(), w250)
-            zvrp_map = dict(zip(vh["date"].to_list(), zv, strict=True))
-            vrp_map = dict(zip(vh["date"].to_list(), vh["vrp"].to_list(), strict=True))
+    uni = archive.read("universe")
+    uni_now = uni.filter(pl.col("as_of") == uni["as_of"].max())
+    mcap_map = {
+        r["symbol"]: r["market_cap_usd"]
+        for r in uni_now.select("symbol", "market_cap_usd").to_dicts()
+    }
+    tier1_df = uni_now.filter(pl.col("tier") == 1)
+    series = build_fragility_series(fd_all, prices, mcap_map, tier1_df, th, utc_now().date())
     frag_rows = []
-    for i, d in enumerate(agg["date"].to_list()):
-        comps = {
-            "z_fr": None if np.isnan(zfr[i]) else float(zfr[i]),
-            "z_dd": None if np.isnan(dd_map.get(d, np.nan)) else float(dd_map[d]),
-            "z_sc_neg": None if np.isnan(zsc_map.get(d, np.nan)) else float(zsc_map[d]),
-            "z_vrp_neg": None if np.isnan(zvrp_map.get(d, np.nan)) else float(zvrp_map[d]),
-        }
-        vals = [v for v in comps.values() if v is not None]
-        phi_d = float(np.mean(vals)) if vals else None
-        frag_rows.append({"date": d, "phi": phi_d, "n_components": len(vals), **comps})
-        if phi_d is not None and d in vrp_map:
-            fires.append(
-                rules_mod.vol_underpricing(
-                    "BTC",
-                    datetime.combine(d, datetime.min.time(), tzinfo=UTC),
-                    vrp_map[d],
-                    phi_d,
-                    th["rules"],
-                )
-            )
-    if frag_rows:
+    if series is not None and series.height:
         archive.upsert(
-            "fragility_history",
-            pl.DataFrame(frag_rows, infer_schema_length=None).with_columns(
-                pl.lit(
-                    "walk_forward (z_fr, z_dd, z_sc_neg, z_vrp_neg from history; z_oi within the venues' OI window)"
-                ).alias("source"),
+            "fragility_series",
+            series.with_columns(
+                pl.lit("compute.fragility.build_series").alias("source"),
                 pl.lit(now).alias("fetched_at"),
                 pl.lit(sha).alias("git_sha"),
             ),
         )
+        hist = series.select(
+            "date", "phi", "n_components", "z_fr", "z_oi", "z_vrp_neg", "z_dd", "z_sc_neg", "dd_90"
+        ).with_columns(
+            pl.lit("compute.fragility.build_series").alias("source"),
+            pl.lit(now).alias("fetched_at"),
+            pl.lit(sha).alias("git_sha"),
+        )
+        archive.upsert("fragility_history", hist)
+        frag_rows = hist.to_dicts()
+        vrp_map = {}
+        vh = archive.read("vrp_history")
+        if vh is not None and vh.height:
+            vrp_map = dict(zip(vh["date"].to_list(), vh["vrp"].to_list(), strict=True))
+        for r in frag_rows:
+            if r["phi"] is not None and r["date"] in vrp_map:
+                fires.append(
+                    rules_mod.vol_underpricing(
+                        "BTC",
+                        datetime.combine(r["date"], datetime.min.time(), tzinfo=UTC),
+                        vrp_map[r["date"]],
+                        r["phi"],
+                        th["rules"],
+                    )
+                )
     if fires:
         import json
 

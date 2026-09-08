@@ -331,12 +331,23 @@ def table_status(now: datetime | None = None) -> list[dict]:
         tcol = archive.TIME_COL[t]
         latest = df[tcol].max()
         if isinstance(latest, date) and not isinstance(latest, datetime):
-            latest_dt = datetime.combine(latest, datetime.min.time(), tzinfo=UTC) + timedelta(
-                days=1
-            )  # a daily row covers its whole day
+            # date-only stamp: the row's fetch time when the table has one, else end of that UTC day
+            fetched = (
+                df.filter(pl.col(tcol) == latest)["fetched_at"].max()
+                if "fetched_at" in df.columns
+                else None
+            )
+            latest_dt = (
+                fetched
+                if fetched is not None
+                else datetime.combine(latest, datetime.min.time(), tzinfo=UTC) + timedelta(days=1)
+            )
+            if latest_dt.tzinfo is None:
+                latest_dt = latest_dt.replace(tzinfo=UTC)
         else:
             latest_dt = latest if latest.tzinfo else latest.replace(tzinfo=UTC)
-        age = (now - latest_dt).total_seconds() / 3600
+        age = max((now - latest_dt).total_seconds() / 3600, 0.0)  # A9: never negative
+        assert age >= 0
         status = "fresh" if age <= max_age else "stale"
         rows.append(
             {

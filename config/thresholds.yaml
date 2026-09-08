@@ -35,6 +35,10 @@ supply:
   # defaults, flagged on the dashboard until replaced by an on-chain estimate.
   pi_c: {team: 0.5, investors: 0.7, public: 0.5, community: 0.6, ecosystem: 0.2, unknown: 0.7}
   pi_c_source: "documented default; not estimated from tagged wallets"
+events:
+  # event strip (notes §12 item 6): cliffs shown only when they meet Rule 5.1; options expiries
+  # only on monthly/quarterly dates (Deribit: last Friday) or when the expiry holds this share of OI
+  expiry_oi_share_min: 0.10
 liquidity:
   impact_Y: 0.75               # square-root law coefficient; notes: 0.5–1 typical
   depth_delta: 0.02

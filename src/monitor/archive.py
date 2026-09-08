@@ -79,6 +79,13 @@ KEYS: dict[str, list[str]] = {
     "dvol_daily": ["date", "currency"],
     "vrp_history": ["date", "currency"],
     "unlock_detail": ["fetched_at", "protocol", "date", "label"],
+    "oi_rubik": ["ts", "base", "period"],
+    "oi_daily": ["date", "base"],
+    "cliff_study_events": ["as_of", "id", "date"],
+    "cliff_study": ["as_of", "group_kind", "group"],
+    "alerts": ["key"],
+    "fragility_series": ["date"],
+    "basis_history": ["date", "base", "contract"],
 }
 TIME_COL: dict[str, str] = {
     "markets": "as_of",
@@ -121,6 +128,9 @@ TIME_COL: dict[str, str] = {
     "cliffs": "as_of",
     "event_strip": "as_of",
     "hit_rates": "as_of",
+    "cliff_study_events": "as_of",
+    "cliff_study": "as_of",
+    "alerts": "opened_at",
     "venue_scores": "as_of",
     "book_risk": "as_of",
     "trade_structures": "as_of",
@@ -139,6 +149,10 @@ TIME_COL: dict[str, str] = {
     "dvol_daily": "date",
     "vrp_history": "date",
     "unlock_detail": "date",
+    "oi_rubik": "ts",
+    "oi_daily": "date",
+    "fragility_series": "date",
+    "basis_history": "date",
 }
 # hourly tables keep a rolling window in data/processed; the archive keeps everything
 ROLLING_DAYS: dict[str, int] = {
@@ -182,6 +196,18 @@ def upsert(table: str, new: pl.DataFrame) -> pl.DataFrame:
         df = df.filter(pl.col(tcol) >= cutoff)
     df.write_parquet(processed_path(table), compression="zstd")
     return df
+
+
+def replace_slice(table: str, col: str, value, new: pl.DataFrame) -> pl.DataFrame:
+    """Upsert after dropping every existing row with `col == value`: for tables that are
+    recomputed whole per as_of (trade structures), so rows that no longer exist (a basis that
+    flipped sign) do not linger under the same key set."""
+    old = read(table)
+    if old is not None and old.height:
+        old = old.filter(pl.col(col) != value)
+        PROCESSED.mkdir(parents=True, exist_ok=True)
+        old.write_parquet(processed_path(table), compression="zstd")
+    return upsert(table, new)
 
 
 def write_partitions(table: str, df: pl.DataFrame | None = None) -> list[Path]:

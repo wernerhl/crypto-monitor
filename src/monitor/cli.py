@@ -141,6 +141,20 @@ def compute(
 
 
 @app.command()
+def alerts(
+    dry_run: bool = typer.Option(False, help="write the table and feed; touch no issues"),
+) -> None:
+    """Open/close one GitHub issue per active condition and write site/alerts.xml."""
+    import logging
+
+    from monitor import alerts as al
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    for k, v in al.sync(dry_run=True if dry_run else None).items():
+        typer.echo(f"{k}: {v}")
+
+
+@app.command()
 def backfill(
     start: str = typer.Option(..., "--start", help="YYYY-MM-DD"), force: bool = False
 ) -> None:

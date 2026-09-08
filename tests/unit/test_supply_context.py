@@ -240,6 +240,43 @@ def test_event_strip_orders_and_filters():
     )
     s = ctx.event_strip(AS_OF, 28, cl, props, manual, exp, {"a": "AAA"})
     assert s["kind"].to_list() == ["upgrade", "governance", "unlock cliff", "options expiry"]
+    # A7: linear-sized cliffs (0.02 % of float, 0 days of volume) and small daily expiries are not listed
+    small_cliff = pl.DataFrame(
+        [
+            dict(
+                id="a",
+                date=AS_OF + timedelta(days=5),
+                unlock_tokens=10.0,
+                classes=["ecosystem"],
+                share_of_float=0.0002,
+                days_of_volume=0.0,
+                usd=1.0,
+            )
+        ]
+    )
+    daily_exp = pl.DataFrame(
+        [
+            dict(
+                currency="BTC",
+                expiry=datetime.combine(AS_OF + timedelta(days=1), datetime.min.time(), tzinfo=UTC),
+                total_oi=1000.0,
+                max_oi_strike=80000.0,
+            ),
+            dict(
+                currency="BTC",
+                expiry=datetime.combine(
+                    AS_OF + timedelta(days=19), datetime.min.time(), tzinfo=UTC
+                ),
+                total_oi=50000.0,
+                max_oi_strike=80000.0,
+            ),
+        ]
+    )
+    s2 = ctx.event_strip(AS_OF, 28, small_cliff, None, [], daily_exp, {"a": "AAA"})
+    assert s2.filter(pl.col("kind") == "unlock cliff").height == 0
+    assert (
+        s2.filter(pl.col("kind") == "options expiry").height == 1
+    )  # the 98 %-of-OI expiry qualifies, the 2 % daily one does not
     assert (
         "too far" not in s["title"].to_list()
         and s.filter(pl.col("kind") == "unlock cliff")["asset"][0] == "AAA"

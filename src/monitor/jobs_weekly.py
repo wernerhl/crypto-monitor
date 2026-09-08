@@ -50,6 +50,94 @@ def compute_hit_rates(as_of: date | None = None) -> pl.DataFrame:
     return df
 
 
+def compute_cliff_study(
+    as_of: date | None = None, start: date = date(2021, 1, 1)
+) -> dict[str, int]:
+    """Historical unlock-cliff study (A8): per-event table and grouped hit rates on the
+    methods page. Thresholds are read from config and not changed."""
+    import yaml
+
+    from monitor.compute import cliff_study as cs
+    from monitor.paths import CONFIG
+
+    now, sha = utc_now(), git_sha()
+    as_of = as_of or now.date()
+    th = yaml.safe_load((CONFIG / "thresholds.yaml").read_text())["rules"]["cliff"]
+    ev = archive.read("unlock_events")
+    vp = archive.read("prices_daily")
+    if ev is None or not ev.height or vp is None or not vp.height:
+        return {"cliff_study_events": 0, "cliff_study": 0}
+    ev = ev.filter(pl.col("fetched_at") == ev["fetched_at"].max())
+    mk = archive.read("markets")
+    mk = mk.filter(pl.col("as_of") == mk["as_of"].max()).unique(subset=["id"], keep="last")
+    symbol_of = {
+        r["id"]: r["symbol"].upper() for r in mk.select("id", "symbol").to_dicts() if r["symbol"]
+    }
+    float_now = {
+        r["id"]: r["circulating_supply"]
+        for r in mk.select("id", "circulating_supply").to_dicts()
+        if r["circulating_supply"]
+    }
+    us = archive.read("unlock_supply")
+    upd: dict[str, float] = {}
+    if us is not None and us.height:
+        us = us.filter(pl.col("as_of") == us["as_of"].max())
+        upd = {
+            r["id"]: r["unlocks_per_day"]
+            for r in us.select("id", "unlocks_per_day").to_dicts()
+            if r["unlocks_per_day"]
+        }
+        for r in us.select("id", "circ_supply").to_dicts():
+            float_now.setdefault(r["id"], r["circ_supply"])
+    wash = archive.read("wash_filters")
+    wash_pass: dict[str, list[str]] = {}
+    if wash is not None and wash.height:
+        w = wash.filter(pl.col("date") == wash["date"].max()).filter(pl.col("pass"))
+        for b, g in w.group_by("base"):
+            wash_pass[b[0] if isinstance(b, tuple) else b] = g["venue"].unique().to_list()
+    events = cs.event_table(ev, vp, symbol_of, float_now, upd, as_of, start, wash_pass)
+    summary = cs.summarise(events, th)
+    br, n_br = (
+        cs.base_rate(vp, events["base"].unique().to_list(), start, as_of)
+        if events.height
+        else (None, 0)
+    )
+    summary = (
+        pl.concat(
+            [
+                summary,
+                pl.DataFrame(
+                    [
+                        {
+                            **{c: None for c in summary.columns},
+                            "group_kind": "base rate",
+                            "group": "all days, same assets and period (share of negative 14-day returns)",
+                            "n": n_br,
+                            "hit_rate": br,
+                        }
+                    ]
+                )
+                .select(summary.columns)
+                .cast(summary.schema),
+            ],
+            how="vertical",
+        )
+        if summary.height
+        else summary
+    )
+    prov = {
+        "as_of": pl.lit(as_of),
+        "source": pl.lit("unlock_events+prices_daily+markets+unlock_supply+wash_filters"),
+        "fetched_at": pl.lit(now),
+        "git_sha": pl.lit(sha),
+    }
+    if events.height:
+        archive.upsert("cliff_study_events", events.with_columns(**prov))
+    if summary.height:
+        archive.upsert("cliff_study", summary.with_columns(**prov))
+    return {"cliff_study_events": events.height, "cliff_study": summary.height}
+
+
 def freeze_tier_membership() -> int:
     """Copy the latest universe rows into `tier_history` with the freeze date (the official
     weekly membership used by backtests: membership as of date)."""
@@ -81,6 +169,7 @@ def compute_weekly() -> dict:
     out.update(compute_factor_model(utc_now(), git_sha()))
     h = compute_hit_rates()
     out["hit_rates"] = h.height
+    out.update(compute_cliff_study())
     from monitor.jobs_daily_ctx import write_daily_json
     from monitor.jobs_risk import compute_all_risk
 

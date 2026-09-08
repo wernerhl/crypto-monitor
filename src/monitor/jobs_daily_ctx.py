@@ -15,7 +15,7 @@ from monitor import archive
 from monitor import rules as rules_mod
 from monitor.compute import context as ctx
 from monitor.compute import supply as sup
-from monitor.fetch import fred, llama, onchain, snapshot
+from monitor.fetch import fred, llama, okx, onchain, snapshot
 from monitor.fetch.base import RawStore
 from monitor.meta import dump_json, git_sha, utc_now
 from monitor.paths import CONFIG, SITE_DATA
@@ -72,6 +72,10 @@ def fetch_context(ts: datetime | None = None, force: bool = False) -> dict[str, 
         ("mempool", lambda: onchain.fetch_mempool(ts=ts, force=force)),
         ("eth_staking", lambda: onchain.fetch_eth_staking(ts=ts, force=force)),
         (
+            "okx_oi_rubik_1d",
+            lambda: okx.fetch_oi_rubik(_tier12_okx_ccys(), period="1D", ts=ts, force=force),
+        ),
+        (
             "snapshot",
             lambda: snapshot.fetch_proposals(
                 _cfg("events.yaml")["snapshot_spaces"], ts=ts, force=force
@@ -86,6 +90,14 @@ def fetch_context(ts: datetime | None = None, force: bool = False) -> dict[str, 
             log.warning("%s failed: %s", name, e)
             out[name] = f"FAILED: {e}"
     return out
+
+
+def _tier12_okx_ccys() -> list[str]:
+    uni = archive.read("universe")
+    if uni is None:
+        return []
+    u = uni.filter((pl.col("as_of") == uni["as_of"].max()) & pl.col("tier").is_in([1, 2]))
+    return sorted(u["symbol"].to_list())
 
 
 def _tier12_slugs() -> list[str]:
@@ -140,6 +152,7 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
     put("unlock_supply", sups)
     put("unlock_detail", [llama.parse_unlock_detail(e) for e in E("llama_datasets_unlock_detail")])
     put("fees_tvl", [llama.parse_fees_tvl(e) for e in E("llama_api_fees_tvl")])
+    put("oi_rubik", [okx.parse_oi_rubik(e) for e in E("okx_oi_rubik_1D")])
     put("macro", [fred.parse_series(e) for e in E("fred_csv_series")])
     put("onchain", [onchain.parse_coinmetrics(e) for e in E("coinmetrics_asset_metrics")])
     put("btc_chain", [onchain.parse_btc_chain(e) for e in E("blockchain_info_charts")])
@@ -323,19 +336,23 @@ def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
     om = archive.read("options")
     if om is not None and om.height:
         last = om.filter(pl.col("ts") == om["ts"].max())
-        exp = (
-            last.group_by("currency", "expiry")
-            .agg(
-                pl.col("open_interest").sum().alias("total_oi"),
-                pl.col("strike")
-                .filter(pl.col("open_interest") == pl.col("open_interest").max())
-                .first()
-                .alias("max_oi_strike"),
-            )
-            .filter(pl.col("total_oi") > 5000)
+        exp = last.group_by("currency", "expiry").agg(
+            pl.col("open_interest").sum().alias("total_oi"),
+            pl.col("strike")
+            .filter(pl.col("open_interest") == pl.col("open_interest").max())
+            .first()
+            .alias("max_oi_strike"),
         )
     strip = ctx.event_strip(
-        as_of, 28, cl, props, _cfg("events.yaml").get("events") or [], exp, symbols
+        as_of,
+        28,
+        cl,
+        props,
+        _cfg("events.yaml").get("events") or [],
+        exp,
+        symbols,
+        cliff_th=th["rules"]["cliff"],
+        expiry_oi_share_min=th.get("events", {}).get("expiry_oi_share_min", 0.10),
     )
     strip = strip.with_columns(
         pl.lit(as_of).alias("as_of"), pl.lit(now).alias("fetched_at"), pl.lit(sha).alias("git_sha")
@@ -388,6 +405,7 @@ def write_daily_json(out: Path = SITE_DATA) -> None:
         "onchain": _onchain_summary(),
         "eth_staking": latest("eth_staking", "date")[:1],
         "hit_rates": _hit_rates(),
+        "cliff_study": _cliff_study(),
     }
     (out / "daily.json").write_text(dump_json(payload))
     write_history_json(out)
@@ -426,6 +444,24 @@ def _onchain_summary() -> list[dict]:
             }
         )
     return out
+
+
+def _cliff_study() -> dict:
+    cs = archive.read("cliff_study")
+    if cs is None or not cs.height:
+        return {}
+    latest = cs.filter(pl.col("as_of") == cs["as_of"].max())
+    ev = archive.read("cliff_study_events")
+    n_ev = (
+        int(ev.filter(pl.col("as_of") == ev["as_of"].max()).height)
+        if ev is not None and ev.height
+        else 0
+    )
+    return {
+        "as_of": str(latest["as_of"][0]),
+        "n_events": n_ev,
+        "rows": latest.drop("source", "fetched_at", "git_sha", "as_of").to_dicts(),
+    }
 
 
 def _hit_rates() -> dict:
@@ -478,6 +514,7 @@ def write_history_json(out: Path = SITE_DATA, days: int = 730) -> None:
         "btc_close": _btc_close(cutoff),
         "dvol": _dvol_series(),
         "term_structure": _term_structure(),
+        "basis": _basis_history(cutoff),
         "hit_rates": _hit_rates(),
     }
     (out / "history.json").write_text(dump_json(_round(payload)))
@@ -506,6 +543,24 @@ def _btc_close(cutoff: date) -> list[dict]:
         .select("date", "close", "volume_quote")
         .to_dicts()
     )
+
+
+def _basis_history(cutoff: date) -> dict:
+    """Daily annualised basis of the Binance COIN-M current and next quarterly for BTC and ETH
+    (from `basis_history`, built from continuous klines against the index; A6)."""
+    b = archive.read("basis_history")
+    if b is None or not b.height:
+        return {}
+    b = b.filter(pl.col("date") >= cutoff).sort("date")
+    out = {}
+    for base in ("BTC", "ETH"):
+        for ct in ("CURRENT_QUARTER", "NEXT_QUARTER"):
+            sub = b.filter((pl.col("base") == base) & (pl.col("contract") == ct))
+            out[f"{base}_{ct}"] = [
+                {"date": r["date"], "basis_ann": r["basis_ann"], "days": r["days_to_expiry"]}
+                for r in sub.to_dicts()
+            ]
+    return out
 
 
 def _term_structure() -> dict:

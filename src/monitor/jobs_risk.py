@@ -43,6 +43,29 @@ def _universe() -> pl.DataFrame:
     return u.filter(pl.col("as_of") == u["as_of"].max())
 
 
+def latest_marks(window_hours: int = 2) -> pl.DataFrame | None:
+    """Latest mark per (venue, symbol) within two hours of the newest row: the venues are
+    fetched seconds apart, so filtering on one exact timestamp keeps a single venue."""
+    m = archive.read("futures_marks")
+    if m is None or not m.height:
+        return None
+    cutoff = m["ts"].max() - timedelta(hours=window_hours)
+    return (
+        m.filter(pl.col("ts") >= cutoff).sort("ts").unique(subset=["venue", "symbol"], keep="last")
+    )
+
+
+def _index_spot(marks: pl.DataFrame) -> dict[str, float]:
+    """Median index price per base from the latest futures marks (the venues publish the
+    index alongside the mark, so basis = mark − index is measured at one instant)."""
+    if "index_price" not in marks.columns:
+        return {}
+    ix = (
+        marks.filter(pl.col("index_price") > 0).group_by("base").agg(pl.col("index_price").median())
+    )
+    return {r["base"]: float(r["index_price"]) for r in ix.to_dicts()}
+
+
 def _daily_close_by_base() -> pl.DataFrame:
     from monitor.jobs_hourly import _daily_prices_by_base
 
@@ -262,12 +285,27 @@ def compute_trades(now: datetime, sha: str) -> pl.DataFrame:
         r["base"]: r["close"]
         for r in prices.sort("date").group_by("base").agg(pl.col("close").last()).to_dicts()
     }
-    marks = _latest("futures_marks", "ts")
+    marks = latest_marks()
     frames = []
     if marks is not None:
-        m = marks.filter(pl.col("expiry") > now + timedelta(days=7))
+        spot = {**spot, **_index_spot(marks)}  # A6: same-timestamp index price beats a stale close
+        tiered = uni.filter(pl.col("tier").is_not_null())[
+            "symbol"
+        ].to_list()  # A1: no excluded names
+        m = marks.filter(
+            (pl.col("expiry") > now + timedelta(days=7)) & pl.col("base").is_in(tiered)
+        )
+        fund30 = {}
+        fd0 = archive.read("funding_daily")
+        if fd0 is not None and fd0.height:
+            f30 = (
+                fd0.filter(pl.col("date") > now.date() - timedelta(days=30))
+                .group_by("base")
+                .agg(pl.col("funding_ann").mean().alias("f"))
+            )
+            fund30 = dict(zip(f30["base"], f30["f"], strict=True))
         frames.append(
-            tr.basis_table(m, spot, now, fees, scores, th["carry"]["stablecoin_borrow_ann"])
+            tr.basis_table(m, spot, now, fees, scores, th["carry"]["stablecoin_borrow_ann"], fund30)
         )
     fd = archive.read("funding_daily")
     pos = _latest("positioning", "ts")
@@ -346,7 +384,7 @@ def compute_trades(now: datetime, sha: str) -> pl.DataFrame:
         pl.lit(now).alias("fetched_at"),
         pl.lit(sha).alias("git_sha"),
     )
-    archive.upsert("trade_structures", df)
+    archive.replace_slice("trade_structures", "as_of", now.date(), df)
     return df
 
 
