@@ -292,3 +292,53 @@ def test_drawdown_helper_in_fragility_builder_is_non_positive():
     )
     dd = _drawdown(close, window=90)["dd"].to_numpy()
     assert np.all(dd <= 1e-12) and abs(dd[-1] - (100 / 120 - 1)) < 1e-12 and dd[2] == 0.0
+
+
+def test_alerts_live_run_creates_issues_for_conditions_opened_in_a_dry_run(tmp_path, monkeypatch):
+    from monitor import alerts, archive
+
+    monkeypatch.setattr(archive, "PROCESSED", tmp_path / "processed")
+    monkeypatch.setattr(archive, "ARCHIVE", tmp_path / "archive")
+    site = tmp_path / "site"
+    (site / "data").mkdir(parents=True)
+    now = datetime(2026, 9, 8, 7, tzinfo=UTC)
+    prov = {"source": "t", "fetched_at": now, "git_sha": "x"}
+    archive.upsert(
+        "rule_fires",
+        pl.DataFrame(
+            [
+                {
+                    "ts": now,
+                    "rule_id": "5.1",
+                    "asset": "ARB",
+                    "fired": True,
+                    "inputs": "{}",
+                    "thresholds": "{}",
+                    "note": None,
+                    **prov,
+                }
+            ]
+        ),
+    )
+    alerts.sync(site_out=site, dry_run=True)
+    assert archive.read("alerts")["issue_number"][0] is None
+    calls = []
+
+    def fake_gh(*args):
+        calls.append(args)
+        if args[:2] == ("issue", "list"):
+            return "[]"
+        if args[:2] == ("issue", "create"):
+            return "https://github.com/o/r/issues/42\n"
+        return ""
+
+    monkeypatch.setattr(alerts, "_gh_available", lambda: True)
+    monkeypatch.setattr(alerts, "_gh", fake_gh)
+    r = alerts.sync(site_out=site, dry_run=False)
+    assert r["live"] is True
+    assert any(c[:2] == ("issue", "create") for c in calls)
+    assert archive.read("alerts").filter(pl.col("key") == "rule:5.1:ARB")["issue_number"][0] == 42
+    # second live run: nothing new is created
+    n = len(calls)
+    alerts.sync(site_out=site, dry_run=False)
+    assert not any(c[:2] == ("issue", "create") for c in calls[n:])

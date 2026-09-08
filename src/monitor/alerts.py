@@ -167,9 +167,9 @@ def sync(site_out: Path = SITE, dry_run: bool | None = None) -> dict:
     opened = closed = 0
     for key, c in conds.items():
         s = state.get(key)
-        if s and s.get("closed_at") is None:
-            continue  # already open
-        num = issues.get(key)
+        if s and s.get("closed_at") is None and (s.get("issue_number") or not live):
+            continue  # already open, and it has its issue (or this is a dry run)
+        num = issues.get(key) or (s.get("issue_number") if s else None)
         if live and num is None:
             body = f"{c['body']}\n\nPanel: {SITE_URL}{PANEL.get(c['kind'], '')}\n\nThis issue closes automatically when the condition clears.\n\n<!-- alert-key: {key} -->"
             try:
@@ -196,6 +196,9 @@ def sync(site_out: Path = SITE, dry_run: bool | None = None) -> dict:
                 num = int(url.rstrip("/").rsplit("/", 1)[-1])
             except (subprocess.CalledProcessError, ValueError) as e:
                 log.warning("issue create failed for %s: %s", key, e)
+        if s and s.get("closed_at") is None:
+            s["issue_number"] = num  # opened in a dry run; the issue exists now
+            continue
         state[key] = {
             "key": key,
             "kind": c["kind"],
