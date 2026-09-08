@@ -272,7 +272,6 @@ def test_alerts_open_and_close_conditions_dry_run(tmp_path, monkeypatch):
 
 def test_liq_source_label_names_the_venues_present():
     from monitor.jobs_hourly import _liq_source
-
     from monitor.meta import utc_now
 
     now = utc_now()
