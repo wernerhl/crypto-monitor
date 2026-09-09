@@ -61,6 +61,7 @@ def state_reading(
         add({"t": f"{phi:+.2f}", "href": "#p-state"})
         add({"t": f" ({word}, {frag.get('n_components') or 0} of 5 components)"})
         for g in gaps or []:
+            add({"t": "; "})
             add(
                 {
                     "t": f"component {COMPONENT_NAMES.get(g['component'], g['component'])} unavailable ({g['reason']})",
@@ -68,7 +69,6 @@ def state_reading(
                     "href": "#p-state",
                 }
             )
-            add({"t": "; "})
         comps = [(k, frag.get(k)) for k in COMPONENT_NAMES if frag.get(k) is not None]
         comps.sort(key=lambda kv: -abs(kv[1]))
         if comps:

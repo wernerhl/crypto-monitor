@@ -536,7 +536,11 @@ def compute_derived(as_of: date | None = None) -> dict[str, int]:
         if om:
             opt_rows.append(om)
     # ---- fragility
-    frag = _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now)
+    # the fragility grid is daily: its as_of is the last day that can have a daily close in
+    # prices_daily (today once yesterday's close has landed, else yesterday), so that no daily
+    # source is judged stale in the hours between midnight UTC and the daily job
+    frag_as_of = _fragility_as_of(prices, now.date())
+    frag = _fragility_row(fd, prices, opt_rows, mcap, tier1, th, frag_as_of, now)
     phi = frag.get("phi") if frag else None
     vh = archive.read("vrp_history")
     for om in opt_rows:
@@ -923,6 +927,14 @@ def _options_row(cur, opts, prices, now) -> dict | None:
         "source": "deribit",
         "fetched_at": now,
     }
+
+
+def _fragility_as_of(prices: pl.DataFrame, today: date) -> date:
+    """min(today, last daily close + 1): a component may be carried one day, never two."""
+    if prices is None or not prices.height:
+        return today
+    last = prices["date"].max()
+    return min(today, last + timedelta(days=1))
 
 
 def _fragility_row(fd, prices, opt_rows, mcap, tier1, th, as_of, now) -> dict | None:

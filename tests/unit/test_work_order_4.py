@@ -167,3 +167,44 @@ def test_coinglass_extension_is_inert_without_tables(tmp_path, monkeypatch):
     oi = pl.DataFrame({"date": [date(2026, 1, 1)], "oi_rel": [0.02]})
     f2, o2 = _extend_with_coinglass(fund, oi, 1e12)
     assert f2.equals(fund) and o2.equals(oi)
+
+
+def test_fragility_as_of_never_carries_a_daily_source_two_days():
+    from monitor.jobs_hourly import _fragility_as_of
+
+    px = pl.DataFrame({"date": [date(2026, 9, 7)], "base": ["BTC"], "close": [1.0]})
+    assert _fragility_as_of(px, date(2026, 9, 9)) == date(2026, 9, 8)  # before the daily job
+    px2 = pl.DataFrame({"date": [date(2026, 9, 8)], "base": ["BTC"], "close": [1.0]})
+    assert _fragility_as_of(px2, date(2026, 9, 9)) == date(2026, 9, 9)  # after it
+    assert _fragility_as_of(
+        pl.DataFrame({"date": [], "base": [], "close": []}), date(2026, 9, 9)
+    ) == date(2026, 9, 9)
+
+
+def test_reading_gaps_are_separated_from_the_component_count():
+    frag = {
+        "phi": 0.1,
+        "n_components": 3,
+        "z_fr": 0.7,
+        "z_oi": 0.2,
+        "z_vrp_neg": None,
+        "z_dd": None,
+        "z_sc_neg": -0.8,
+    }
+    seg = state_reading(
+        date(2026, 9, 9),
+        frag,
+        [],
+        [],
+        None,
+        None,
+        None,
+        None,
+        [],
+        [],
+        False,
+        [{"component": "z_dd", "reason": "prices_daily stale: last 2026-09-07"}],
+        None,
+    )
+    text = reading_text(seg)
+    assert "components); component the 90-day range position unavailable" in text
