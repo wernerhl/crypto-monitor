@@ -43,6 +43,10 @@ jobs:
         run: uv run monitor fetch daily ${{ inputs.force && '--force' || '' }}
       - name: compute processed tables from raw files (daily + hourly derived + risk)
         run: uv run monitor compute daily
+      - name: render site (build.json is in the daily write set, so it is rendered before the commit)
+        run: uv run monitor site render
+        env:
+          GIT_SHA: ${{ github.sha }}
       - name: commit data as the bot
         id: commit
         run: |
@@ -62,10 +66,6 @@ jobs:
             git push origin HEAD:main
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: render site
-        run: uv run monitor site render
-        env:
-          GIT_SHA: ${{ steps.commit.outputs.sha }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

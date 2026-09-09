@@ -13,7 +13,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from monitor import __version__
 from monitor.meta import git_sha, utc_now
-from monitor.paths import SITE, SITE_DATA, TEMPLATES
+from monitor.paths import SITE, TEMPLATES
 
 NOTICE = (
     "This system is a monitoring tool. It is not investment advice and it does not produce "
@@ -37,9 +37,10 @@ def render(out_dir: Path = SITE, write_meta: bool = True) -> Path:
         "phase": 1,
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    SITE_DATA.mkdir(parents=True, exist_ok=True)
+    data_dir = out_dir / "data"  # SITE_DATA in production; a temp dir in tests
+    data_dir.mkdir(parents=True, exist_ok=True)
     if write_meta:  # build.json belongs to the daily job's write set (config/job_writes.yaml)
-        (SITE_DATA / "build.json").write_text(json.dumps(ctx, indent=1))
+        (data_dir / "build.json").write_text(json.dumps(ctx, indent=1))
     for name in ("index.html", "universe.html", "onchain.html", "methods.html", "status.html"):
         html = env.get_template(name).render(**ctx)
         (out_dir / name).write_text(html)
