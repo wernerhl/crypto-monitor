@@ -88,6 +88,29 @@ accepts the connection from this machine and sends nothing (verified 2026-09-08 
 streams; the spot stream works), so Binance hours show as connected with zero messages and
 `liq_source` lists only venues with rows.
 
+## Collector placement test (2026-09-09, work order 4 item 4)
+Two `t4g.nano` instances (Ubuntu 24.04 arm64, ≈ USD 3 per month each if kept) ran
+`scripts/collector_placement_test.sh` for one hour from 00:38 UTC: eu-central-1 (Frankfurt,
+3.71.106.251) and ap-southeast-2 (Sydney, 13.210.13.130). Result per venue and region:
+
+| stream | Frankfurt | Sydney | Mac (collector) |
+|---|---|---|---|
+| Binance `fstream.binance.com` `!forceOrder@arr` (USDⓈ-M host) | connected 3,595 s of 3,600, 0 messages | connected 3,375 s, 0 messages | connected, 0 messages |
+| Binance `fstream` `btcusdt@aggTrade` (control, 15 s) | 0 messages | not probed | 0 messages |
+| Binance `dstream.binance.com` `!forceOrder@arr` (60 s) | 23 messages | not probed | 12 messages |
+| Bybit `allLiquidation.*` (12 Tier 1 symbols) | 38 messages in the hour | 33 messages in the hour | delivers |
+| OKX (REST `liquidation-orders`, hourly job) | not part of the websocket test | — | delivers |
+
+Reading: the USDⓈ-M websocket host accepts the connection and sends nothing on any
+stream from any of the three locations, including a control stream that publishes dozens
+of messages per second; the COIN-M host `dstream.binance.com` carries the all-market
+forced-order feed (USDT and COIN-M symbols) everywhere, the Mac included. Region is not
+the variable. **Decision: keep the Mac collector, stop trying regions; the collector reads
+Binance forced orders from `dstream` (COIN-M contracts converted from contract counts; USDT
+symbols on the same feed are in base units). No systemd service, no VPS cost; both
+instances were terminated after the test.** `liq_source` continues to list only venues with
+rows in the window; Binance rows appear once the restarted collector has run an hour.
+
 ## Alerts (GitHub issues and RSS)
 `uv run monitor alerts` (run by the hourly and daily workflows with `GH_TOKEN`) opens one
 issue per active condition — a Rule 4.1–4.3 firing (`rule:<id>:<asset>`), a venue limit

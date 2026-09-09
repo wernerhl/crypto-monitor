@@ -431,6 +431,15 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   screens, the studies and `screens.json` (screens and the book's factor exposure, split
   out of `risk.json`). `config/job_writes.yaml` and the assertion updated; the CI check on
   `-X theirs|ours` stays. The 48-hour no-conflict window restarts from this commit.
+* **Collector placement test (item 4, authorised): region is not the variable.** One hour on
+  `t4g.nano` instances in Frankfurt and Sydney (00:38–01:39 UTC, 2026-09-09): Binance's
+  USDⓈ-M websocket host `fstream.binance.com` connected and delivered nothing on
+  `!forceOrder@arr` and on a control `aggTrade` stream from both regions and from the Mac;
+  Bybit delivered in all three places; the COIN-M host `dstream.binance.com` delivered the
+  all-market forced-order feed (USDT and COIN-M symbols) in Frankfurt (23 messages/min) and
+  from the Mac (12/min). Decision: keep the Mac collector, stop trying regions, read Binance
+  forced orders from `dstream` (COIN-M quantities converted from contracts); instances
+  terminated; runbook entry with the table. No VPS, no monthly cost.
 * **Lecture-notes corrections (item 5).** A dated "Corrections to the notes" subsection in
   the implementation appendix: §2.5 (negative VRP is a transient state, four flags of five
   followed by RV below IV, expansion only in the both cell on too few episodes), §6.2 /
