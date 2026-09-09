@@ -541,15 +541,20 @@ def parse_liquidations_ws(env: Envelope) -> pl.DataFrame:
             if not o or "s" not in o:
                 continue
             sym = o["s"]
-            base, mult = split_multiplier(
-                sym.removesuffix("USDT").removesuffix("USDC").removesuffix("BUSD")
-            )
             px = float(o.get("ap") or o.get("p") or 0)
             q = float(o.get("z") or o.get("q") or 0)
             if px <= 0 or q <= 0:
                 continue
-            notional = q * px  # contract quantity × contract price, whatever the multiplier
-            q, px = q * mult, px / mult  # base units and price per base unit
+            if "USD_" in sym:  # COIN-M (BTCUSD_PERP, ETHUSD_251226): q is in contracts
+                base, mult = sym.split("USD_")[0], 1.0
+                notional = q * (100.0 if base == "BTC" else 10.0)  # contract size in USD
+                q = notional / px  # base units
+            else:  # USDⓈ-M symbols carried on the same feed: q in base units (times multiplier)
+                base, mult = split_multiplier(
+                    sym.removesuffix("USDT").removesuffix("USDC").removesuffix("BUSD")
+                )
+                notional = q * px  # contract quantity × contract price, whatever the multiplier
+                q, px = q * mult, px / mult  # base units and price per base unit
             rows.append(
                 LiquidationRow(
                     ts=datetime.fromtimestamp(int(o.get("T") or m.get("E")) / 1000, tz=UTC),

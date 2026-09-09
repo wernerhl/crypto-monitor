@@ -26,7 +26,11 @@ from monitor.fetch.base import Envelope, RawStore, Record, bucket_for
 from monitor.meta import git_sha, utc_now
 
 log = logging.getLogger("monitor.liq_ws")
-BINANCE_URL = "wss://fstream.binance.com/ws/!forceOrder@arr"
+# Placement test 2026-09-09 (work order 4, item 4): the USDⓈ-M host fstream.binance.com accepts
+# the websocket and sends nothing on any stream from the Mac, Frankfurt or Sydney, while
+# dstream.binance.com delivers the all-market forced-order feed (USDT and COIN-M symbols)
+# everywhere, the Mac included. The collector therefore reads Binance liquidations from dstream.
+BINANCE_URL = "wss://dstream.binance.com/ws/!forceOrder@arr"
 BYBIT_URL = "wss://stream.bybit.com/v5/public/linear"
 BYBIT_DEFAULT = [
     "BTCUSDT",

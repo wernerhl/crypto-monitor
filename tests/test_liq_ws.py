@@ -102,3 +102,44 @@ def test_hour_buffer_rolls_over_and_merges_with_an_existing_envelope(tmp_path):
     assert json.loads(json.dumps(env.to_json()))["meta"]["kind"] == "websocket"
     b.flush()
     assert store.path("binance_liquidations_ws", t0.replace(hour=8), "hourly").exists()
+
+
+def test_binance_coin_m_forced_orders_are_converted_from_contracts():
+    msgs = [
+        {
+            "e": "forceOrder",
+            "E": 1757314800000,
+            "o": {
+                "s": "BTCUSD_PERP",
+                "S": "SELL",
+                "q": "50",
+                "p": "80000",
+                "ap": "80000",
+                "z": "50",
+                "T": 1757314800123,
+            },
+        },
+        {
+            "e": "forceOrder",
+            "E": 1757314801000,
+            "o": {
+                "s": "ETHUSD_251226",
+                "S": "BUY",
+                "q": "30",
+                "p": "4000",
+                "ap": "4000",
+                "z": "30",
+                "T": 1757314801000,
+            },
+        },
+    ]
+    df = binance.parse_liquidations_ws(_env("binance", msgs))
+    r = df.sort("ts").to_dicts()
+    assert (
+        r[0]["base"] == "BTC"
+        and r[0]["notional_usd"] == 5000.0
+        and abs(r[0]["size_base"] - 5000.0 / 80000) < 1e-12
+    )
+    assert (
+        r[1]["base"] == "ETH" and r[1]["notional_usd"] == 300.0 and r[1]["side_closed"] == "short"
+    )
