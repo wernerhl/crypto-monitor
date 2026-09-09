@@ -208,3 +208,57 @@ def test_reading_gaps_are_separated_from_the_component_count():
     )
     text = reading_text(seg)
     assert "components); component the 90-day range position unavailable" in text
+
+
+def test_live_vrp_carries_the_realised_leg_one_day_for_todays_dvol(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    import numpy as np
+
+    from monitor import archive
+    from monitor.jobs_hourly import live_vrp_history
+
+    monkeypatch.setattr(archive, "PROCESSED", tmp_path / "processed")
+    monkeypatch.setattr(archive, "ARCHIVE", tmp_path / "archive")
+    start = date(2026, 1, 1)
+    n = 120
+    dates = [start + timedelta(days=i) for i in range(n)]
+    prices = pl.DataFrame(
+        {
+            "date": dates,
+            "base": ["BTC"] * n,
+            "close": list(100 + np.cumsum(np.random.default_rng(0).normal(0, 1, n))),
+            "volume_quote": [1.0] * n,
+        }
+    )
+    prov = {"source": "t", "fetched_at": datetime(2026, 5, 1, tzinfo=UTC), "git_sha": "x"}
+    archive.upsert(
+        "dvol_daily",
+        pl.DataFrame(
+            {
+                "date": dates[:-1],
+                "currency": ["BTC"] * (n - 1),
+                "dvol": [50.0] * (n - 1),
+                **{k: [v] * (n - 1) for k, v in prov.items()},
+            }
+        ),
+    )
+    today = dates[-1] + timedelta(days=1)
+    archive.upsert(
+        "dvol",
+        pl.DataFrame(
+            {
+                "ts": [datetime.combine(today, datetime.min.time(), tzinfo=UTC)],
+                "currency": ["BTC"],
+                "dvol": [55.0],
+                **{k: [v] for k, v in prov.items()},
+            }
+        ),
+    )
+    out = live_vrp_history(prices)
+    b = out.filter(pl.col("currency") == "BTC").sort("date")
+    assert b["date"][-1] == today and abs(b["iv30"][-1] - 0.55) < 1e-12
+    lr = np.diff(np.log(prices["close"].to_numpy()[-31:]))
+    assert (
+        abs(b["rv30_var"][-1] - 365.0 / 30.0 * float(np.sum(lr**2))) < 1e-12
+    )  # RV at the last close, carried one day

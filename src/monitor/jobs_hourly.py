@@ -1129,7 +1129,39 @@ def live_vrp_history(prices: pl.DataFrame) -> pl.DataFrame:
         .sort("date")
         .unique(subset=["date", "currency"], keep="last")
     )
-    out = pl.concat([vrp_history(dv, prices, c) for c in ("BTC", "ETH")], how="vertical")
+    parts = []
+    for c in ("BTC", "ETH"):
+        h = vrp_history(dv, prices, c)
+        # today's live DVOL has no close yet: pair it with yesterday's RV²₃₀ (a one-day carry of
+        # the realised leg, never more), so the VRP component is not judged stale before the
+        # daily close lands
+        live_c = dv.filter(pl.col("currency") == c).sort("date")
+        px_c = prices.filter(pl.col("base") == c).sort("date")
+        if h.height and live_c.height and px_c.height >= 31 and live_c["date"][-1] > h["date"][-1]:
+            last_close = px_c["date"][-1]
+            gap = (live_c["date"][-1] - last_close).days
+            if 0 <= gap <= 1:
+                iv = float(live_c["dvol"][-1]) / 100.0
+                lr = np.diff(np.log(px_c["close"].to_numpy()[-31:]))
+                rv = 365.0 / 30.0 * float(np.sum(lr**2))  # RV²₃₀ at the last close, carried ≤ 1 day
+                h = pl.concat(
+                    [
+                        h,
+                        pl.DataFrame(
+                            {
+                                "date": [live_c["date"][-1]],
+                                "currency": [c],
+                                "iv30": [iv],
+                                "rv30_var": [rv],
+                                "vrp": [iv * iv - rv],
+                            },
+                            schema=h.schema,
+                        ),
+                    ],
+                    how="vertical",
+                )
+        parts.append(h)
+    out = pl.concat(parts, how="vertical")
     if out.height:
         archive.upsert(
             "vrp_history",
