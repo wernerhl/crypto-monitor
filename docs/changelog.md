@@ -438,3 +438,8 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   history; range position a bull-regime marker), §5 / Rule 4 (placebo, calendar), §11
   (removal of an unsupported claim on full-history evidence is within the review procedure
   and does not wait for the calendar; parameter fitting does). PDF recompiled.
+* **Regression fixed (found 2026-09-09 while verifying work order 4).** The front-page
+  script had a syntax error since commit `6d8a434` (work order 2's collector-coverage
+  line), which left panels 3–7 empty on the live page while every JSON was correct; the
+  JSON-only acceptance checks of work orders 2–3 did not catch it. Fixed;
+  `scripts/check_site_js.py` (node --check on the rendered scripts) now runs in CI.
