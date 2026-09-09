@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Wed, 09 Sep 2026 03:12:14 +0000</lastBuildDate>
+<lastBuildDate>Wed, 09 Sep 2026 04:56:31 +0000</lastBuildDate>
 <item><title>Cliff calendar, next 30 days (14 qualifying) [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-events</link><guid isPermaLink="false">cliffs:calendar@202609081246</guid><pubDate>Tue, 08 Sep 2026 12:46:31 +0000</pubDate><description>Scheduled cliffs meeting either Rule 5.1 leg (share of float &gt; 1 % or &gt; 2 days of real volume). The 2021–2026 backfill puts the 2026 pre-cliff drift at the base rate (docs/notes/pre_unlock_drift.md), so this list is informational.
 
 | token | cliff date | share of float | days of volume | USD |
