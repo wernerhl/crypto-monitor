@@ -81,11 +81,21 @@ def test_funding_carry_shrinks_trailing_mean():
     )
 
 
-def test_vol_premium_forbidden_when_rule_43_fires():
-    om = [{"currency": "BTC", "vrp": -0.05, "iv_1m": 0.40, "rv30_var": 0.2025}]  # rv = 0.45
-    t = tr.vol_premium(om, phi=1.5, rule_43_fired={"BTC": True}, venue_scores={"deribit": "C"})
-    r = t.to_dicts()[0]
-    assert r["gross_ann"] == pytest.approx(-0.05) and r["dominant_risk"].startswith("FORBIDDEN")
+def test_vol_premium_has_no_gate_and_states_the_driver():
+    """Review decision 2 (2026-09-08): the vol-selling row is present whatever the VRP sign;
+    a negative premium is described by its driver instead of forbidden."""
+    om = [{"currency": "BTC", "vrp": -0.05, "iv_1m": 0.5, "rv30_var": 0.3}]
+    df = tr.vol_premium(
+        om,
+        1.5,
+        {"BTC": {"driver": "complacency", "text": "implied vol at the 20th percentile"}},
+        {"deribit": "B"},
+    )
+    assert df.height == 1
+    risk = df["dominant_risk"][0]
+    assert "FORBIDDEN" not in risk and "driver: implied vol at the 20th percentile" in risk
+    df2 = tr.vol_premium(om, 0.2, {}, {"deribit": "B"})
+    assert df2.height == 1 and "driver: unclassified" in df2["dominant_risk"][0]
 
 
 def test_venue_score_and_limits():

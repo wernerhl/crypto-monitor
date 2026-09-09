@@ -129,6 +129,10 @@ def compute(
 
         for k, v in jobs_hourly.compute_hourly(rebuild=rebuild or job == "all").items():
             typer.echo(f"{k}: {v} rows")
+        from monitor.jobs_risk import compute_trades_carry
+        from monitor.meta import git_sha, utc_now
+
+        typer.echo(f"trades_carry: {compute_trades_carry(utc_now(), git_sha()).height} rows")
         jobs_hourly.write_hourly_json()
     if job in ("all", "daily"):
         from monitor import jobs, jobs_daily_ctx, jobs_weekly
@@ -136,6 +140,10 @@ def compute(
         for k, v in jobs.compute_daily(rebuild=rebuild or job == "all").items():
             typer.echo(f"{k}: {v} rows")
         typer.echo(f"hit_rates: {jobs_weekly.compute_hit_rates().height} rows")
+        from monitor.jobs_risk import compute_risk_daily
+
+        r = compute_risk_daily()
+        typer.echo(f"risk: venues {len(r['venue']['venues'])}, trades {len(r['trades'])}")
         jobs_daily_ctx.write_daily_json()
     if job in ("all", "weekly"):
         from monitor import jobs_weekly

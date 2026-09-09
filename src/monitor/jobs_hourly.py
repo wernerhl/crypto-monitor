@@ -1004,6 +1004,7 @@ def build_fragility_series(fd, prices, mcap, tier1, th, as_of):
         if cap_t1
         else None
     )
+    fund, oi_rel = _extend_with_coinglass(fund, oi_rel, cap_t1)
     vrp_all = live_vrp_history(prices)
     vrp = (
         vrp_all.filter(pl.col("currency") == "BTC").select("date", "vrp")
@@ -1022,6 +1023,64 @@ def build_fragility_series(fd, prices, mcap, tier1, th, as_of):
         "z_sc_neg": scg["date"].max() if scg is not None and scg.height else None,
     }
     return series, source_dates
+
+
+def _extend_with_coinglass(fund: pl.DataFrame, oi_rel: pl.DataFrame | None, cap_t1: float):
+    """When the keyed Coinglass history exists (work order 4, item 1), extend the funding and
+    OI/cap inputs backwards with the aggregated BTC+ETH series for dates before the exchange
+    series start. Funding: OI-weighted mean of the two; OI/cap: Σ aggregated OI over the
+    BTC+ETH market cap from `market_cap_history` (only where that history exists). Inert
+    without the tables."""
+    cf = archive.read("coinglass_funding_history")
+    co = archive.read("coinglass_oi_history")
+    if cf is None or not cf.height or co is None or not co.height:
+        return fund, oi_rel
+    first_fund = fund["date"].min() if fund.height else None
+    j = cf.join(co, on=["date", "base"], how="inner").filter(pl.col("base").is_in(["BTC", "ETH"]))
+    ext = (
+        j.group_by("date")
+        .agg(
+            ((pl.col("funding_ann") * pl.col("oi_usd")).sum() / pl.col("oi_usd").sum()).alias("fr")
+        )
+        .sort("date")
+    )
+    if first_fund is not None:
+        ext = ext.filter(pl.col("date") < first_fund)
+    fund = pl.concat([ext, fund], how="vertical_relaxed").sort("date") if ext.height else fund
+    mc = archive.read("market_cap_history")
+    if mc is not None and mc.height:
+        uni = archive.read("universe")
+        ids = (
+            {r["symbol"]: r["id"] for r in uni.select("symbol", "id").unique().to_dicts()}
+            if uni is not None
+            else {}
+        )
+        cap = (
+            mc.filter(pl.col("id").is_in([ids.get("BTC", "bitcoin"), ids.get("ETH", "ethereum")]))
+            .group_by("date")
+            .agg(pl.col("market_cap_usd").sum().alias("cap"))
+        )
+        oi = (
+            co.filter(pl.col("base").is_in(["BTC", "ETH"]))
+            .group_by("date")
+            .agg(pl.col("oi_usd").sum().alias("oi"))
+        )
+        ext_oi = (
+            oi.join(cap, on="date", how="inner")
+            .with_columns((pl.col("oi") / pl.col("cap")).alias("oi_rel"))
+            .select("date", "oi_rel")
+            .sort("date")
+        )
+        first_oi = oi_rel["date"].min() if oi_rel is not None and oi_rel.height else None
+        if first_oi is not None:
+            ext_oi = ext_oi.filter(pl.col("date") < first_oi)
+        if ext_oi.height:
+            oi_rel = (
+                pl.concat([ext_oi, oi_rel], how="vertical_relaxed").sort("date")
+                if oi_rel is not None
+                else ext_oi
+            )
+    return fund, oi_rel
 
 
 def live_vrp_history(prices: pl.DataFrame) -> pl.DataFrame:
@@ -1223,6 +1282,14 @@ def latest_rule_fires(max_age_hours: int = 48) -> pl.DataFrame | None:
     )
 
 
+def _latest_carry() -> list[dict]:
+    """Basis and funding-carry rows (hourly write set, `trades_carry`)."""
+    t = archive.read("trades_carry")
+    if t is None or not t.height:
+        return []
+    return t.filter(pl.col("as_of") == t["as_of"].max()).to_dicts()
+
+
 def latest_calendar(max_age_hours: int = 48) -> pl.DataFrame | None:
     """Latest calendar evaluation per asset (Rule 5.1 rows, `cliff_calendar`); qualifying
     cliffs are `fired = True`. Written by the daily context job."""
@@ -1263,6 +1330,7 @@ def write_hourly_json(out: Path = SITE_DATA) -> None:
         ],
         "vol_state": latest("vol_state", "date"),
         "basis_term": _basis_term(),
+        "trades": _latest_carry(),
     }
     payload["reading"] = _reading(payload, out)
     (out / "hourly.json").write_text(dump_json(payload))

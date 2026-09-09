@@ -306,3 +306,19 @@ unlock indexes are refreshed weekly, and CoinMetrics is pulled from the last sto
 | glassnode.optional | 401 | 0.55 s | 1110 | 2026-09-06T06:11:45+00:00 |
 | snapshot.graphql | 200 | 0.37 s | 25 | 2026-09-06T06:11:46+00:00 |
 | tally.graphql | 401 | 0.27 s | 85 | 2026-09-06T06:11:47+00:00 |
+
+
+## Coinglass (keyed, optional; added 2026-09-08, work order 4)
+`https://open-api-v4.coinglass.com`, header `CG-API-KEY` (`COINGLASS_API_KEY`). Used only by
+`backfill.rebuild_leverage_history` to give the fragility index's leverage components history
+back to 2021: `GET /api/futures/open-interest/aggregated-history`, `GET
+/api/futures/funding-rate/oi-weight-history`, `GET /api/futures/liquidation/aggregated-history`
+(`symbol=BTC|ETH`, `interval=1d`, `start_time`/`end_time` in ms). **Documented, not
+live-verified**: no key was available when the adapter was written, so the parsers are tested
+on fixtures that follow the documented response shape (`{"code": "0", "data": [...]}` with
+millisecond `time` and candle-style `close` fields) and accept the older field aliases. Without
+a key the adapter is inert and nothing on the site depends on it. When a key is added: run the
+skipped live test (`tests/unit/test_coinglass.py`), then `PYTHONPATH=src uv run --no-sync
+python -c "from monitor.backfill import rebuild_leverage_history as r; print(r())"`, then
+`monitor compute hourly` (rebuilds `fragility_series`) and `monitor compute weekly` (re-runs
+the Φ validation), and record the result in the changelog.

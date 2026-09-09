@@ -25,7 +25,7 @@ sources:
   beaconchain:      {base: https://beaconcha.in/api/v1, verified_on: 2026-09-06, key_env: BEACONCHAIN_API_KEY, optional: true}
   snapshot:         {base: https://hub.snapshot.org/graphql, verified_on: 2026-09-06, limit: "100 req / 60 s"}
   tally:            {base: https://api.tally.xyz/query, verified_on: 2026-09-06, key_env: TALLY_API_KEY, optional: true}
-  coinglass:        {base: https://open-api-v4.coinglass.com, verified_on: 2026-09-06, key_env: COINGLASS_API_KEY, optional: true}
+  coinglass:        {base: https://open-api-v4.coinglass.com, verified_on: 2026-09-06, key_env: COINGLASS_API_KEY, key_header: CG-API-KEY, optional: true}   # v4 history endpoints documented, not live-verified (no key)
   glassnode:        {base: https://api.glassnode.com/v1, verified_on: 2026-09-06, key_env: GLASSNODE_API_KEY, optional: true}
 unavailable:
   etf_flows: "no free official API found on 2026-09-06 (farside.co.uk is HTML; iShares download returns HTML)"

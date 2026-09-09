@@ -1,0 +1,39 @@
+{
+ "source": "coinglass",
+ "dataset": "oi_aggregated_history",
+ "bucket": "2026/09/08/0000",
+ "fetched_at": "2026-09-08T20:00:00+00:00",
+ "git_sha": "fixture",
+ "meta": {
+  "note": "documented response shape; not a live capture (no key)"
+ },
+ "records": [
+  {
+   "url": "https://open-api-v4.coinglass.com/api/futures/open-interest/aggregated-history?symbol=BTC&interval=1d",
+   "status": 200,
+   "fetched_at": "2026-09-08T20:00:00+00:00",
+   "body": {
+    "code": "0",
+    "msg": "success",
+    "data": [
+     {
+      "time": 1609459200000,
+      "open": "10.1e9",
+      "high": "10.5e9",
+      "low": "9.9e9",
+      "close": "10300000000"
+     },
+     {
+      "time": 1609545600000,
+      "open": "10.3e9",
+      "high": "10.8e9",
+      "low": "10.2e9",
+      "close": "10700000000"
+     }
+    ]
+   },
+   "is_json": true,
+   "headers": {}
+  }
+ ]
+}

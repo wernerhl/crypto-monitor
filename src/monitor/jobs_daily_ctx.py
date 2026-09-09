@@ -461,6 +461,11 @@ def _phi_validation() -> dict:
         "as_of": str(as_of),
         "n_shocks": evl.height,
         "n_shocks_3plus": evl.filter(pl.col("n_components") >= 3).height,
+        "component_available": {
+            c: int(evl[c].is_not_null().sum())
+            for c in ("z_fr", "z_oi", "z_vrp_neg", "z_dd", "z_sc_neg")
+            if c in evl.columns
+        },
         "first": str(evl["date"].min()),
         "last": str(evl["date"].max()),
         "terciles": t.filter(pl.col("as_of") == as_of)
@@ -487,7 +492,7 @@ def _rule43_drivers() -> dict:
     return {
         "as_of": str(latest["as_of"][0]),
         "rows": latest.drop("source", "fetched_at", "git_sha", "as_of").to_dicts(),
-        "review": "Premise under review since 2026-09-08; to be decided at the next quarterly review (December 2026) on this evidence. No threshold changed.",
+        "review": "Review decision 2 (2026-09-08): action removed; reading kept with its driver; no replacement rule.",
     }
 
 

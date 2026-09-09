@@ -11,7 +11,6 @@ import polars as pl
 from monitor import archive
 from monitor.compute import hitrates as hr
 from monitor.jobs_hourly import _daily_prices_by_base
-from monitor.jobs_risk import compute_factor_model
 from monitor.meta import git_sha, utc_now
 
 log = logging.getLogger("monitor.weekly")
@@ -268,12 +267,12 @@ def compute_weekly() -> dict:
     """Weekly job (write set in config/job_writes.yaml): universe and tier freeze, factor
     model, risk panels (risk.json), the cliff study, the 4.3 driver table, the Φ validation."""
     from monitor.jobs import compute_universe
-    from monitor.jobs_risk import compute_all_risk
+    from monitor.jobs_risk import compute_screens_weekly
 
     out = {"universe": compute_universe().height, "tier_history": freeze_tier_membership()}
-    out.update(compute_factor_model(utc_now(), git_sha()))
-    risk = compute_all_risk()  # venue, book, trades, screens → risk.json
-    out["risk_trades"] = len(risk["trades"])
+    sc = compute_screens_weekly()  # factor model, screens, book factor exposure → screens.json
+    out.update(sc.get("factor_model", {}))
+    out["screens"] = len(sc["screens"])
     out.update(compute_cliff_study())
     out.update(compute_rule43_drivers())
     out.update(compute_phi_validation())

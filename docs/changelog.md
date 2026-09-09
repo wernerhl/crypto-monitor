@@ -392,3 +392,49 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   the robust scale is below 5 % of the window's ordinary standard deviation; the component
   counts as missing on those 30 days. The formula is otherwise unchanged; the +11.7 VRP
   reading of February 2026 is genuine (RV variance 0.66 against a MAD of 0.02) and stays.
+
+## 2026-09-08 — Work order 4 (after commit 0d9ff56)
+* **Review decision 3 (2026-09-08): Φ retained as a positioning summary; predictive claim
+  withdrawn pending leverage-component history.** Exhibit:
+  [docs/notes/fragility_validation.md](notes/fragility_validation.md) (147 shock days, the last on
+  2026-06-05; on the walk-forward series the funding z exists only from 2026-07 and the
+  OI/cap z from 2026-04, so they were available on 0 and 3 of the shock days: the leverage
+  components are untested rather than refuted; the range-position
+  component reads as a bull-regime marker in this sample). State words are descriptive:
+  DELEVERAGED / NEUTRAL / LEVERED on the same Φ thresholds (words only; no reweighting, no
+  component removed). The gauge caption reads "positioning summary; not validated as a
+  predictor of post-shock damage (see methods)" and the validation paragraph (n, component
+  availability on shock days, the confound) sits under the gauge. A gated Coinglass adapter
+  (`fetch/coinglass.py`, key optional, `COINGLASS_API_KEY`) is present for aggregated OI,
+  OI-weighted funding and liquidation history back to 2021, with fixtures on the documented
+  response shapes and a live test that is skipped without a key; with a key,
+  `backfill.rebuild_leverage_history` writes the `coinglass_*` tables and the fragility
+  builder extends the leverage inputs backwards so the validation can be re-run. Until then
+  the adapter is inert. The endpoints are documented, not live-verified (no key).
+* **Review decision 2 (2026-09-08): Rule 4.3 action removed; premise (negative VRP precedes
+  vol expansion) not supported: RV fell below IV in ~80 % of flags across drivers.**
+  Exhibit: methods page table (complacency 27 flags / 7 episodes, 20.8 %; post-shock 39 / 3,
+  17.9 %; both 7 / 3, 85.7 %; neither 11 / 3, 50 %). `rules.vol_underpricing` has status
+  `reading`: it keeps evaluating with its driver, appears on the market-state panel as
+  "VRP negative (driver: …)", and is off the triggers panel, off "Rules firing", off the
+  alerts and out of the hit-rate table. `trades.vol_premium` has no FORBIDDEN gate; the
+  vol-selling row is present whatever the sign of the VRP and its dominant-risk text
+  states the driver and, for post-shock, "RV above IV is usually transient (hit 18 %,
+  3 episodes)". No replacement rule. Review item on the weekly checklist: re-open when the
+  IV-low-and-RV-spiking cell has 3 independent episodes. Threshold values unchanged; the
+  block is relabelled as reading thresholds. Recorded in the notes appendix.
+* **Write sets corrected (item 3).** Hourly: positioning, options, fragility, rules,
+  liquidity, vol state, the basis and funding-carry rows (`trades_carry`) and `hourly.json`
+  (which now carries the carry rows, so trades refresh hourly). Daily: context tables,
+  hit rates, book risk, venue exposure, the vol-selling rows (`trades_vol`), `daily.json`,
+  `risk.json` (venue, book, trades) and the site render. Weekly: universe, factors,
+  screens, the studies and `screens.json` (screens and the book's factor exposure, split
+  out of `risk.json`). `config/job_writes.yaml` and the assertion updated; the CI check on
+  `-X theirs|ours` stays. The 48-hour no-conflict window restarts from this commit.
+* **Lecture-notes corrections (item 5).** A dated "Corrections to the notes" subsection in
+  the implementation appendix: §2.5 (negative VRP is a transient state, four flags of five
+  followed by RV below IV, expansion only in the both cell on too few episodes), §6.2 /
+  Definition 6.1 (Φ not validated as a predictor; leverage components have months of
+  history; range position a bull-regime marker), §5 / Rule 4 (placebo, calendar), §11
+  (removal of an unsupported claim on full-history evidence is within the review procedure
+  and does not wait for the calendar; parameter fitting does). PDF recompiled.

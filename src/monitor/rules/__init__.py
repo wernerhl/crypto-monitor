@@ -20,7 +20,9 @@ class RuleFire(BaseModel):
     inputs: dict[str, float | str | None]
     thresholds: dict[str, float]
     note: str | None = None
-    status: str = "trigger"  # "trigger" (Rules 4.1–4.3) or "calendar" (5.1, review decision 1)
+    status: str = (
+        "trigger"  # "trigger" (4.1, 4.2), "reading" (4.3, review decision 2), "calendar" (5.1)
+    )
 
 
 def _missing(inputs: dict) -> list[str]:
@@ -122,10 +124,13 @@ def vol_underpricing(
     th: dict,
     driver: dict | None = None,
 ) -> RuleFire:
-    """Rule 4.3: VRP < 0 and Φ > 1 → no short-vol positions. `driver` (work order 3, item 2)
-    labels why the premium is negative: complacency (IV₁ₘ below its 250-day median),
-    post-shock (RV₃₀ above its 250-day 90th percentile), both or neither; it is shown, not
-    used in the decision. The rule's premise is under review (2026-09-08)."""
+    """Rule 4.3, status `reading` since review decision 2 (2026-09-08): VRP < 0 and Φ > 1.
+    It keeps evaluating and keeps its driver classification (complacency: IV₁ₘ below its
+    250-day median; post-shock: RV₃₀ above its 250-day 90th percentile; both; neither) and is
+    shown on the market-state panel as "VRP negative (driver: …)". It is no longer a trigger:
+    the vol-selling prohibition is lifted, it does not appear under "Rules firing" and has no
+    hit-rate row. Exhibit: methods page, "Rule 4.3 by driver" (RV fell below IV in about four
+    flags of five across drivers)."""
     t = th["vol_underpricing"]
     inputs = {"vrp": vrp, "phi": phi}
     if driver:
@@ -148,6 +153,7 @@ def vol_underpricing(
             inputs=inputs,
             thresholds=thr,
             note=f"unavailable: {', '.join(miss)}",
+            status="reading",
         )
     return RuleFire(
         rule_id="4.3",
@@ -156,6 +162,7 @@ def vol_underpricing(
         fired=bool(vrp < t["vrp_max"] and phi > t["phi_min"]),
         inputs=inputs,
         thresholds=thr,
+        status="reading",
     )
 
 

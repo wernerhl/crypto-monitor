@@ -20,7 +20,7 @@ rules:
     z_fr_max: -2.0
     oi_drop_5d_min: 0.20
     long_liq_24h_percentile_min: 0.95
-  vol_underpricing:            # Rule 4.3
+  vol_underpricing:            # reading thresholds (was Rule 4.3; review decision 2, 2026-09-08). Values unchanged.
     vrp_max: 0.0
     phi_min: 1.0
   cliff:                       # calendar (was Rule 5.1; review decision 1, 2026-09-08). Values unchanged.

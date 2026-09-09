@@ -43,7 +43,7 @@
   const d = await (await fetch('data/daily.json',{cache:'no-store'})).json();
   document.getElementById('val-meta').textContent = 'daily data ' + d.generated_at;
   const hr = d.hit_rates || {};
-  const names = {'4.1':'crowded long (negative 5-day return)','4.1p':'crowded long, partial inputs: z_FR and OI percentile only (history has no liquidation density or depth)','4.2':'capitulation (positive 5-day return)','4.2p':'capitulation, partial inputs: z_FR and 5-day OI drop only (history has no liquidation volume)','4.3':'vol underpricing (RV30 > IV at flag)'};
+  const names = {'4.1':'crowded long (negative 5-day return)','4.1p':'crowded long, partial inputs: z_FR and OI percentile only (history has no liquidation density or depth)','4.2':'capitulation (positive 5-day return)','4.2p':'capitulation, partial inputs: z_FR and 5-day OI drop only (history has no liquidation volume)'};
   const rows = Object.entries(hr).map(([k,v])=>({rule:k, definition:names[k]||'', hit_rate: v.hit_rate==null?'n/a':(100*v.hit_rate).toFixed(0)+'%', n:v.n, horizon_days:v.horizon_days}));
   document.getElementById('hitrates').innerHTML = '<h3>Rule hit rates</h3>' + (rows.length ? '<table><thead><tr><th>rule</th><th>definition</th><th>hit rate</th><th>n</th><th>horizon (days)</th></tr></thead><tbody>' + rows.map(r=>'<tr><td>'+r.rule+'</td><td>'+r.definition+'</td><td>'+r.hit_rate+'</td><td>'+r.n+'</td><td>'+r.horizon_days+'</td></tr>').join('') + '</tbody></table><p class="meta">Only evaluations whose horizon has elapsed count. Sample sizes are small by construction (the notes: the effective sample for anything regime-dependent is the number of transitions).</p>' : '<p class="stale"><span class="badge">unavailable</span> no completed rule horizons yet (backfill / time)</p>');
   const pv = d.fragility_validation || {};
@@ -56,7 +56,7 @@
   const r43 = d.rule43_drivers || {};
   if(r43.rows && r43.rows.length){
     const pc=v=>v==null?'n/a':(100*v).toFixed(1)+'%'; const pr=v=>v==null?'n/a':(v>=0?'+':'')+(100*v).toFixed(1)+' pts';
-    let html='<h3>Rule 4.3 by driver (as of '+r43.as_of+')</h3><p class="meta">Hit, as implemented: realised vol over the next 30 days exceeds the implied vol (IV₁ₘ) at the flag. Driver at the flag: complacency = IV₁ₘ below its trailing 250-day median; post-shock = RV₃₀ above its trailing 250-day 90th percentile. Episodes = flags separated by at least 30 days; windows within an episode overlap, so the episode count is the sample size that matters. <b>'+(r43.review||'')+'</b></p>';
+    let html='<h3>Rule 4.3 by driver (as of '+r43.as_of+')</h3><p class="meta">Hit, as implemented: realised vol over the next 30 days exceeds the implied vol (IV₁ₘ) at the flag. Driver at the flag: complacency = IV₁ₘ below its trailing 250-day median; post-shock = RV₃₀ above its trailing 250-day 90th percentile. Episodes = flags separated by at least 30 days; windows within an episode overlap, so the episode count is the sample size that matters. <b>Review decision 2 (2026-09-08): the Rule 4.3 action (vol-selling prohibition) is removed; the reading and its driver stay on the market-state panel; no replacement rule. Re-open when the both cell (implied vol low and realised vol rising) has 3 independent episodes.</b></p>';
     for(const c of ['BTC','ETH']){ const rows=r43.rows.filter(r=>r.currency===c); if(!rows.length) continue; html+='<h4 style="margin:10px 0 4px">'+c+'</h4><table><thead><tr><th>driver</th><th>flags</th><th>episodes</th><th>elapsed</th><th>hit rate</th><th>mean RV₃₀,next − IV_flag</th><th>median</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.driver+'</td><td>'+r.n+'</td><td>'+r.n_episodes+'</td><td>'+r.n_elapsed+'</td><td>'+pc(r.hit_rate)+'</td><td>'+pr(r.mean_excess)+'</td><td>'+pr(r.median_excess)+'</td></tr>').join('')+'</tbody></table>'; }
     document.getElementById('hitrates').insertAdjacentHTML('beforeend', html);
   }
@@ -74,11 +74,12 @@
   document.getElementById('volstate-diag').innerHTML = vs && vs.p_high!=null ? '<p>Status ' + vs.status + ', n = ' + vs.n_obs + ', P(high) = ' + vs.p_high.toFixed(3) + ', expected duration high ' + vs.expected_duration_high.toFixed(1) + ' d, low ' + vs.expected_duration_low.toFixed(1) + ' d.</p><p>Parameters (std errors): <code>' + vs.params + '</code> <code>' + vs.std_errors + '</code></p><p class="meta">Filtered probabilities only; smoothed probabilities appear nowhere in a decision.</p>' : '<p class="stale"><span class="badge">unavailable</span> ' + (vs ? vs.status : 'no vol-state row') + '</p>';
   try {
     const rk = await (await fetch('data/risk.json',{cache:'no-store'})).json();
-    const ic = rk.screens && rk.screens.length ? JSON.parse(rk.screens[0].ic_json||'{}') : {};
+    const scj = await (await fetch('data/screens.json',{cache:'no-store'})).json();
+    const ic = scj.screens && scj.screens.length ? JSON.parse(scj.screens[0].ic_json||'{}') : {};
     const icRows = Object.entries(ic).map(([k,v])=>({screen:k, ic:v.ic, se:v.ic_se, n:v.n_weeks}));
     document.getElementById('ics').innerHTML = '<h3>Screen information coefficients (52-week trailing Spearman vs next-week return)</h3>' + (icRows.length ? '<table><thead><tr><th>screen</th><th>IC</th><th>s.e.</th><th>weeks</th></tr></thead><tbody>' + icRows.map(r=>'<tr><td>'+r.screen+'</td><td>'+(r.ic==null?'n/a':r.ic.toFixed(3))+'</td><td>'+(r.se==null?'n/a':r.se.toFixed(3))+'</td><td>'+r.n+'</td></tr>').join('') + '</tbody></table>' : '<p class="stale"><span class="badge">unavailable</span> needs ≥ 100 weekly observations (weekly job after the backfill)</p>');
-    const fe = rk.book && rk.book.factor_exposure;
-    document.getElementById('factors').innerHTML = fe ? '<p>Book exposure vector w′B as of week ' + rk.book.factor_week + ':</p><table><thead><tr><th>factor</th><th>exposure</th></tr></thead><tbody>' + Object.entries(fe).map(([k,v])=>'<tr><td>'+k+'</td><td>'+v.toFixed(3)+'</td></tr>').join('') + '</tbody></table>' : '<p class="stale"><span class="badge">unavailable</span> factor betas need ≥ 100 weekly observations</p>';
+    const fe = scj.factor_exposure;
+    document.getElementById('factors').innerHTML = fe ? '<p>Book exposure vector w′B as of week ' + scj.factor_week + ':</p><table><thead><tr><th>factor</th><th>exposure</th></tr></thead><tbody>' + Object.entries(fe).map(([k,v])=>'<tr><td>'+k+'</td><td>'+v.toFixed(3)+'</td></tr>').join('') + '</tbody></table>' : '<p class="stale"><span class="badge">unavailable</span> factor betas need ≥ 100 weekly observations</p>';
   } catch(e) { document.getElementById('factors').textContent = 'risk.json unavailable'; }
 })();
 </script>

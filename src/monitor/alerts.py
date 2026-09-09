@@ -59,6 +59,8 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
     last = latest_rule_fires()
     if last is not None and last.height:
         for r in last.filter(pl.col("fired")).sort("rule_id", "asset").to_dicts():
+            if r.get("rule_id") == "4.3" or r.get("status") == "reading":
+                continue  # a reading, not a trigger (review decision 2)
             try:
                 inputs = json.loads(r.get("inputs") or "{}")
             except ValueError:

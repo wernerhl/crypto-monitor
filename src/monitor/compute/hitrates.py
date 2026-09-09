@@ -13,7 +13,7 @@ from datetime import date, timedelta
 import numpy as np
 import polars as pl
 
-HORIZONS = {"4.1": 5, "4.1p": 5, "4.2": 5, "4.2p": 5, "4.3": 30}  # 5.1 is a calendar: no row
+HORIZONS = {"4.1": 5, "4.1p": 5, "4.2": 5, "4.2p": 5}  # 4.3 is a reading, 5.1 a calendar: no rows
 
 
 def forward_return(prices: pl.DataFrame, base: str, d: date, h: int) -> float | None:

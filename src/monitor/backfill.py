@@ -973,3 +973,36 @@ def walk_forward() -> dict:
         "rule_fires_history": len(fires),
         "tier_proxy_months": vol["month"].n_unique(),
     }
+
+
+def rebuild_leverage_history(
+    bases: tuple[str, ...] = ("BTC", "ETH"), start: date = date(2021, 1, 1), force: bool = False
+) -> dict[str, int]:
+    """Keyed Coinglass history (work order 4, item 1): aggregated OI, OI-weighted funding and
+    aggregated liquidations back to 2021 → `coinglass_*` tables. Inert without
+    COINGLASS_API_KEY. With the tables present, the fragility builder extends the leverage
+    components backwards and the Φ validation can be re-run (`monitor compute weekly`)."""
+    from monitor.fetch import coinglass
+
+    if not coinglass.available():
+        log.info("coinglass: no key; leverage history not rebuilt")
+        return {}
+    store = RawStore()
+    start_ms = int(datetime.combine(start, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
+    end_ms = int(utc_now().timestamp() * 1000)
+    out: dict[str, int] = {}
+    for name, fetch, parse in (
+        ("coinglass_oi_history", coinglass.fetch_oi_history, coinglass.parse_oi_history),
+        (
+            "coinglass_funding_history",
+            coinglass.fetch_funding_history,
+            coinglass.parse_funding_history,
+        ),
+        ("coinglass_liq_history", coinglass.fetch_liq_history, coinglass.parse_liq_history),
+    ):
+        p = fetch(list(bases), start_ms, end_ms, force=force)
+        df = parse(store.read(p))
+        if df.height:
+            archive.upsert(name, df)
+        out[name] = df.height
+    return out

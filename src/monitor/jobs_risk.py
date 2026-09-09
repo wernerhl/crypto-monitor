@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 from datetime import date, datetime, timedelta
@@ -142,7 +141,7 @@ def compute_venue_panel(now: datetime, sha: str) -> dict:
 
 
 # --------------------------------------------------------------------------- book risk
-def compute_book_risk(now: datetime, sha: str) -> dict:
+def compute_book_risk(now: datetime, sha: str, persist: bool = True) -> dict:
     th = _cfg("thresholds.yaml")["sizing"]
     uni = _universe()
     book, positions = _book(uni)
@@ -245,33 +244,34 @@ def compute_book_risk(now: datetime, sha: str) -> dict:
     for c in book.get("collateral", []):
         exp_v[c["venue"]] = exp_v.get(c["venue"], 0.0) + float(c["usd"])
     out["venue_halt"] = sc.venue_halt_pnl(exp_v, book.get("recovery_assumption_on_halt", 0.4), nav)
-    archive.upsert(
-        "book_risk",
-        pl.DataFrame(
-            [
-                {
-                    "as_of": now.date(),
-                    "gross": out["gross"],
-                    "net": out["net"],
-                    "vol_ann_stress": out.get("vol_ann_stress"),
-                    "n_eff_stress": out.get("n_eff_stress"),
-                    "n_eff_current": out.get("n_eff_current"),
-                    "es_1d": out.get("es_1d"),
-                    "cascade_share_nav": out["cascade"]["total_share_nav"],
-                    "n_obs": n_obs,
-                    "notes": "; ".join(note),
-                    "source": "prices_daily+positioning+book.yaml",
-                    "fetched_at": now,
-                    "git_sha": sha,
-                }
-            ]
-        ),
-    )
+    if persist:
+        archive.upsert(
+            "book_risk",
+            pl.DataFrame(
+                [
+                    {
+                        "as_of": now.date(),
+                        "gross": out["gross"],
+                        "net": out["net"],
+                        "vol_ann_stress": out.get("vol_ann_stress"),
+                        "n_eff_stress": out.get("n_eff_stress"),
+                        "n_eff_current": out.get("n_eff_current"),
+                        "es_1d": out.get("es_1d"),
+                        "cascade_share_nav": out["cascade"]["total_share_nav"],
+                        "n_obs": n_obs,
+                        "notes": "; ".join(note),
+                        "source": "prices_daily+positioning+book.yaml",
+                        "fetched_at": now,
+                        "git_sha": sha,
+                    }
+                ]
+            ),
+        )
     return out
 
 
 # --------------------------------------------------------------------------- trade structures
-def compute_trades(now: datetime, sha: str) -> pl.DataFrame:
+def _trade_prelude(now: datetime):
     th = _cfg("thresholds.yaml")
     vcfg = _cfg("venues.yaml")
     fees = vcfg.get("fees", {})
@@ -279,6 +279,23 @@ def compute_trades(now: datetime, sha: str) -> pl.DataFrame:
     scores = (
         dict(zip(vs["venue"], vs["grade"], strict=True)) if vs is not None and vs.height else {}
     )
+    return th, fees, scores
+
+
+def _stamp(frames: list[pl.DataFrame], now: datetime, sha: str) -> pl.DataFrame:
+    frames = [f for f in frames if f is not None and f.height]
+    if not frames:
+        return pl.DataFrame()
+    return pl.concat(frames, how="diagonal_relaxed").with_columns(
+        pl.lit(now.date()).alias("as_of"),
+        pl.lit(now).alias("fetched_at"),
+        pl.lit(sha).alias("git_sha"),
+    )
+
+
+def compute_trades_carry(now: datetime, sha: str) -> pl.DataFrame:
+    """Hourly (write set): the basis and funding-carry rows of the trade table → `trades_carry`."""
+    th, fees, scores = _trade_prelude(now)
     uni = _universe()
     prices = _daily_close_by_base()
     spot = {
@@ -330,49 +347,53 @@ def compute_trades(now: datetime, sha: str) -> pl.DataFrame:
                 z,
             )
         )
+
+    df = _stamp(frames, now, sha)
+    if df.height:
+        archive.replace_slice("trades_carry", "as_of", now.date(), df)
+    return df
+
+
+def compute_trades_vol(now: datetime, sha: str) -> pl.DataFrame:
+    """Daily (write set): the volatility-selling rows → `trades_vol`. No FORBIDDEN gate since
+    review decision 2; the dominant-risk text carries the 4.3 driver."""
+    _th, _fees, scores = _trade_prelude(now)
+    frames: list[pl.DataFrame] = []
     om = _latest("options_metrics", "ts")
     frag = _latest("fragility", "ts")
     rf = _latest("rule_fires", "ts")
-    r43 = (
-        {r["asset"]: r["fired"] for r in rf.filter(pl.col("rule_id") == "4.3").to_dicts()}
-        if rf is not None
-        else {}
-    )
+    drivers: dict[str, dict | None] = {}
+    if rf is not None:
+        for r in rf.filter(pl.col("rule_id") == "4.3").to_dicts():
+            try:
+                inp = json.loads(r.get("inputs") or "{}")
+            except ValueError:
+                inp = {}
+            drivers[r["asset"]] = {"driver": inp.get("driver"), "text": inp.get("driver_text")}
     if om is not None:
         frames.append(
             tr.vol_premium(
                 om.to_dicts(),
                 float(frag["phi"][0]) if frag is not None and frag["phi"][0] is not None else None,
-                r43,
+                drivers,
                 scores,
             )
         )
-    cl = _latest("cliffs", "as_of")
-    rf_all = archive.read("rule_fires")
-    if cl is not None and rf_all is not None:
-        f51 = (
-            rf_all.filter(pl.col("rule_id") == "5.1")
-            .sort("ts")
-            .unique(subset=["asset", "inputs"], keep="last")
-        )
-        fires = {}
-        for r in f51.to_dicts():
-            with contextlib.suppress(Exception):
-                fires[(r["asset"], json.loads(r["inputs"]).get("unlock_date"))] = r["fired"]
-        # tr.unlock_short retired (review decision 1, 2026-09-08); the study can still call it
-    frames = [f for f in frames if f.height]
-    if not frames:
-        return pl.DataFrame()
-    df = pl.concat(
-        [f.with_columns(pl.col("expiry").cast(pl.Datetime("us", "UTC"))) for f in frames],
-        how="diagonal_relaxed",
-    ).with_columns(
-        pl.lit(now.date()).alias("as_of"),
-        pl.lit(now).alias("fetched_at"),
-        pl.lit(sha).alias("git_sha"),
-    )
-    archive.replace_slice("trade_structures", "as_of", now.date(), df)
+
+    df = _stamp(frames, now, sha)
+    if df.height:
+        archive.replace_slice("trades_vol", "as_of", now.date(), df)
     return df
+
+
+def compute_trades(now: datetime, sha: str) -> pl.DataFrame:
+    """Both halves (used by tests and the manual job)."""
+    a, b = compute_trades_carry(now, sha), compute_trades_vol(now, sha)
+    return (
+        pl.concat([x for x in (a, b) if x.height], how="diagonal_relaxed")
+        if (a.height or b.height)
+        else pl.DataFrame()
+    )
 
 
 # --------------------------------------------------------------------------- screens (weekly + daily view)
@@ -564,15 +585,57 @@ def compute_factor_model(now: datetime, sha: str) -> dict[str, int]:
 
 
 # --------------------------------------------------------------------------- JSON
-def compute_all_risk(now: datetime | None = None) -> dict:
+def book_factor_exposure(now: datetime) -> dict | None:
+    """The book's factor exposure w′B without persisting the book-risk row (weekly job)."""
+    b = compute_book_risk(now, git_sha(), persist=False)
+    if not b or not b.get("factor_exposure"):
+        return None
+    return {"factor_exposure": b["factor_exposure"], "factor_week": b.get("factor_week")}
+
+
+def latest_carry_rows() -> list[dict]:
+    t = archive.read("trades_carry")
+    if t is None or not t.height:
+        return []
+    return t.filter(pl.col("as_of") == t["as_of"].max()).to_dicts()
+
+
+def compute_risk_daily(now: datetime | None = None) -> dict:
+    """Daily (write set): venue panel, book risk, vol-selling rows → risk.json (venue, book,
+    trades). The carry rows are read from the hourly table. Factor exposures and screens
+    live in screens.json (weekly)."""
     now = now or utc_now()
     sha = git_sha()
-    out = {"venue": compute_venue_panel(now, sha), "book": compute_book_risk(now, sha)}
-    t = compute_trades(now, sha)
-    out["trades"] = t.to_dicts() if t.height else []
-    s = compute_screens(now, sha)
-    out["screens"] = s.to_dicts() if s.height else []
+    book = compute_book_risk(now, sha)
+    book.pop("factor_exposure", None)
+    out = {"venue": compute_venue_panel(now, sha), "book": book}
+    v = compute_trades_vol(now, sha)
+    out["trades"] = (v.to_dicts() if v.height else []) + latest_carry_rows()
     write_risk_json(out)
+    return out
+
+
+def compute_screens_weekly(now: datetime | None = None) -> dict:
+    """Weekly (write set): factor model, screens, book factor exposure → screens.json."""
+    now = now or utc_now()
+    sha = git_sha()
+    counts = compute_factor_model(now, sha)
+    s = compute_screens(now, sha)
+    out = {"screens": s.to_dicts() if s.height else [], "factor_model": counts}
+    fe = book_factor_exposure(now)
+    out["factor_exposure"] = fe.get("factor_exposure") if fe else None
+    out["factor_week"] = fe.get("factor_week") if fe else None
+    SITE_DATA.mkdir(parents=True, exist_ok=True)
+    (SITE_DATA / "screens.json").write_text(
+        dump_json({"generated_at": utc_now().isoformat(), "git_sha": sha, **out})
+    )
+    return out
+
+
+def compute_all_risk(now: datetime | None = None) -> dict:
+    """Everything (manual runs and tests): daily risk plus the weekly screens."""
+    out = compute_risk_daily(now)
+    out.update(compute_screens_weekly(now))
     return out
 
 

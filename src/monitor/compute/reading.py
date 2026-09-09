@@ -54,8 +54,10 @@ def state_reading(
     # --- fragility and its two largest components
     if frag and frag.get("phi") is not None:
         phi = frag["phi"]
-        word = "fragile" if phi > 1 else "building" if phi > 0 else "calm"
-        add({"t": f"{as_of.isoformat()}: the fragility index is "})
+        word = (
+            "levered" if phi > 1 else "neutral" if phi > 0 else "deleveraged"
+        )  # descriptive (review decision 3)
+        add({"t": f"{as_of.isoformat()}: the positioning summary Φ is "})
         add({"t": f"{phi:+.2f}", "href": "#p-state"})
         add({"t": f" ({word}, {frag.get('n_components') or 0} of 5 components)"})
         for g in gaps or []:
@@ -129,7 +131,13 @@ def state_reading(
         add({"t": _pct(sc_growth_30d), "href": "#p-state"})
         add({"t": " over 30 days. "})
     # --- rules and venues
-    firing = [r for r in rules if r.get("fired") is True and r.get("rule_id") != "5.1"]
+    firing = [
+        r
+        for r in rules
+        if r.get("fired") is True
+        and r.get("rule_id") not in ("4.3", "5.1")
+        and r.get("status", "trigger") == "trigger"
+    ]
     cliffs = [r for r in (calendar or []) if r.get("fired") is True]
     unavailable = [r for r in rules if r.get("fired") is None]
     if firing:

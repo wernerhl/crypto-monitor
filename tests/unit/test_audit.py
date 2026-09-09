@@ -153,7 +153,7 @@ def test_state_reading_is_deterministic_and_links_numbers():
     text = reading_text(a)
     assert (
         "+1.23" in text
-        and "fragile" in text
+        and "levered" in text
         and "funding at z = +2.10" in text
         and "variance risk premium at z = -1.70" in text
     )

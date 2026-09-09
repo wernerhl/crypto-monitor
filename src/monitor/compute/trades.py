@@ -167,21 +167,37 @@ def funding_carry(
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
+POST_SHOCK_NOTE = "RV above IV is usually transient (hit 18 %, 3 episodes)"
+
+
 def vol_premium(
     options_metrics: list[dict],
     phi: float | None,
-    rule_43_fired: dict[str, bool | None],
+    drivers: dict[str, dict | None],
     venue_scores: dict[str, str],
 ) -> pl.DataFrame:
     """Short-vol on the majors: gross = VRP (variance units) expressed as the vol spread
-    IV − √RV; forbidden when Rule 4.3 fires. Cost: Deribit fees (0.03 % of underlying per leg,
-    capped at 12.5 % of premium) approximated as 0.06 % of notional per month."""
+    IV − √RV. Since review decision 2 (2026-09-08) there is no FORBIDDEN gate: the row is
+    present whatever the sign of the VRP, and the dominant-risk text states the driver of a
+    negative premium (complacency / post-shock / both / neither; compute.rule43). Cost:
+    Deribit fees (0.03 % of underlying per leg, capped at 12.5 % of premium) approximated as
+    0.06 % of notional per month."""
     rows = []
     for m in options_metrics:
         if m.get("vrp") is None or m.get("iv_1m") is None or m.get("rv30_var") is None:
             continue
         iv, rv = m["iv_1m"], math.sqrt(max(m["rv30_var"], 0.0))
-        forbidden = rule_43_fired.get(m["currency"])
+        drv = drivers.get(m["currency"]) or {}
+        driver_txt = drv.get("text") or drv.get("driver")
+        if m["vrp"] < 0:
+            risk = f"VRP negative (driver: {driver_txt or 'unclassified'})"
+            if drv.get("driver") in ("post-shock", "both"):
+                risk += f"; {POST_SHOCK_NOTE}"
+            risk += "; short gamma: size by the 3σ loss under the high-vol state's σ"
+        else:
+            risk = (
+                "short gamma: size by the 3σ loss under the high-vol state's σ, not the current one"
+            )
         rows.append(
             {
                 "structure": "volatility selling",
@@ -194,12 +210,7 @@ def vol_premium(
                 "gross_ann": (iv - rv) * 12 / 12,
                 "cost_ann": 0.0006 * 12,
                 "net_ann": (iv - rv) - 0.0006 * 12,
-                "dominant_risk": (
-                    "FORBIDDEN by Rule 4.3 (VRP < 0 and Φ > 1)"
-                    if forbidden
-                    else "short gamma: size by the 3σ loss under the high-vol state's σ, not the current one"
-                )
-                + f"; VRP={m['vrp']:.4f}, Φ={phi}",
+                "dominant_risk": risk + f"; VRP={m['vrp']:.4f}, Φ={phi}",
                 "source": "options_metrics",
             }
         )

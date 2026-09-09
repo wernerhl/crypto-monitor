@@ -30,7 +30,9 @@ def test_rule_51_is_a_calendar_not_a_trigger():
     assert f.status == "calendar" and f.fired is True and f.rule_id == "5.1"
     assert "5.1" not in hitrates.HORIZONS  # a calendar has no forward claim
     t = rules_mod.vol_underpricing("BTC", datetime(2026, 9, 8, tzinfo=UTC), -0.05, 1.2, TH)
-    assert t.status == "trigger" and t.fired is True
+    assert t.status == "reading" and t.fired is True  # review decision 2 (work order 4)
+    c = rules_mod.crowded_long.__name__
+    assert c == "crowded_long"
 
 
 def test_rule_43_carries_its_driver_without_using_it():
