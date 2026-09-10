@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Thu, 10 Sep 2026 04:28:40 +0000</lastBuildDate>
+<lastBuildDate>Thu, 10 Sep 2026 09:38:11 +0000</lastBuildDate>
 <item><title>Cliff calendar, next 30 days (14 qualifying) [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-events</link><guid isPermaLink="false">cliffs:calendar@202609081246</guid><pubDate>Tue, 08 Sep 2026 12:46:31 +0000</pubDate><description>Scheduled cliffs meeting either Rule 5.1 leg (share of float &gt; 1 % or &gt; 2 days of real volume). The 2021–2026 backfill puts the 2026 pre-cliff drift at the base rate (docs/notes/pre_unlock_drift.md), so this list is informational.
 
 | token | cliff date | share of float | days of volume | USD |
 |---|---|---:|---:|---:|
-| APT | 2026-09-11 | 1.3 % | 0.7 |  |
+| APT | 2026-09-11 | 1.3 % | 0.6 |  |
 | PUMP | 2026-09-11 | 1.7 % | 0.4 |  |
-| SEI | 2026-09-13 | 1.8 % | 1.2 |  |
+| SEI | 2026-09-13 | 1.8 % | 1.1 |  |
 | STRK | 2026-09-14 | 3.2 % | 1.2 |  |
 | ARB | 2026-09-15 | 1.4 % | 0.4 |  |
-| ZRO | 2026-09-19 | 6.7 % | 2.2 |  |
-| GRAM | 2026-09-22 | 1.3 % | 3.0 |  |
-| H | 2026-09-23 | 14.7 % | 12.3 |  |
+| ZRO | 2026-09-19 | 6.7 % | 2.0 |  |
+| GRAM | 2026-09-22 | 1.3 % | 2.9 |  |
+| H | 2026-09-23 | 14.7 % | 12.6 |  |
 | XPL | 2026-09-25 | 8.2 % | 0.4 |  |
-| GRASS | 2026-09-28 | 1.5 % | 1.3 |  |
-| FF | 2026-09-29 | 6.5 % | 6.3 |  |
-| EIGEN | 2026-10-01 | 4.0 % | 2.0 |  |
-| 2Z | 2026-10-02 | 47.7 % | 51.4 |  |
-| M | 2026-10-02 | 2.5 % | 759.4 |  |</description></item>
+| GRASS | 2026-09-28 | 1.5 % | 1.4 |  |
+| FF | 2026-09-29 | 6.5 % | 6.4 |  |
+| EIGEN | 2026-10-01 | 4.0 % | 1.9 |  |
+| 2Z | 2026-10-02 | 47.7 % | 48.7 |  |
+| M | 2026-10-02 | 2.5 % | 771.9 |  |</description></item>
 <item><title>Venue limit breached on the example book: binance [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-venue</link><guid isPermaLink="false">venue:binance@202609080715</guid><pubDate>Tue, 08 Sep 2026 07:15:32 +0000</pubDate><description>Exposure 35.0% of NAV against a limit of 10.0% (grade C). The book is the illustrative one in config/book.yaml.</description></item>
 <item><title>Low-score venue aggregate above its limit (example book) [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-venue</link><guid isPermaLink="false">venue:low-score-aggregate@202609080715</guid><pubDate>Tue, 08 Sep 2026 07:15:32 +0000</pubDate><description>Low-score venues hold 40.0% of NAV against a limit of 15.0%.</description></item>
 <item><title>Dataset unavailable for more than one run: binance_coinm (hourly) [cleared 2026-09-08 19:14 UTC]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">dataset:binance_coinm@202609081909</guid><pubDate>Tue, 08 Sep 2026 19:09:08 +0000</pubDate><description>Last failure 2026-09-08 19:06 UTC: HTTP 451 from dapi.binance.com: geo-blocked for this runner's address (Binance blocks US IPs); dataset unavailable this run. Tables that depend on it are stale (status page). Runbook: docs/runbook.md.</description></item>
