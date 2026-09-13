@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Sat, 12 Sep 2026 22:13:58 +0000</lastBuildDate>
+<lastBuildDate>Sun, 13 Sep 2026 00:52:44 +0000</lastBuildDate>
+<item><title>Rule 4.1 firing on ETH [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-triggers</link><guid isPermaLink="false">rule:4.1:ETH@202609130052</guid><pubDate>Sun, 13 Sep 2026 00:52:44 +0000</pubDate><description>Evaluated 2026-09-13 00:52 UTC. Inputs: {"z_fr": 2.2048163541101857, "oi_rel_pctile": 0.9888888888888889, "lambda_minus_2": 291176621.2262874, "depth_2pct": 80610469.23741844, "lambda_over_depth": 3.6121439805628452}. Thresholds: {"z_fr_min": 2.0, "oi_rel_percentile_min": 0.9, "lambda_over_depth_min": 1.0}. Pre-committed action per docs/indicators.md; nothing here is a forecast.</description></item>
 <item><title>Cliff calendar, next 30 days (14 qualifying) [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-events</link><guid isPermaLink="false">cliffs:calendar@202609081246</guid><pubDate>Tue, 08 Sep 2026 12:46:31 +0000</pubDate><description>Scheduled cliffs meeting either Rule 5.1 leg (share of float &gt; 1 % or &gt; 2 days of real volume). The 2021–2026 backfill puts the 2026 pre-cliff drift at the base rate (docs/notes/pre_unlock_drift.md), so this list is informational.
 
 | token | cliff date | share of float | days of volume | USD |
