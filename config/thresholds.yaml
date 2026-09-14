@@ -52,7 +52,11 @@ positioning:
 carry:
   funding_mean_window_days: 30
   shrink_factor: 0.5
-  stablecoin_borrow_ann: 0.06     # financing cost of the spot leg (documented assumption; replace with the fund's rate)
+  stablecoin_borrow_ann: 0.06     # FALLBACK financing cost of the spot leg, used only when no observed rate is fresh (work order 6, F1)
+  borrow_rate_pools:              # DefiLlama yields pool ids (Aave v3, Ethereum; verified 2026-09-13): apyBaseBorrow = variable borrow APY
+    USDC: aa70268e-4b52-42bf-a116-608b370f9501
+    USDT: f981a304-bb6c-45b8-b0c5-fd2f515ad23a
+  borrow_rate_max_age_hours: 30
 sizing:
   eta_fragility_tilt: 0.5
   es_alpha: 0.05

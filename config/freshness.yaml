@@ -1,0 +1,533 @@
+_doc: 'Freshness contract (work order 6, A2). Every processed table: cadence, budget (hours), owning job, source or derived
+  (parent named), time column. status.json is written from this by every job; freshness.assert_job fails a job whose table
+  breaches its budget or whose derived table lags its parent by more than one period. Ages are measured on the data''s time
+  column, never on fetched_at.'
+period_hours:
+  hourly: 1
+  daily: 24
+  weekly: 168
+  fred-weekly: 168
+  backfill: 720
+  event: 720
+tables:
+  alerts:
+    cadence: event
+    budget_hours: 720
+    job: hourly
+    kind: derived
+    time_col: opened_at
+    parent: rule_fires
+    optional: true
+  basis_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: source
+    time_col: date
+    optional: true
+  book_risk:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: positioning
+  btc_chain:
+    cadence: daily
+    budget_hours: 54
+    job: daily
+    kind: source
+    time_col: date
+  category_members:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: as_of
+  cliff_calendar:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: ts
+    parent: cliffs
+  cliff_study:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: cliff_study_events
+  cliff_study_events:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: unlock_events
+  cliffs:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: unlock_events
+  coin_meta:
+    cadence: weekly
+    budget_hours: 1080
+    job: daily
+    kind: source
+    time_col: fetched_at
+  coinglass_funding_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: source
+    time_col: date
+    optional: true
+  coinglass_liq_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: source
+    time_col: date
+    optional: true
+  coinglass_oi_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: source
+    time_col: date
+    optional: true
+  dilution:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: unlock_events
+  dvol:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  dvol_daily:
+    cadence: hourly
+    budget_hours: 30
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: dvol
+  esp:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: unlock_events
+  eth_staking:
+    cadence: daily
+    budget_hours: 54
+    job: daily
+    kind: source
+    time_col: date
+  event_strip:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: cliffs
+  factor_betas:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: week
+    parent: factor_returns
+  factor_returns:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: week
+    parent: prices_daily
+  fees_tvl:
+    cadence: weekly
+    budget_hours: 192
+    job: daily
+    kind: source
+    time_col: as_of
+  fragility:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: ts
+    parent: fragility_series
+  fragility_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: derived
+    time_col: date
+    parent: fragility_series
+    optional: true
+  fragility_series:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: vrp_history
+  funding_daily:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: perp_snapshot
+  funding_daily_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: derived
+    time_col: date
+    parent: funding_history
+    optional: true
+  funding_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: source
+    time_col: ts
+    optional: true
+  futures_marks:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  hit_rates:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: rule_fires
+  liq_coverage:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: hour
+    parent: liquidations
+  liquidations:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  liquidity:
+    cadence: daily
+    budget_hours: 30
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: orderbook_depth
+  long_short:
+    cadence: hourly
+    budget_hours: 30
+    job: hourly
+    kind: source
+    time_col: ts
+    optional: true
+    note: Binance only; fetched by the Mac collector, so its age follows the collector and is reported, not fatal, for the
+      runner's hourly job
+  macro:
+    cadence: fred-weekly
+    budget_hours: 240
+    job: daily
+    kind: source
+    time_col: date
+  macro_latest:
+    cadence: fred-weekly
+    budget_hours: 240
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: macro
+  market_cap_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: source
+    time_col: date
+    optional: true
+  markets:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: as_of
+  oi_daily:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: oi_rubik
+  oi_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: source
+    time_col: date
+    optional: true
+  oi_rubik:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  onchain:
+    cadence: daily
+    budget_hours: 54
+    job: daily
+    kind: source
+    time_col: date
+  options:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  options_metrics:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: ts
+    parent: options
+  orderbook_depth:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  perp_snapshot:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  phi_shock_events:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: fragility_series
+  phi_shock_placebo:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: phi_shock_events
+  phi_shock_regressions:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: phi_shock_events
+  phi_shock_terciles:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: phi_shock_events
+  positioning:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: ts
+    parent: funding_daily
+  positioning_history:
+    cadence: backfill
+    budget_hours: 9600
+    job: backfill
+    kind: derived
+    time_col: date
+    parent: funding_history
+    optional: true
+  prices_daily:
+    cadence: daily
+    budget_hours: 54
+    job: daily
+    kind: source
+    time_col: date
+  prices_hourly:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: ts
+  proposals:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: fetched_at
+  rule43_drivers:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: rule43_flags
+  rule43_flags:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: rule_fires
+  rule_fires:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: ts
+    parent: positioning
+  screen_ic:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: screens
+  screens:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: universe
+  stablecoin_growth:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: date
+    parent: stablecoin_total
+  stablecoin_total:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: date
+    parent: stablecoins
+  stablecoins:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: as_of
+  tier_history:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: universe
+    optional: true
+  trade_stats:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: source
+    time_col: ts
+  trades_carry:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: as_of
+    parent: futures_marks
+  trades_vol:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: as_of
+    parent: options_metrics
+  universe:
+    cadence: weekly
+    budget_hours: 192
+    job: weekly
+    kind: derived
+    time_col: as_of
+    parent: markets
+  unlock_detail:
+    cadence: weekly
+    budget_hours: 192
+    job: daily
+    kind: source
+    time_col: fetched_at
+  unlock_events:
+    cadence: weekly
+    budget_hours: 192
+    job: daily
+    kind: source
+    time_col: fetched_at
+  unlock_supply:
+    cadence: weekly
+    budget_hours: 192
+    job: daily
+    kind: source
+    time_col: as_of
+  venue_listings:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: ts
+  venue_scores:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    time_col: as_of
+    parent: wash_filters
+  vol_state:
+    cadence: daily
+    budget_hours: 30
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: prices_daily
+  vrp_history:
+    cadence: hourly
+    budget_hours: 3
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: dvol_daily
+  wash_filters:
+    cadence: daily
+    budget_hours: 30
+    job: hourly
+    kind: derived
+    time_col: date
+    parent: trade_stats
+  borrow_rates:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: as_of

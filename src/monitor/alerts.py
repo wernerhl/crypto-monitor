@@ -75,6 +75,20 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
             )
     if cliffs:
         out.append(cliff_calendar(cliffs))
+    cov = archive.read("liq_coverage")
+    if cov is not None and cov.height:  # B2: the collector's heartbeat
+        now = utc_now()
+        for r in cov.group_by("venue").agg(pl.col("hour").max()).to_dicts():
+            age_h = (now - r["hour"]).total_seconds() / 3600
+            if age_h > 3:
+                out.append(
+                    {
+                        "key": f"collector:{r['venue']}",
+                        "kind": "collector",
+                        "title": f"Collector silent: no {r['venue']} coverage row for {age_h:.0f} h",
+                        "body": f"Last liq_coverage hour for {r['venue']}: {r['hour']:%Y-%m-%d %H:%M} UTC. The Mac collector (launchd agents, docs/runbook.md) has not committed a websocket envelope for this venue in more than three hours: the machine slept, the agent died, or its clone is stuck on a rebase. Coverage holes are shown, never interpolated.",
+                    }
+                )
     rk = site_data / "risk.json"
     if rk.exists():
         try:

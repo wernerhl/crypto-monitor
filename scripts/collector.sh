@@ -11,6 +11,7 @@
 set -euo pipefail
 JOB="${1:-hourly}"
 cd "$(dirname "$0")/.."
+git checkout -q -- data/processed data/archive site/data 2>/dev/null || true
 git pull -q --rebase origin main
 export PYTHONPATH="$PWD/src"
 set -a; [ -f .env ] && . ./.env; set +a
@@ -18,10 +19,15 @@ uv run --no-sync monitor fetch "$JOB"
 uv run --no-sync monitor compute "$JOB"
 [ "$JOB" = hourly ] && { set -a; . ./.env 2>/dev/null; set +a; uv run --no-sync monitor alerts --dry-run >/dev/null 2>&1 || true; }
 find data site/data -name '* [0-9].*' -delete 2>/dev/null || true
-git add data/ site/data/ site/alerts.xml 2>/dev/null || git add data/ site/data/
+# Work order 6 (B1): the collector commits ONLY the raw envelopes the runners cannot fetch
+# (Binance, Bybit, the websocket liquidation streams). Its processed tables stay local: two
+# instances of the hourly job (runner and Mac) committing the same tables conflicted on
+# 2026-09-10 and the clone sat on an unresolved rebase for four days. The runner's hourly job
+# parses these raw files on its next run.
+git add $(git ls-files --others --exclude-standard --modified data/raw | grep -E '/(binance|bybit)_|liquidations_ws' || true) 2>/dev/null || true
 if ! git diff --cached --quiet; then
-  uv run --no-sync python scripts/check_write_set.py "$JOB"
-  git -c user.name=crypto-monitor-bot -c user.email=crypto-monitor-bot@users.noreply.github.com commit -qm "data: collector $JOB $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+  uv run --no-sync python scripts/check_write_set.py collector
+  git -c user.name=crypto-monitor-bot -c user.email=crypto-monitor-bot@users.noreply.github.com commit -qm "data: collector raw $JOB $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
   if ! git pull -q --rebase origin main; then
     echo "collector $JOB: rebase conflict, not auto-resolved: $(git diff --name-only --diff-filter=U | tr '\n' ' ')" >&2
     git rebase --abort; exit 1

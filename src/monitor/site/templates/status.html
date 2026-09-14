@@ -2,20 +2,30 @@
 {% block title %}Data status — crypto monitor{% endblock %}
 {% block content %}
 <h2>Data-source status</h2>
-<div class="panel"><p>Freshness per processed table, the source that produced it and the stale marker. Endpoint verification dates: <a href="https://github.com/wernerhl/crypto-monitor/blob/main/docs/data_sources.md">docs/data_sources.md</a>.</p>
-<p class="meta" id="st-meta">loading data/status.json …</p></div>
+<div class="panel"><p>Every processed table against the freshness contract (<code>config/freshness.yaml</code>): cadence, budget, owning job, source or derived (parent named), age measured on the data's own time column. Each job writes its own view (<code>status_hourly.json</code>, <code>status_daily.json</code>, <code>status_weekly.json</code>); the row shown is the most recent view of that table. A job fails when a table it owns breaches its budget. Endpoint verification dates: <a href="https://github.com/wernerhl/crypto-monitor/blob/main/docs/data_sources.md">docs/data_sources.md</a>.</p>
+<p class="meta" id="st-meta">loading status files …</p></div>
 <div id="st-table"></div>
+<h2>Fetch records (latest per dataset, all jobs)</h2>
+<div class="panel"><div id="st-fetch"></div><p class="small" id="st-blocked"></p></div>
 <script>
 (async function(){
-  const r = await fetch('data/status.json', {cache:'no-store'});
-  if(!r.ok){ document.getElementById('st-meta').textContent = 'status.json unavailable (' + r.status + ')'; return; }
-  const d = await r.json();
-  document.getElementById('st-meta').textContent = 'generated ' + d.generated_at + ' · commit ' + d.git_sha.slice(0,12);
-  const cols = ['table','rows','latest','age_hours','max_age_hours','status','sources','reason'];
-  const tb = document.createElement('table');
-  tb.innerHTML = '<thead><tr>' + cols.map(c=>'<th>'+c+'</th>').join('') + '</tr></thead><tbody>' +
-    d.tables.map(x => '<tr class="'+(x.status==='fresh'?'':'stale')+'">' + cols.map(c => '<td>' + (x[c]==null?'':x[c]) + '</td>').join('') + '</tr>').join('') + '</tbody>';
+  const files=['data/status_hourly.json','data/status_daily.json','data/status_weekly.json','data/status.json'];
+  const views=[]; for(const f of files){ try{ const r=await fetch(f,{cache:'no-store'}); if(r.ok){ const d=await r.json(); d._file=f; views.push(d);} }catch(e){} }
+  if(!views.length){ document.getElementById('st-meta').textContent='no status file available'; return; }
+  views.sort((a,b)=>(a.generated_at<b.generated_at?1:-1));
+  const byTable={}; for(const v of views){ for(const t of (v.tables||[])){ if(!byTable[t.table]) byTable[t.table]={...t, _view:(v.job||'daily')+' '+v.generated_at.slice(0,16)}; } }
+  const rows=Object.values(byTable).sort((a,b)=>{const o={stale:0,lagging:1,unavailable:2,fresh:3}; return (o[a.status]??9)-(o[b.status]??9)||a.table.localeCompare(b.table);});
+  document.getElementById('st-meta').textContent=views.map(v=>(v.job||'daily')+' view '+v.generated_at.slice(0,16)+' UTC').join(' · ')+' · '+rows.length+' tables';
+  const cols=['table','cadence','job','kind','parent','rows','latest','age_hours','budget_hours','status','reason','_view'];
+  const tb=document.createElement('table');
+  tb.innerHTML='<thead><tr>'+cols.map(c=>'<th>'+(c==='_view'?'reported by':c)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(x=>'<tr class="'+(x.status==='fresh'?'':'stale')+'">'+cols.map(c=>'<td>'+(x[c]==null?'':(c==='latest'?String(x[c]).slice(0,16).replace('T',' '):x[c]))+'</td>').join('')+'</tr>').join('')+'</tbody>';
   document.getElementById('st-table').appendChild(tb);
+  const fetches={}; for(const v of views){ for(const f of (v.fetches||[])){ const k=f.dataset; if(!fetches[k]||fetches[k].ts<f.ts) fetches[k]=f; } }
+  const blocked=new Set((views.find(v=>v.known_blocked)||{}).known_blocked||[]);
+  const fr=Object.values(fetches).sort((a,b)=>(a.ok===b.ok?a.dataset.localeCompare(b.dataset):(a.ok?1:-1)));
+  const ft=document.createElement('table'); ft.innerHTML='<thead><tr><th>dataset</th><th>job</th><th>last attempt</th><th>ok</th><th>reason</th></tr></thead><tbody>'+fr.map(f=>'<tr class="'+(f.ok?'':(blocked.has(f.dataset)?'':'stale'))+'"><td>'+f.dataset+(blocked.has(f.dataset)?' <span class="badge">known blocked on runners</span>':'')+'</td><td>'+(f.job||'')+'</td><td>'+String(f.ts).slice(0,16).replace('T',' ')+'</td><td>'+(f.ok?'ok':'failed')+'</td><td>'+(f.reason||'')+'</td></tr>').join('')+'</tbody>';
+  document.getElementById('st-fetch').appendChild(ft);
+  document.getElementById('st-blocked').textContent=blocked.size?'Known condition, not an outage: '+[...blocked].sort().join(', ')+' are geo-blocked from GitHub-hosted runners (HTTP 451/403) and are fetched by the Mac collector instead; they are listed here and never in the front-page banner.':'';
 })();
 </script>
 {% endblock %}

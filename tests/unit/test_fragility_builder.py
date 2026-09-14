@@ -42,15 +42,30 @@ def test_all_five_fresh_sources_yield_five_components_with_sizes():
     assert fr.check_components(last, {c: end for c in fr.COMPONENTS}, end) == []
 
 
-def test_null_component_with_fresh_source_is_a_build_failure():
+def test_null_component_with_fresh_source_is_a_build_failure(monkeypatch):
+    """Work order 6 (A3): the reason comes from the freshness contract; a null component whose
+    source the contract calls fresh is a build failure."""
+    from monitor import freshness
+
     end = date(2026, 9, 8)
     row = {"z_fr": 0.1, "z_oi": 0.2, "z_vrp_neg": None, "z_dd": 0.0, "z_sc_neg": -0.1}
+    monkeypatch.setattr(freshness, "reason_for", lambda table, now=None: None)
     with pytest.raises(RuntimeError, match="z_vrp_neg"):
         fr.check_components(row, {"z_vrp_neg": end - timedelta(days=1)}, end)
-    # a stale source is a documented gap, not a failure
+    monkeypatch.setattr(
+        freshness,
+        "reason_for",
+        lambda table, now=None: f"source stale since 2026-09-05 ({table}; parent dvol is current)",
+    )
     gaps = fr.check_components(row, {"z_vrp_neg": end - timedelta(days=3)}, end)
-    assert gaps == [{"component": "z_vrp_neg", "reason": "dvol stale: last 2026-09-05"}]
-    assert fr.check_components(row, {}, end)[0]["reason"] == "dvol has no rows"
+    assert gaps == [
+        {
+            "component": "z_vrp_neg",
+            "reason": "source stale since 2026-09-05 (dvol_daily; parent dvol is current)",
+        }
+    ]
+    short = fr.check_components({**row, "z_vrp_neg_n": 12}, {}, end)
+    assert short[0]["reason"] == "needs 30+ days of history (12 so far)"
 
 
 def test_range_position_component_is_bounded_and_near_zero_in_a_narrow_range():

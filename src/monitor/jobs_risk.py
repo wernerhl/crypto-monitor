@@ -271,8 +271,33 @@ def compute_book_risk(now: datetime, sha: str, persist: bool = True) -> dict:
 
 
 # --------------------------------------------------------------------------- trade structures
+def borrow_rate(now: datetime, th: dict) -> tuple[float, str]:
+    """The stablecoin financing rate for the spot leg (F1): the mean of the observed Aave v3
+    USDC/USDT variable borrow APYs when fresh, else the configured 6 % flagged as fallback."""
+    br = archive.read("borrow_rates")
+    max_age = float(th["carry"].get("borrow_rate_max_age_hours", 30))
+    if br is not None and br.height:
+        last = br["as_of"].max()
+        age_h = (now.date() - last).days * 24.0
+        if age_h <= max_age:
+            rows = br.filter(pl.col("as_of") == last)
+            rate = float(rows["apy_borrow"].min())  # the desk borrows the cheaper stablecoin
+            legs = ", ".join(
+                f"{r['asset']} {100 * r['apy_borrow']:.2f}%" for r in rows.sort("asset").to_dicts()
+            )
+            return (
+                rate,
+                f"observed: cheaper of Aave v3 Ethereum variable borrow ({legs}) via DefiLlama yields, {last}",
+            )
+    return float(
+        th["carry"]["stablecoin_borrow_ann"]
+    ), "FALLBACK: config stablecoin_borrow_ann 6% (no observed borrow rate within 30 h)"
+
+
 def _trade_prelude(now: datetime):
     th = _cfg("thresholds.yaml")
+    rate, src = borrow_rate(now, th)
+    th = {**th, "carry": {**th["carry"], "stablecoin_borrow_ann": rate, "borrow_source": src}}
     vcfg = _cfg("venues.yaml")
     fees = vcfg.get("fees", {})
     vs = archive.read("venue_scores")
@@ -350,13 +375,18 @@ def compute_trades_carry(now: datetime, sha: str) -> pl.DataFrame:
 
     df = _stamp(frames, now, sha)
     if df.height:
+        df = df.with_columns(
+            pl.lit(th["carry"]["borrow_source"]).alias("cost_source"),
+            pl.lit(th["carry"]["stablecoin_borrow_ann"]).alias("borrow_rate_ann"),
+        )
         archive.replace_slice("trades_carry", "as_of", now.date(), df)
     return df
 
 
 def compute_trades_vol(now: datetime, sha: str) -> pl.DataFrame:
-    """Daily (write set): the volatility-selling rows → `trades_vol`. No FORBIDDEN gate since
-    review decision 2; the dominant-risk text carries the 4.3 driver."""
+    """Hourly (write set, since work order 6 C2): the volatility-selling rows → `trades_vol`,
+    on the same hourly options snapshot as the 4.3 driver they quote. No FORBIDDEN gate since
+    review decision 2; the dominant-risk text carries the driver."""
     _th, _fees, scores = _trade_prelude(now)
     frames: list[pl.DataFrame] = []
     om = _latest("options_metrics", "ts")
@@ -450,10 +480,48 @@ def compute_screens(now: datetime, sha: str, as_of: date | None = None) -> pl.Da
     )
     df = df.with_columns(
         pl.col("id").replace_strict(sectors, default="other").alias("sector"),
-        (pl.col("market_cap_usd") / pl.col("fdv_usd")).alias("float_ratio"),
+        # E2 (work order 6): a float ratio of exactly 1 with no total supply on record is the
+        # aggregator's placeholder (FDV set equal to market cap), not a fully-floated token
+        pl.when(
+            pl.col("fdv_usd").is_null()
+            | (pl.col("fdv_usd") <= 0)
+            | (
+                pl.col("total_supply").is_null()
+                & ((pl.col("market_cap_usd") / pl.col("fdv_usd") - 1.0).abs() < 1e-6)
+            )
+        )
+        .then(None)
+        .otherwise(pl.col("market_cap_usd") / pl.col("fdv_usd"))
+        .alias("float_ratio"),
+        pl.when(
+            pl.col("fdv_usd").is_null()
+            | (pl.col("fdv_usd") <= 0)
+            | (
+                pl.col("total_supply").is_null()
+                & ((pl.col("market_cap_usd") / pl.col("fdv_usd") - 1.0).abs() < 1e-6)
+            )
+        )
+        .then(pl.lit("no supply data"))
+        .otherwise(pl.lit(None, dtype=pl.Utf8))
+        .alias("float_ratio_note"),
     )
     if e13 is not None:
         df = df.join(e13, on="id", how="left")
+    # E4 (work order 6): distinguish "no vesting schedule on record" from "not computed"
+    ev = archive.read("unlock_events")
+    with_schedule = set(ev["id"].unique().to_list()) if ev is not None and ev.height else set()
+    df = df.with_columns(
+        pl.when(
+            pl.col("esp_days_of_volume").is_not_null()
+            if "esp_days_of_volume" in df.columns
+            else pl.lit(False)
+        )
+        .then(pl.lit(None, dtype=pl.Utf8))
+        .when(pl.col("id").is_in(list(with_schedule)))
+        .then(pl.lit("not computed (schedule on record; float, price or volume missing)"))
+        .otherwise(pl.lit("no vesting schedule on record"))
+        .alias("esp_note")
+    )
     if dil is not None:
         df = df.join(dil.select("id", "dilution"), on="id", how="left")
     if liq is not None:
@@ -593,6 +661,13 @@ def book_factor_exposure(now: datetime) -> dict | None:
     return {"factor_exposure": b["factor_exposure"], "factor_week": b.get("factor_week")}
 
 
+def latest_vol_rows() -> list[dict]:
+    t = archive.read("trades_vol")
+    if t is None or not t.height:
+        return []
+    return t.filter(pl.col("as_of") == t["as_of"].max()).to_dicts()
+
+
 def latest_carry_rows() -> list[dict]:
     t = archive.read("trades_carry")
     if t is None or not t.height:
@@ -609,8 +684,9 @@ def compute_risk_daily(now: datetime | None = None) -> dict:
     book = compute_book_risk(now, sha)
     book.pop("factor_exposure", None)
     out = {"venue": compute_venue_panel(now, sha), "book": book}
-    v = compute_trades_vol(now, sha)
-    out["trades"] = (v.to_dicts() if v.height else []) + latest_carry_rows()
+    # C2 (work order 6): the vol rows are hourly (their driver is hourly); risk.json only
+    # relays the latest hourly rows of both halves
+    out["trades"] = latest_vol_rows() + latest_carry_rows()
     write_risk_json(out)
     return out
 

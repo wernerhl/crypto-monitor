@@ -111,6 +111,27 @@ symbols on the same feed are in base units). No systemd service, no VPS cost; bo
 instances were terminated after the test.** `liq_source` continues to list only venues with
 rows in the window; Binance rows appear once the restarted collector has run an hour.
 
+## Freshness contract and status files (work order 6)
+`config/freshness.yaml` names every processed table with its cadence, budget, owning job and
+parent. Every job ends by writing `site/data/status_<job>.json` and running
+`freshness.assert_job`, which fails the job when a table it owns is over budget or lags its
+parent by more than one period; a failed job is the signal, never a silently frozen grid.
+Ages are measured on the data's time column. The status page merges the per-job views and
+lists every fetch record; datasets in `config/sources.yaml: runner_blocked` are a footnote
+there, not a front-page banner. To add a table: register it in `archive.KEYS`, then in the
+contract (the test suite fails when a table has no entry). The daily workflow also loads the
+deployed page in headless Chromium (`scripts/check_rendered_page.py`): seven panels populated,
+no console or page error, screenshot in the run artefacts.
+
+**Collector commits raw files only (since 2026-09-13).** Two instances of the hourly job
+(runner and Mac) committing the same processed tables conflicted on 2026-09-10 and the
+collector clone sat on an unresolved rebase for four days. `scripts/collector.sh` now stages
+only `data/raw/**` for Binance, Bybit and the websocket streams (`collector` write set), and
+resets its local tables before pulling; the runner's hourly job parses every websocket hour
+newer than `liq_coverage`. If the clone is ever stuck again: `git rebase --abort; git reset
+--hard origin/main` keeps the untracked raw files, then commit them by hand with the same
+pattern.
+
 ## Alerts (GitHub issues and RSS)
 `uv run monitor alerts` (run by the hourly and daily workflows with `GH_TOKEN`) opens one
 issue per active condition — a Rule 4.1–4.3 firing (`rule:<id>:<asset>`), a venue limit

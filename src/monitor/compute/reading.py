@@ -151,12 +151,26 @@ def state_reading(
         add({"t": ". "})
     else:
         add({"t": "No pre-committed 4.x rule is firing"})
-        add(
-            {
-                "t": f" ({len(unavailable)} unavailable)" if unavailable else "",
-                "href": "#p-triggers",
-            }
-        )
+        if unavailable:  # C4: name the leg that is actually missing, never a generic sentence
+            legs: dict[str, int] = {}
+            for r in unavailable:
+                note = str(r.get("note") or "")
+                names = (
+                    [x.strip() for x in note.split(":", 1)[1].split(",")]
+                    if "unavailable:" in note
+                    else ["unknown"]
+                )
+                for n in names:
+                    if n:
+                        legs[n] = legs.get(n, 0) + 1
+            add(
+                {
+                    "t": f" ({len(unavailable)} unavailable: "
+                    + ", ".join(f"missing {k} ×{v}" for k, v in legs.items())
+                    + ")",
+                    "href": "#p-triggers",
+                }
+            )
         add({"t": ". "})
     if cliffs:
         add({"t": "Cliff calendar: "})

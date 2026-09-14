@@ -10,6 +10,7 @@ Weekly review checklist (notes Section 10: documented review, not automatic demo
 - [ ] Events reviewed? \`config/events.yaml\`: upgrades, listings, regulatory dates for the next four weeks, each with a source URL.
 - [ ] Thresholds unchanged? \`config/thresholds.yaml\` \`calibrated_on\` untouched; if a change is proposed, attach the written case that the mechanism changed.
 - [ ] Systemic exposures list still current (stablecoins, lending protocols, bridges, collateral assets)?
+- [ ] Sector \"other\" (work order 6, E3): assign by hand and bump the taxonomy version in \`config/universe.yaml\`. Names currently in \"other\": $(PYTHONPATH=src uv run --no-sync python -c "import polars as pl; from monitor import archive; s=archive.read('screens'); s=s.filter(pl.col('as_of')==s['as_of'].max()); o=s.filter(pl.col('sector')=='other'); print(f'{o.height} of {s.height}: '+', '.join(sorted(o['symbol'].to_list())))" 2>/dev/null || echo "n/a")
 - [ ] Sector map reviewed (quarterly) — \`config/universe.yaml\` sector_map.reviewed_on.
 - [ ] Rule owners presented trailing hit rates (methods page) and argued for retention / modification / removal; decision recorded in \`docs/changelog.md\`.
 - [ ] Data-source status page: any table stale or unavailable for more than a week?

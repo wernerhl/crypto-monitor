@@ -151,24 +151,41 @@ SOURCE_OF = {
 }
 
 
+SOURCE_TABLE = {
+    "z_fr": "funding_daily",
+    "z_oi": "oi_daily",
+    "z_vrp_neg": "dvol_daily",
+    "z_dd": "prices_daily",
+    "z_sc_neg": "stablecoin_growth",
+}
+
+
 def check_components(
     row: dict, source_dates: dict[str, date | None], as_of: date, max_lag_days: int = 1
 ) -> list[dict]:
-    """Return the gaps (component, reason) for the null components of a live row. A null
-    component whose source table is fresh (last date within `max_lag_days` of as_of) is a
-    build failure and raises, so the job fails instead of publishing Φ on fewer components."""
+    """Return the gaps (component, reason) for the null components of a live row. The reason
+    comes from the freshness contract (work order 6, A3): 'source stale since 2026-09-07
+    (dvol_daily; parent dvol is current)'. A null component whose source table is fresh by the
+    contract is a build failure and raises — never a 'needs 30+ days' message unless the
+    window count really is below 30 (that case has its own reason)."""
+    from monitor import freshness
+
     gaps: list[dict] = []
     for c in COMPONENTS:
         if row.get(c) is not None:
             continue
-        src = SOURCE_OF[c]
-        last = source_dates.get(c)
-        if last is not None and (as_of - last).days <= max_lag_days:
+        n = row.get(f"{c}_n")
+        if n is not None and n < 30:
+            gaps.append({"component": c, "reason": f"needs 30+ days of history ({n} so far)"})
+            continue
+        table = SOURCE_TABLE[c]
+        reason = freshness.reason_for(table)
+        if reason is None:
+            last = source_dates.get(c)
             raise RuntimeError(
-                f"fragility component {c} is null although its source {src} is fresh "
-                f"(last {last}, as_of {as_of}); refusing to publish Φ on fewer components"
+                f"fragility component {c} is null although its source {table} is fresh by the "
+                f"contract (last input {last}, as_of {as_of}); refusing to publish Φ on fewer components"
             )
-        reason = f"{src} stale: last {last}" if last is not None else f"{src} has no rows"
         gaps.append({"component": c, "reason": reason})
     return gaps
 

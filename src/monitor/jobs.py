@@ -294,6 +294,16 @@ MAX_AGE_H: dict[str, float] = {
 }
 
 
+def _known_blocked() -> list[str]:
+    """Datasets known to be geo-blocked from GitHub runners (config/sources.yaml `runner_blocked`),
+    shown as a status-page footnote rather than a banner (G1)."""
+    try:
+        src = yaml.safe_load((CONFIG / "sources.yaml").read_text())
+        return list(src.get("runner_blocked", []))
+    except (OSError, ValueError):
+        return []
+
+
 def table_status(now: datetime | None = None) -> list[dict]:
     now = now or utc_now()
     rows = []
@@ -368,15 +378,18 @@ def write_site_json(out: Path = SITE_DATA) -> None:
             )
         )
         fetches = latest.sort("ok", "dataset").to_dicts()
-    (out / "status.json").write_text(
+    from monitor import freshness
+
+    freshness.write_status("daily", out, fetches)
+    (out / "status.json").write_text(  # compatibility copy: the daily job's view
         dump_json(
             {
                 "generated_at": utc_now().isoformat(),
                 "git_sha": git_sha(),
-                "tables": table_status(),
+                "tables": freshness.table_rows(),
                 "fetches": fetches,
-            },
-            default=str,
+                "known_blocked": _known_blocked(),
+            }
         )
     )
     uni = archive.read("universe")

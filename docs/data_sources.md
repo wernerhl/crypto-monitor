@@ -322,3 +322,13 @@ skipped live test (`tests/unit/test_coinglass.py`), then `PYTHONPATH=src uv run 
 python -c "from monitor.backfill import rebuild_leverage_history as r; print(r())"`, then
 `monitor compute hourly` (rebuilds `fragility_series`) and `monitor compute weekly` (re-runs
 the Φ validation), and record the result in the changelog.
+
+
+## DefiLlama yields (added 2026-09-13, work order 6 F1)
+`https://yields.llama.fi/lendBorrow` (variable borrow APY per pool, `apyBaseBorrow`) and
+`/pools` (pool metadata), both verified live 2026-09-13. The carry rows' financing cost is the
+cheaper of the Aave v3 Ethereum USDC and USDT variable borrow APYs (pool ids in
+`config/thresholds.yaml: carry.borrow_rate_pools`), fetched daily into `borrow_rates`; when no
+observation is fresher than 30 h the 6 % config value is used and flagged FALLBACK in the row
+and on the cost tile. Venue margin-borrow rates are not exposed by the venues' public APIs and
+are not used.

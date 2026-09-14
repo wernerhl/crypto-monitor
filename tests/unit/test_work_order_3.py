@@ -192,3 +192,46 @@ def test_no_workflow_or_script_auto_resolves_merges():
     for wf in ("hourly", "daily", "weekly", "manual"):
         text = (ROOT / ".github" / "workflows" / f"{wf}.yml").read_text()
         assert "group: data-write" in text and "check_write_set.py" in text
+
+
+def test_term_slope_tile_equals_the_chart_at_the_same_tenors():
+    """C1 (work order 6): the tile's 1w/1m/3m values are the same interpolation of the same
+    per-expiry ATM series the chart plots (term_point on expiry_metrics)."""
+    from datetime import UTC, datetime, timedelta
+
+    from monitor.compute import positioning as pos
+
+    now = datetime(2026, 9, 14, tzinfo=UTC)
+    rows = []
+    for days, iv in ((0.3, 27.0), (4, 39.5), (17, 37.0), (46, 36.5), (102, 38.5), (285, 39.5)):
+        exp = now + timedelta(days=days)
+        for k, typ in (
+            (60000, "call"),
+            (60000, "put"),
+            (55000, "put"),
+            (65000, "call"),
+            (50000, "put"),
+            (70000, "call"),
+        ):
+            rows.append(
+                {
+                    "ts": now,
+                    "currency": "BTC",
+                    "expiry": exp,
+                    "t_years": days / 365,
+                    "strike": float(k),
+                    "option_type": typ,
+                    "mark_iv": iv,
+                    "underlying_price": 60000.0,
+                    "open_interest": 10.0,
+                    "delta_est": 0.5 if k == 60000 else (0.25 if typ == "call" else -0.25),
+                }
+            )
+    chain = pl.DataFrame(rows).with_columns(pl.col("expiry").cast(pl.Datetime("us", "UTC")))
+    m = pos.options_metrics(chain, np.zeros(40))
+    em = pos.expiry_metrics(chain.with_columns(pl.col("mark_iv") / 100.0))
+    for tenor, key in ((7, "iv_1w"), (30, "iv_1m"), (90, "iv_3m")):
+        assert abs(pos.term_point(em, tenor / 365) - m[key]) < 1e-12
+    assert m["term_slope"] == m["iv_3m"] - m["iv_1w"]
+    # the sub-day expiry (27 %) is not what the 1w tenor reads
+    assert m["iv_1w"] > 0.35

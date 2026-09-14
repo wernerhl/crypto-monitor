@@ -65,6 +65,7 @@ def fetch_context(ts: datetime | None = None, force: bool = False) -> dict[str, 
                 lambda: llama.fetch_unlock_detail(_tier12_slugs(), ts=ts, force=force),
             ),
         ),
+        ("llama_yields", lambda: llama.fetch_yields_borrow(ts=ts, force=force)),
         ("fred", lambda: fred.fetch_series(ts=ts, force=force)),
         ("fred_meta", lambda: fred.fetch_meta(ts=ts, force=force)),
         ("coinmetrics", lambda: onchain.fetch_coinmetrics(start=cm_start, ts=ts, force=force)),
@@ -82,13 +83,15 @@ def fetch_context(ts: datetime | None = None, force: bool = False) -> dict[str, 
             ),
         ),
     ]
+    # A4 (work order 6): every non-exchange fetch writes a fetch record (ok / reason) like the
+    # exchange adapters, so the status page and the dataset-unavailable alert see them
+    from monitor.fetch.resilient import FetchRun
+
+    fr = FetchRun("daily", ts)
     for name, fn in steps:
-        try:
-            p = fn()
-            out[name] = str(p) if p else "skipped (no key)"
-        except Exception as e:
-            log.warning("%s failed: %s", name, e)
-            out[name] = f"FAILED: {e}"
+        res = fr.run(name, fn)
+        out[name] = fr.out.get(name, str(res) if res else "skipped (no key)")
+    fr.flush()
     return out
 
 
@@ -152,6 +155,10 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
     put("unlock_supply", sups)
     put("unlock_detail", [llama.parse_unlock_detail(e) for e in E("llama_datasets_unlock_detail")])
     put("fees_tvl", [llama.parse_fees_tvl(e) for e in E("llama_api_fees_tvl")])
+    pools = _cfg("thresholds.yaml")["carry"].get("borrow_rate_pools", {})
+    put(
+        "borrow_rates", [llama.parse_yields_borrow(e, pools) for e in E("llama_yields_lend_borrow")]
+    )
     # oi_rubik (1D and 1H) is parsed by the hourly job only (write sets, work order 3)
     put("macro", [fred.parse_series(e) for e in E("fred_csv_series")])
     put("onchain", [onchain.parse_coinmetrics(e) for e in E("coinmetrics_asset_metrics")])
@@ -178,7 +185,10 @@ def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
     if uni is None:
         return counts
     uni = uni.filter(pl.col("as_of") == uni["as_of"].max())
-    as_of = as_of or uni["as_of"][0]
+    # A1 (work order 6): as_of is today, not the universe's as_of — the universe is recomputed
+    # weekly since work order 3, and taking its date froze ESP, dilution, cliffs, the event
+    # strip and the stablecoin growth at the last weekly run
+    as_of = as_of or now.date()
     markets = archive.read("markets")
     mk = markets.filter(pl.col("as_of") == markets["as_of"].max()).unique(
         subset=["id"], keep="last"
@@ -525,6 +535,13 @@ def _hit_rates() -> dict:
     }
 
 
+def _live_fragility_date() -> date:
+    f = archive.read("fragility")
+    if f is None or not f.height:
+        return utc_now().date()
+    return f.sort("ts")["date"][-1]
+
+
 def write_history_json(out: Path = SITE_DATA, days: int = 730) -> None:
     """Time series the charts read (data/history.json): fragility history and components,
     OI-weighted funding for the majors, stablecoin growth, macro context, BTC close, DVOL and
@@ -545,8 +562,13 @@ def write_history_json(out: Path = SITE_DATA, days: int = 730) -> None:
         "generated_at": utc_now().isoformat(),
         "git_sha": git_sha(),
         "days": days,
+        # A5 (work order 6): the chart reads the shared live/history series, not the backfill's
+        # copy (which stopped at its last walk-forward run); the live day is excluded because
+        # it is a partial-day value, so the last row is the live date minus one
         "fragility": series(
-            "fragility_history", ["phi", "n_components", "z_fr", "z_dd", "z_sc_neg"]
+            "fragility_series",
+            ["phi", "n_components", "z_fr", "z_oi", "z_vrp_neg", "z_dd", "z_sc_neg"],
+            where=pl.col("date") < _live_fragility_date(),
         ),
         "funding": {
             b: series("funding_daily_history", ["funding_ann", "oi_usd"], where=pl.col("base") == b)
@@ -567,7 +589,11 @@ def write_history_json(out: Path = SITE_DATA, days: int = 730) -> None:
         "basis": _basis_history(cutoff),
         "hit_rates": _hit_rates(),
     }
-    (out / "history.json").write_text(dump_json(_round(payload)))
+    rounded = _round(payload)
+    rounded["fragility"] = _round(
+        payload["fragility"], 9
+    )  # A5: live == history to 1e-6 needs more than 5 digits
+    (out / "history.json").write_text(dump_json(rounded))
 
 
 def _round(o, sig: int = 5):

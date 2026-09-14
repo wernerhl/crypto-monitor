@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def allowed(job: str, path: str, cfg: dict) -> bool:
     spec = cfg[job]
     if path.startswith("data/raw/"):
+        pats = spec.get("raw_patterns")
+        if pats:
+            return bool(spec.get("raw")) and any(p in path for p in pats)
         return bool(spec.get("raw"))
     if path.startswith("data/processed/"):
         return Path(path).stem in spec["tables"]

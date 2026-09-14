@@ -308,3 +308,46 @@ def json_dumps(o) -> str:
 
 def as_date(d: date | datetime) -> date:
     return d.date() if isinstance(d, datetime) else d
+
+
+def fetch_yields_borrow(ts: datetime | None = None, force: bool = False) -> Path:
+    """DefiLlama yields: /lendBorrow (variable borrow APY per pool) — work order 6, F1."""
+    return run_dataset(
+        "llama_yields", "lend_borrow", "daily", lambda c: [c.get("/lendBorrow")], ts=ts, force=force
+    )
+
+
+def parse_yields_borrow(env: Envelope, pools: dict[str, str]) -> pl.DataFrame:
+    """as_of, asset, pool, apy_borrow (decimal), total_borrow_usd, source for the configured pools."""
+    fetched = datetime.fromisoformat(env.fetched_at)
+    want = {v: k for k, v in pools.items()}
+    rows = []
+    for rec in env.records:
+        body = rec.body if isinstance(rec.body, list) else (rec.body or {}).get("data", [])
+        for r in body or []:
+            asset = want.get(r.get("pool"))
+            if asset is None or r.get("apyBaseBorrow") is None:
+                continue
+            rows.append(
+                {
+                    "as_of": fetched.date(),
+                    "asset": asset,
+                    "pool": r["pool"],
+                    "apy_borrow": float(r["apyBaseBorrow"]) / 100.0,
+                    "total_borrow_usd": float(r.get("totalBorrowUsd") or 0.0),
+                    "source": "defillama yields lendBorrow (aave-v3 ethereum)",
+                    "fetched_at": fetched,
+                    "git_sha": env.git_sha,
+                }
+            )
+    schema = {
+        "as_of": pl.Date,
+        "asset": pl.Utf8,
+        "pool": pl.Utf8,
+        "apy_borrow": pl.Float64,
+        "total_borrow_usd": pl.Float64,
+        "source": pl.Utf8,
+        "fetched_at": pl.Datetime("us", "UTC"),
+        "git_sha": pl.Utf8,
+    }
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)

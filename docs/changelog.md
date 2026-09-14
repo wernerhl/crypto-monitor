@@ -452,3 +452,87 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   line), which left panels 3–7 empty on the live page while every JSON was correct; the
   JSON-only acceptance checks of work orders 2–3 did not catch it. Fixed;
   `scripts/check_site_js.py` (node --check on the rendered scripts) now runs in CI.
+
+## 2026-09-13 — Work order 6: dashboard audit (live commit 24fa4a7c)
+* **A1 root cause — frozen daily grids.** Two defects, not one. (1) The context job took its
+  `as_of` from the universe table (`uni["as_of"][0]`); since work order 3 the universe is
+  recomputed weekly, so ESP, dilution, cliffs, the event strip and the stablecoin 30-day
+  growth were all stamped with the last weekly run (2026-09-08) and never advanced, while
+  the coin-level stablecoin rows (a source table) kept arriving. (2) `dvol_daily` was written
+  by the backfill only; no scheduled job extended it, so the DVOL grid behind the VRP
+  component stopped at 2026-09-07 and the one-day carry hid it for a day. Fixes: `as_of` is
+  today's date; `dvol_daily` is derived every hour from the live DVOL rows (last of day).
+  Both grids were backfilled from raw files that were on disk all along. The freshness
+  contract would have caught either on day one, and now does.
+* **A2/A3 freshness contract.** `config/freshness.yaml` names all 77 processed tables with
+  cadence, budget (3 h / 30 h / 8 d / 10 d, `event` for state tables), owning job, source or
+  derived with parent named, and the time column the age is measured on — the data's own
+  column, never `fetched_at` (rows re-upserted daily with an old date looked fresh). Every job
+  ends with `freshness.write_status(job)` → `status_<job>.json` and `freshness.assert_job(job)`,
+  which fails the job naming any owned table over budget or lagging its parent by more than
+  one period. The status page merges the per-job views (≥ 76 tables, per-cadence budgets)
+  and lists every fetch record with the known-blocked footnote. The fragility tiles take
+  their gap reason from the contract ("source stale since 2026-09-07 (dvol_daily; parent
+  dvol is current)"); "needs 30+ days" appears only when n < 30.
+* **A4.** The context fetches (DefiLlama ×4, FRED, CoinMetrics, blockchain.info, mempool,
+  beaconcha.in, Snapshot, OKX rubik) run through `FetchRun("daily")` and write fetch records;
+  they take part in the dataset-unavailable alert with the two-consecutive-runs rule.
+* **B1 finding — collector coverage zero.** The websocket collector never stopped: it wrote
+  190 hourly envelopes from 2026-09-10 to 2026-09-14 (Binance via dstream, Bybit). What
+  stopped was the collector clone's hourly commit: on 2026-09-10 05:37Z its `git pull
+  --rebase` hit binary conflicts against the runner's hourly commit on the same hourly tables
+  (two instances of the same job writing the same set), the plain rebase left the clone on
+  an unresolved rebase, and every later run exited at `git pull` — no raw files reached the
+  repository, so `liq_coverage` stopped at 2026-09-10 02:00 and the runner never saw the new
+  hours. Fix: the collector now commits only the raw envelopes the runners cannot fetch
+  (Binance, Bybit, websocket streams; a `collector` write set with raw patterns) and no
+  processed table; the runner's hourly job parses every websocket hour newer than the
+  coverage table, not only the latest file. The Mac itself sleeps most hours (connected
+  share ≈ 1 % in sleeping hours, 65 % when awake); the coverage table shows the holes.
+* **B2–B4.** Heartbeat per venue on the triggers panel; "collector silent" alert when a
+  venue's last coverage hour is older than 3 h; `liq_source` from rows only ("no liquidation
+  sample in window" with none); the 4.2 chip states when the 30-day percentile becomes
+  available from the coverage accrual (or how many covered days exist).
+* **C1 — which tenor was wrong: neither; the chart's leftmost point was.** The tile's
+  1w/1m/3m are interpolations of the same per-expiry ATM series the chart plots
+  (`term_point` on `expiry_metrics`): 7 d = 38.4 %, 90 d = 38.4 % on 2026-09-14, so the
+  slope was genuinely flat. The "1w ≈ 27 %" read off the chart was the 14 Sep expiry seven
+  hours from expiry, plotted at 0.3 days on the log axis next to the "1d" tick. The chart
+  now drops expiries under one day and draws the tile's three tenors as diamonds; the tile
+  states the slope in vol points with both ends; a test asserts tile == chart interpolation.
+* **C2.** The vol-selling rows moved to the hourly write set (their driver is hourly), which
+  corrects work order 4's assignment. **C3.** The vol-state tile left the top strip; the
+  market-state panel shows it as an "explicitly uncertain summary" with durations in weeks
+  and parameter standard errors. **C4.** "N unavailable" names the missing leg
+  (`missing long_liq_24h_pctile ×12`) in the banner, the triggers count and the reading.
+  **C5.** The history chart title states its own component counts (range over the window
+  and the last row); the gauge states the live count.
+* **D.** Expiry rows deduplicated on (currency, expiry) keeping the latest OI snapshot; no
+  row before today; governance rows carry the proposal id; as-of is today.
+* **E.** Screens default to gate-open names plus the 25 largest |momentum z| with a
+  show-all toggle (CSV unchanged); a float ratio of exactly 1 with no total supply is stored
+  as null with `float_ratio_note = "no supply data"`, excluded from the sector z-score and
+  rendered as "—"; the weekly review issue lists the "other"-sector names for hand
+  assignment; an empty ESP cell says "no vesting schedule on record" or "not computed".
+* **F.** The spot-leg financing cost is the observed Aave v3 Ethereum variable borrow rate
+  (the cheaper of USDC and USDT) from DefiLlama yields `/lendBorrow` (endpoint and pool ids
+  verified live 2026-09-13; USDC 13.98 %, USDT 4.08 % that day), refreshed daily
+  (`borrow_rates`), with the 6 % config value kept as a flagged fallback; the cost tile shows
+  the rate and its source. Bar labels use ISO dates. Default trade view: best net structure
+  per asset, full table under a toggle.
+* **G1.** The front-page banner lists only unexpected fetch failures; datasets in
+  `config/sources.yaml: runner_blocked` (or answering 451/403) are a status-page footnote.
+* **H.** `scripts/check_rendered_page.py` (Playwright, headless Chromium) runs in the daily
+  workflow after deploy: seven panels with > 500 characters, zero console or page errors,
+  screenshot uploaded as a run artefact. The freshness assertion runs at the end of every
+  job. Tests added for event deduplication and past dates, tile == chart tenors, vol rows in
+  the hourly set, `liq_source` from rows, the float placeholder, the borrow adapter and the
+  five-day history == live equality (the earlier test passed on a series that had stopped).
+* **I1.** The methods page no longer describes the fourth component as the negative of the
+  drawdown; formulas cross-checked against `docs/indicators.md` (the stale `phi` row there
+  fixed too).
+* **G2 — first real trigger event.** Rule 4.1 (crowded long) fired on ETH at 00:52, 05:59
+  and 11:42 UTC on 2026-09-13 and was quiet from 16:11 UTC; alert issue #30 opened 00:52 and
+  closed 16:11. The rows are in `rule_fires` (three evaluations, one fired day). The hit-rate
+  table counts one (rule, asset, day) at the 5-day horizon, so the 4.1 row goes from n = 0 to
+  n = 1 on 2026-09-18, a hit if ETH's 5-day log return from the flag day is negative.

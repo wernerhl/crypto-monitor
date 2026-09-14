@@ -13,6 +13,7 @@ from monitor import rules as rules_mod
 from monitor.compute import hitrates
 from monitor.compute import trades as tr
 from monitor.compute.reading import reading_text, state_reading
+from monitor.meta import utc_now
 
 ROOT = Path(__file__).resolve().parents[2]
 TH = {"vol_underpricing": {"vrp_max": 0.0, "phi_min": 1.0}}
@@ -101,7 +102,7 @@ def test_alerts_ignore_readings(tmp_path, monkeypatch):
     monkeypatch.setattr(archive, "PROCESSED", tmp_path / "processed")
     monkeypatch.setattr(archive, "ARCHIVE", tmp_path / "archive")
     (tmp_path / "site" / "data").mkdir(parents=True)
-    now = datetime(2026, 9, 9, 1, tzinfo=UTC)
+    now = utc_now().replace(microsecond=0)
     prov = {"source": "t", "fetched_at": now, "git_sha": "x"}
     archive.upsert(
         "rule_fires",
@@ -142,7 +143,7 @@ def test_write_sets_match_the_work_order_4_assignment():
         "trades_carry" in cfg["hourly"]["tables"]
         and "site/data/hourly.json" in cfg["hourly"]["site"]
     )
-    for t in ("book_risk", "venue_scores", "trades_vol", "hit_rates", "cliff_calendar"):
+    for t in ("book_risk", "venue_scores", "borrow_rates", "hit_rates", "cliff_calendar"):
         assert t in cfg["daily"]["tables"], t
     assert (
         "site/data/risk.json" in cfg["daily"]["site"]
@@ -150,7 +151,7 @@ def test_write_sets_match_the_work_order_4_assignment():
     )
     for t in ("universe", "factor_betas", "screens", "cliff_study", "phi_shock_events"):
         assert t in cfg["weekly"]["tables"], t
-    assert cfg["weekly"]["site"] == ["site/data/screens.json"]
+    assert "site/data/screens.json" in cfg["weekly"]["site"]
     seen = {}
     for job, spec in cfg.items():
         for t in spec["tables"]:

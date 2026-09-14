@@ -8,7 +8,7 @@ import contextlib
 import json
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -212,6 +212,29 @@ def _envs(store: RawStore, name: str, rebuild: bool):
     return [store.read(f) for f in files if f]
 
 
+def _ws_envelopes(store: RawStore, venue: str, rebuild: bool) -> list:
+    """Every websocket envelope of `venue` whose hour is newer than the coverage table's last
+    hour for that venue (all of them on rebuild). The collector commits several hours at once
+    and the runner must not skip any (work order 6, B1)."""
+    name = f"{venue}_liquidations_ws"
+    files = store.all(name)
+    if rebuild or not files:
+        return [store.read(f) for f in files]
+    cov = archive.read("liq_coverage")
+    last = None
+    if cov is not None and cov.height:
+        v = cov.filter(pl.col("venue") == venue)
+        last = v["hour"].max() if v.height else None
+    out = []
+    for f in files:
+        y, m, d = f.relative_to(store.root).parts[:3]
+        hh = f.name.rsplit("_", 1)[-1][:2]
+        hour = datetime(int(y), int(m), int(d), int(hh), tzinfo=UTC)
+        if last is None or hour > last:
+            out.append(store.read(f))
+    return out
+
+
 def compute_hourly(rebuild: bool = False) -> dict[str, int]:
     """Parse the hourly raw files into tables, then recompute the derived tables."""
     store = RawStore()
@@ -275,16 +298,20 @@ def compute_hourly(rebuild: bool = False) -> dict[str, int]:
     if listings is not None:
         ok = listings.filter((pl.col("venue") == "okx") & (pl.col("market") == "perp"))
         cv = dict(zip(ok["symbol"], ok["multiplier"], strict=True))
+    ws_b, ws_y = _ws_envelopes(store, "binance", rebuild), _ws_envelopes(store, "bybit", rebuild)
     put(
         "liquidations",
         [okx.parse_liquidations(e, cv) for e in E("okx_liquidations")]
-        + [binance.parse_liquidations_ws(e) for e in E("binance_liquidations_ws")]
-        + [bybit.parse_liquidations_ws(e) for e in E("bybit_liquidations_ws")],
+        + [binance.parse_liquidations_ws(e) for e in ws_b]
+        + [bybit.parse_liquidations_ws(e) for e in ws_y],
     )
+    # A1 (work order 6): the daily DVOL grid was written by the backfill only and never advanced;
+    # derive it every hour from the live DVOL rows (last value per UTC day), so the VRP grid
+    # keeps pace with the hourly fetch
+    put("dvol_daily", [_dvol_daily_from_live()])
     put(
         "liq_coverage",
-        [binance.parse_liq_coverage(e) for e in E("binance_liquidations_ws")]
-        + [bybit.parse_liq_coverage(e) for e in E("bybit_liquidations_ws")],
+        [binance.parse_liq_coverage(e) for e in ws_b] + [bybit.parse_liq_coverage(e) for e in ws_y],
     )
     # options
     opt_frames, dv_frames = [], []
@@ -807,8 +834,10 @@ def _positioning_row(
         else None,
         "long_liq_24h_usd": long_liq_24h,
         "long_liq_24h_pctile": liq_pct,
-        "liq_source": _liq_source(liqs) if long_liq_24h is not None else None,
+        "liq_source": _liq_source(liqs),
         "liq_coverage_share": liq_cov,
+        "liq_heartbeat": json.dumps(_liq_heartbeat(), default=str),
+        "liq_pctile_available_on": _liq_pctile_available_on(now),
         "sigma_daily": sigma,
         "source": "perp_snapshot+prices_daily+orderbook_depth+liquidations",
         "fetched_at": now,
@@ -861,6 +890,27 @@ def _liq_coverage_share(liqs: pl.DataFrame | None, now: datetime, days: int = 30
     return good / (days * 24)
 
 
+def _dvol_daily_from_live() -> pl.DataFrame | None:
+    """dvol_daily rows (date, currency, dvol) from the hourly `dvol` table: the last reading of
+    each UTC day. Days already present from the Deribit history keep the history value only
+    when the live table has no reading for that day (upsert keeps the newest fetched_at)."""
+    live = archive.read("dvol")
+    if live is None or not live.height:
+        return None
+    d = (
+        live.sort("ts")
+        .with_columns(pl.col("ts").dt.date().alias("date"))
+        .group_by("date", "currency")
+        .agg(pl.col("dvol").last().alias("dvol"), pl.col("fetched_at").max().alias("fetched_at"))
+        .with_columns(
+            pl.col("dvol").cast(pl.Float64),
+            pl.lit("deribit dvol (hourly, last of day)").alias("source"),
+            pl.lit(git_sha()).alias("git_sha"),
+        )
+    )
+    return d.select("date", "currency", "dvol", "source", "fetched_at", "git_sha")
+
+
 def _live_driver(vh: pl.DataFrame, currency: str) -> dict | None:
     """Driver of today's VRP sign for the 4.3 row (compute.rule43): the latest day of the
     DVOL-based series with its 250-day percentiles."""
@@ -880,15 +930,46 @@ def _live_driver(vh: pl.DataFrame, currency: str) -> dict | None:
     }
 
 
-def _liq_source(liqs: pl.DataFrame | None, days: int = 30) -> str | None:
-    """Label the liquidation sample by the venues with rows in the trailing window (B1); a
-    venue whose stream is connected but silent is not listed."""
-    if liqs is None or not liqs.height:
+def _liq_heartbeat() -> dict[str, str | None]:
+    """Last coverage hour per websocket venue (B2): the collector's heartbeat."""
+    cov = archive.read("liq_coverage")
+    if cov is None or not cov.height:
+        return {}
+    return {
+        r["venue"]: r["hour"].isoformat()
+        for r in cov.group_by("venue").agg(pl.col("hour").max()).to_dicts()
+    }
+
+
+def _liq_pctile_available_on(now: datetime, need_days: int = 30) -> str | None:
+    """The date on which Rule 4.2's 30-day liquidation percentile becomes available, from the
+    coverage accrual: the first covered day plus 30 (B4). None without coverage rows."""
+    cov = archive.read("liq_coverage")
+    if cov is None or not cov.height:
         return None
+    good = cov.filter(pl.col("connected_share") >= 0.9).with_columns(
+        pl.col("hour").dt.date().alias("d")
+    )
+    days = (
+        good.group_by("d").len().filter(pl.col("len") >= 20)["d"].sort().to_list()
+    )  # ≥ 20 covered hours = a covered day
+    covered = len(days)
+    if not days:
+        return f"needs {need_days} covered days (0 so far; the collector's machine sleeps)"
+    if covered >= need_days:
+        return "available"
+    return (now.date() + timedelta(days=need_days - covered)).isoformat()
+
+
+def _liq_source(liqs: pl.DataFrame | None, days: int = 30) -> str | None:
+    """Label the liquidation sample by the venues with rows in the trailing window and nothing
+    else (B3): "no liquidation sample in window" when there are none."""
+    if liqs is None or not liqs.height:
+        return "no liquidation sample in window"
     recent = liqs.filter(pl.col("ts") >= utc_now() - timedelta(days=days))
     venues = sorted(recent["venue"].drop_nulls().unique().to_list())
     if not venues:
-        return None
+        return "no liquidation sample in window"
     kind = "single-venue sample" if len(venues) == 1 else "multi-venue"
     return f"{'+'.join(venues)} ({kind})"
 
@@ -1328,10 +1409,12 @@ def latest_rule_fires(max_age_hours: int = 48) -> pl.DataFrame | None:
 
 def _latest_carry() -> list[dict]:
     """Basis and funding-carry rows (hourly write set, `trades_carry`)."""
-    t = archive.read("trades_carry")
-    if t is None or not t.height:
-        return []
-    return t.filter(pl.col("as_of") == t["as_of"].max()).to_dicts()
+    out = []
+    for name in ("trades_carry", "trades_vol"):  # both halves are hourly since work order 6 (C2)
+        t = archive.read(name)
+        if t is not None and t.height:
+            out += t.filter(pl.col("as_of") == t["as_of"].max()).to_dicts()
+    return out
 
 
 def latest_calendar(max_age_hours: int = 48) -> pl.DataFrame | None:

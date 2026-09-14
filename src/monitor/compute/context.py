@@ -119,7 +119,7 @@ def event_strip(
                         "kind": "governance",
                         "asset": r["space"],
                         "title": r["title"][:100],
-                        "detail": f"{r['state']}, ends {r['end']:%Y-%m-%d %H:%M} UTC",
+                        "detail": f"{r['state']}, ends {r['end']:%Y-%m-%d %H:%M} UTC · proposal {str(r.get('id') or '')[:12]}",
                         "source": "snapshot",
                         "link": r.get("link"),
                     }
@@ -145,7 +145,14 @@ def event_strip(
             .agg(pl.col("total_oi").sum().alias("oi"))
             .to_dicts()
         }
-        for r in expiries.to_dicts():
+        # D1 (work order 6): one row per (currency, expiry): the expiries table holds one row per
+        # hourly OI snapshot, so keep the latest snapshot of each expiry
+        latest = (
+            expiries.sort("ts").unique(subset=["currency", "expiry"], keep="last")
+            if "ts" in expiries.columns
+            else expiries.unique(subset=["currency", "expiry"], keep="last")
+        )
+        for r in latest.to_dicts():
             d = r["expiry"].date()
             if not (as_of <= d <= end):
                 continue
@@ -172,6 +179,8 @@ def event_strip(
         "source": pl.Utf8,
         "link": pl.Utf8,
     }
+    # D2: a "next four weeks" strip never lists a past date
+    rows = [r for r in rows if r["date"] >= as_of]
     return pl.DataFrame(rows, schema=schema).sort("date") if rows else pl.DataFrame(schema=schema)
 
 

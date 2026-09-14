@@ -11,6 +11,7 @@ import polars as pl
 from monitor.compute import cliff_study as cs
 from monitor.compute import trades as tr
 from monitor.compute.reading import reading_text, state_reading
+from monitor.meta import utc_now
 
 
 def test_basis_table_shows_reverse_carry_when_the_basis_is_negative():
@@ -178,7 +179,7 @@ def test_alerts_open_and_close_conditions_dry_run(tmp_path, monkeypatch):
     monkeypatch.setattr(archive, "ARCHIVE", tmp_path / "archive")
     site = tmp_path / "site"
     (site / "data").mkdir(parents=True)
-    now = datetime(2026, 9, 8, 7, tzinfo=UTC)
+    now = utc_now().replace(microsecond=0)
     prov = {"source": "t", "fetched_at": now, "git_sha": "x"}
     archive.upsert(
         "rule_fires",
@@ -288,10 +289,9 @@ def test_alerts_open_and_close_conditions_dry_run(tmp_path, monkeypatch):
 
 def test_liq_source_label_names_the_venues_present():
     from monitor.jobs_hourly import _liq_source
-    from monitor.meta import utc_now
 
     now = utc_now()
-    assert _liq_source(None) is None
+    assert _liq_source(None) == "no liquidation sample in window"
     one = pl.DataFrame({"venue": ["okx", "okx"], "ts": [now, now]})
     assert _liq_source(one) == "okx (single-venue sample)"
     two = pl.DataFrame({"venue": ["okx", "binance", "bybit"], "ts": [now] * 3})
@@ -322,7 +322,7 @@ def test_alerts_live_run_creates_issues_for_conditions_opened_in_a_dry_run(tmp_p
     monkeypatch.setattr(archive, "ARCHIVE", tmp_path / "archive")
     site = tmp_path / "site"
     (site / "data").mkdir(parents=True)
-    now = datetime(2026, 9, 8, 7, tzinfo=UTC)
+    now = utc_now().replace(microsecond=0)
     prov = {"source": "t", "fetched_at": now, "git_sha": "x"}
     archive.upsert(
         "rule_fires",

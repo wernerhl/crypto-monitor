@@ -16,6 +16,7 @@ sources:
   llama_stables:    {base: https://stablecoins.llama.fi, verified_on: 2026-09-06}
   llama_api:        {base: https://api.llama.fi, verified_on: 2026-09-06, note: "emissions endpoints are paid (402); use llama_datasets"}
   llama_datasets:   {base: https://defillama-datasets.llama.fi, verified_on: 2026-09-06}
+  llama_yields:     {base: https://yields.llama.fi, verified_on: 2026-09-13, min_interval_s: 1}   # /pools and /lendBorrow verified live 2026-09-13
   fred_csv:         {base: https://fred.stlouisfed.org/graph/fredgraph.csv, verified_on: 2026-09-06, serial_only: true, min_interval_s: 1}
   fred_api:         {base: https://api.stlouisfed.org/fred, verified_on: 2026-09-06, key_env: FRED_API_KEY, optional: true}
   coinmetrics:      {base: https://community-api.coinmetrics.io/v4, verified_on: 2026-09-06}
@@ -31,3 +32,8 @@ unavailable:
   etf_flows: "no free official API found on 2026-09-06 (farside.co.uk is HTML; iShares download returns HTML)"
   lth_sopr: "not in CoinMetrics community tier; Glassnode optional"
   binance_bybit_liquidations_rest: "Binance allForceOrders removed (404); Bybit websocket only"
+
+# datasets known to be geo-blocked from GitHub-hosted runners (US addresses): a permanent
+# condition shown as a status-page footnote, not a front-page banner (work order 6, G1)
+runner_blocked: [binance_perps, binance_coinm, binance_long_short, binance_listings, binance_books, binance_klines_1h,
+                 bybit_perps, bybit_books, bybit_books_t2, bybit_klines, bybit_klines_1h, bybit_listings, bybit_trades]

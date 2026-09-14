@@ -11,6 +11,7 @@ import polars as pl
 import pytest
 
 from monitor.compute import cliff_study as cs
+from monitor.meta import utc_now
 
 
 def test_clustered_se_and_placebo():
@@ -65,7 +66,7 @@ def test_rule_51_firings_collapse_into_one_calendar_condition(tmp_path, monkeypa
     monkeypatch.setattr(archive, "ARCHIVE", tmp_path / "archive")
     site = tmp_path / "site"
     (site / "data").mkdir(parents=True)
-    now = datetime(2026, 9, 8, 7, tzinfo=UTC)
+    now = utc_now().replace(microsecond=0)
     prov = {"source": "t", "fetched_at": now, "git_sha": "x"}
     rows = [
         {

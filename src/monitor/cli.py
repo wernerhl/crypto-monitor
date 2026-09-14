@@ -124,16 +124,26 @@ def compute(
     liquidity, vol state, hourly.json; daily → context tables, hit rates, daily.json,
     history.json, status/universe JSON; weekly → universe, factors, screens, risk.json,
     studies."""
+    from monitor import freshness
+
+    def _finish(j: str) -> None:
+        """A3: every job writes status_<job>.json from the freshness contract and fails when a
+        table it owns breaches its budget or lags its parent."""
+        typer.echo(f"status: {freshness.write_status(j)}")
+        freshness.assert_job(j)
+
     if job in ("all", "hourly"):
         from monitor import jobs_hourly
 
         for k, v in jobs_hourly.compute_hourly(rebuild=rebuild or job == "all").items():
             typer.echo(f"{k}: {v} rows")
-        from monitor.jobs_risk import compute_trades_carry
+        from monitor.jobs_risk import compute_trades_carry, compute_trades_vol
         from monitor.meta import git_sha, utc_now
 
         typer.echo(f"trades_carry: {compute_trades_carry(utc_now(), git_sha()).height} rows")
+        typer.echo(f"trades_vol: {compute_trades_vol(utc_now(), git_sha()).height} rows")
         jobs_hourly.write_hourly_json()
+        _finish("hourly")
     if job in ("all", "daily"):
         from monitor import jobs, jobs_daily_ctx, jobs_weekly
 
@@ -145,11 +155,13 @@ def compute(
         r = compute_risk_daily()
         typer.echo(f"risk: venues {len(r['venue']['venues'])}, trades {len(r['trades'])}")
         jobs_daily_ctx.write_daily_json()
+        _finish("daily")
     if job in ("all", "weekly"):
         from monitor import jobs_weekly
 
         for k, v in jobs_weekly.compute_weekly().items():
             typer.echo(f"{k}: {v}")
+        _finish("weekly")
 
 
 @app.command()
