@@ -536,3 +536,10 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   closed 16:11. The rows are in `rule_fires` (three evaluations, one fired day). The hit-rate
   table counts one (rule, asset, day) at the 5-day horizon, so the 4.1 row goes from n = 0 to
   n = 1 on 2026-09-18, a hit if ETH's 5-day log return from the flag day is negative.
+* **Found while verifying: repository size.** The weekly job's size check now fails: tracked
+  files 202 MB, `.git` 713 MB (pack 786 MiB), total 915 MB against the 800 MB limit. The
+  growth is history, not raw files: every hourly commit rewrites ~300 processed and archive
+  parquet files (28–35 data commits a day on 7–9 September, 6–10 a day since). The check was
+  moved to the end of the weekly job so the weekly outputs are committed and deployed before
+  it runs; it still fails the run. Decision for the owner: squash the data history onto a
+  fresh branch (rewrites history) or raise the limit; neither is done here.
