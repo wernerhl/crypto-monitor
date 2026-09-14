@@ -178,6 +178,18 @@ shows up as `parquet: File out of specification`; rebuild it from `data/archive/
 (concatenate, `unique` on `archive.KEYS[table]`, write to `data/processed/`), or restore it
 with `git checkout origin/main -- data/processed/<table>.parquet` and recompute.
 
+## Repository size
+`scripts/check_repo_size.sh` fails the weekly job when tracked files plus `.git` exceed
+`LIMIT_MB` (default 2000, raised from 800 on 2026-09-14). The size is almost all `.git`
+history, not the working tree: each hourly bot commit rewrites ~300 processed and archive
+parquet files, so the pack grows ~30 MB/day. Raising the limit only defers the wall. The two
+durable fixes, neither applied yet (owner's call):
+* squash the data history onto a fresh orphan branch and force-push, discarding the old
+  per-hour snapshots (the archive parquet already holds the full series, so no data is lost);
+* or stop versioning `data/processed` and `data/archive` in the main branch — move them to a
+  data-only branch, a release asset, or Git LFS — and have the site read them from there.
+GitHub intervenes near 5 GB, so 2000 MB keeps the check meaningful in the meantime.
+
 ## Raw retention and rotation
 Daily raw files stay in the repo for 90 days; hourly raw files (books, trades, perps,
 liquidations, options) stay for 14 days — at ≈ 0.7 MB per hourly bucket that is ≈ 240 MB,
