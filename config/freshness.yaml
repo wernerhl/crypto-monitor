@@ -175,12 +175,13 @@ tables:
     parent: fragility_series
     optional: true
   fragility_series:
-    cadence: hourly
-    budget_hours: 3
+    cadence: daily
+    budget_hours: 30
     job: hourly
     kind: derived
     time_col: date
     parent: vrp_history
+    note: daily grid rebuilt hourly; its last data day is the last complete day
   funding_daily:
     cadence: hourly
     budget_hours: 3
@@ -220,9 +221,10 @@ tables:
     cadence: hourly
     budget_hours: 3
     job: hourly
-    kind: derived
+    kind: source
     time_col: hour
-    parent: liquidations
+    optional: true
+    note: collector heartbeat table; the Mac sleeps, so it is reported (and alerted on) rather than fatal
   liquidations:
     cadence: hourly
     budget_hours: 3
@@ -512,12 +514,13 @@ tables:
     time_col: date
     parent: prices_daily
   vrp_history:
-    cadence: hourly
-    budget_hours: 3
+    cadence: daily
+    budget_hours: 30
     job: hourly
     kind: derived
     time_col: date
     parent: dvol_daily
+    note: daily grid rebuilt hourly; its last data day is the last complete day
   wash_filters:
     cadence: daily
     budget_hours: 30
