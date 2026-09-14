@@ -31,8 +31,6 @@ jobs:
         run: uv run monitor compute weekly
       - name: rotate raw files older than the retention windows to the data-archive branch
         run: bash scripts/rotate_raw.sh
-      - name: repo-size check
-        run: bash scripts/check_repo_size.sh
       - name: commit data as the bot
         run: |
           git config user.name "crypto-monitor-bot"
@@ -57,6 +55,8 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+      - name: repo-size check (last, so the weekly outputs are committed and deployed first; a breach still fails the run)
+        run: bash scripts/check_repo_size.sh
   deploy:
     needs: weekly
     runs-on: ubuntu-latest
