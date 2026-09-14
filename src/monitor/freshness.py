@@ -118,9 +118,7 @@ def violations(job: str, now: datetime | None = None) -> list[str]:
     return [
         f"{r['table']}: {r['status']} — {r['reason']}"
         for r in table_rows(now)
-        if r["job"] == job
-        and r["status"] != "fresh"
-        and not (r["status"] == "unavailable" and r["optional"])
+        if r["job"] == job and r["status"] != "fresh" and not r["optional"]  # optional: never fatal
     ]
 
 
