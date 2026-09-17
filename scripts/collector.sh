@@ -1,30 +1,35 @@
 #!/usr/bin/env bash
-# Mode (b) collector (build prompt §3.2, §6): run the fetch jobs from a machine where every
-# venue is reachable (GitHub-hosted runners are US addresses: Binance futures and Bybit
-# answer 451/403 there — see docs/data_sources.md "Runner reachability"). The script pulls,
-# fetches the requested job, computes, commits as the bot and pushes. Idempotent per bucket,
-# so overlapping with the Actions jobs is safe (concurrency is on the git push, which rebases).
+# Mode (b) collector (build prompt §3.2; work orders 6/7): fetch the raw envelopes that
+# GitHub-hosted runners cannot get (Binance and Bybit answer 451/403 from US runner IPs — see
+# docs/data_sources.md "Runner reachability") and commit ONLY those raw files. The runner's
+# hourly/daily job parses them on its next run. The collector deliberately does NOT compute or
+# commit any processed table: two jobs writing the same tables conflicted on 2026-09-10, and
+# leaving the working tree dirty stalled `git pull --rebase` on 2026-09-16 (work order 7).
 #
-# Usage:  scripts/collector.sh hourly     (cron: 9 * * * *)
-#         scripts/collector.sh daily      (cron: 40 1 * * *)
-# Requires: uv, a clone with push rights (fine-grained token or SSH key), .env with keys.
+# Usage:  scripts/collector.sh hourly     (launchd :09)
+#         scripts/collector.sh daily      (launchd 01:45 local)
+# Requires: uv, a clone with push rights, .env with keys.
 set -euo pipefail
 JOB="${1:-hourly}"
 cd "$(dirname "$0")/.."
-git checkout -q -- data/processed data/archive site/data 2>/dev/null || true
-git pull -q --rebase origin main
 export PYTHONPATH="$PWD/src"
 set -a; [ -f .env ] && . ./.env; set +a
-uv run --no-sync monitor fetch "$JOB"
-uv run --no-sync monitor compute "$JOB"
-[ "$JOB" = hourly ] && { set -a; . ./.env 2>/dev/null; set +a; uv run --no-sync monitor alerts --dry-run >/dev/null 2>&1 || true; }
+
+# never carry a dirty working tree into the rebase: discard any local processed/site changes
+# (the collector owns none of them) and drop sync-agent duplicate copies
+git checkout -q -- data/processed data/archive site 2>/dev/null || true
 find data site/data -name '* [0-9].*' -delete 2>/dev/null || true
-# Work order 6 (B1): the collector commits ONLY the raw envelopes the runners cannot fetch
-# (Binance, Bybit, the websocket liquidation streams). Its processed tables stay local: two
-# instances of the hourly job (runner and Mac) committing the same tables conflicted on
-# 2026-09-10 and the clone sat on an unresolved rebase for four days. The runner's hourly job
-# parses these raw files on its next run.
+git pull -q --rebase origin main
+
+# fetch writes raw envelopes under data/raw; ignore a non-zero exit (per-dataset failures are
+# isolated) so one blocked venue does not stop the commit of the others
+uv run --no-sync monitor fetch "$JOB" || echo "collector $JOB: fetch returned non-zero (per-dataset isolation)" >&2
+
+# stage ONLY the raw envelopes the runners cannot fetch
 git add $(git ls-files --others --exclude-standard --modified data/raw | grep -E '/(binance|bybit)_|liquidations_ws' || true) 2>/dev/null || true
+# discard anything else the fetch or compute-on-import may have touched
+git checkout -q -- data/processed data/archive site 2>/dev/null || true
+
 if ! git diff --cached --quiet; then
   uv run --no-sync python scripts/check_write_set.py collector
   git -c user.name=crypto-monitor-bot -c user.email=crypto-monitor-bot@users.noreply.github.com commit -qm "data: collector raw $JOB $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"

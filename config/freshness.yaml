@@ -379,6 +379,9 @@ tables:
     job: daily
     kind: source
     time_col: ts
+    optional: true
+    note: Binance spot hourly klines via the Mac collector; the machine sleeps, so it is reported and collector-alerted, not
+      fatal
   proposals:
     cadence: daily
     budget_hours: 30
