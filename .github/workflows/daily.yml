@@ -109,6 +109,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main  # read the bot's just-pushed data commit, not the dispatch sha (frozen data)
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.x"
