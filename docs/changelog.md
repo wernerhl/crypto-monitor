@@ -543,3 +543,25 @@ recorded as such here, in `docs/indicators.md`, on the methods page and in the n
   moved to the end of the weekly job so the weekly outputs are committed and deployed before
   it runs; it still fails the run. Decision for the owner: squash the data history onto a
   fresh branch (rewrites history) or raise the limit; neither is done here.
+
+## 2026-09-17 — Freshness guardrail froze the site (work order 7 precondition)
+The hourly job had failed every run since 2026-09-15 01:21 and the daily since 2026-09-16,
+leaving the live site stuck at 2026-09-14 with 18 stale tables. Root causes and fixes:
+* The parent-lag rule flagged `dvol_daily` (a daily grid) as "lagging" its hourly parent
+  `dvol` because it compared against one parent cadence period. A daily grid legitimately
+  trails an intraday source by up to a day; the tolerance is now the derived table's own
+  budget.
+* `assert_job` raised inside `monitor compute`, before commit/render/deploy, so one stale
+  table blocked publishing of all the fresh data — worse than the silent staleness work order
+  6 set out to fix. `_finish` no longer raises; it writes the status file and logs violations.
+  A post-deploy `freshness-gate` job reddens the run for visibility without blocking the
+  deploy (it checks out main tip, so it reads the bot's fresh data commit, not the dispatch
+  sha), and a `freshness:<job>` alert names the stale tables. Deribit DVOL served current data
+  throughout; the source was never broken.
+* The Mac collector stalled again: `monitor compute` on the collector dirtied the working tree
+  and `git pull --rebase` then refused ("unstaged changes"). The collector now fetches and
+  commits raw envelopes only — no compute, no processed tables — and discards any working-tree
+  change before the rebase. `prices_hourly` (Binance klines via the collector) is marked
+  optional so a sleeping Mac reports and collector-alerts rather than failing the daily gate.
+After the fixes: hourly and daily green including the freshness gate, Φ live on 5 of 5,
+collector coverage rising (0.05 and climbing), heartbeat current.
