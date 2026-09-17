@@ -537,3 +537,16 @@ tables:
     job: daily
     kind: source
     time_col: as_of
+  exchange_fees:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: source
+    time_col: date
+  exchange_fundamentals:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    parent: exchange_fees
+    time_col: as_of

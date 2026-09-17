@@ -332,3 +332,13 @@ cheaper of the Aave v3 Ethereum USDC and USDT variable borrow APYs (pool ids in
 observation is fresher than 30 h the 6 % config value is used and flagged FALLBACK in the row
 and on the cost tile. Venue margin-borrow rates are not exposed by the venues' public APIs and
 are not used.
+
+## DefiLlama fees / revenue (exchange-token sub-module, added 2026-09-17, work order 7)
+`https://api.llama.fi/summary/fees/{parent-slug}?dataType=dailyFees|dailyRevenue|dailyHoldersRevenue`,
+verified live 2026-09-17. Parent slugs aggregate a project's modules (e.g. `hyperliquid`
+covers Perps, HLP, Spot, L1). Used for the on-chain exchange tokens' fundamentals (exact):
+fees, revenue, and holders-revenue (the buyback/distribution that accrues to the token). Slugs
+and the token→slug map are in `config/exchange_tokens.yaml`. CEX revenue is not fetched; it is
+estimated from wash-filtered venue volume × a blended fee tier (`config/exchange_fees.yaml`)
+and flagged `revenue_quality = estimated` with a wide error bar. Only venues the system
+already collects volume for (binance, okx) produce an estimate; the rest show n/a.

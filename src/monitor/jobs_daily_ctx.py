@@ -66,6 +66,7 @@ def fetch_context(ts: datetime | None = None, force: bool = False) -> dict[str, 
             ),
         ),
         ("llama_yields", lambda: llama.fetch_yields_borrow(ts=ts, force=force)),
+        ("exchange_fees", lambda: llama.fetch_exchange_fees(ts=ts, force=force)),
         ("fred", lambda: fred.fetch_series(ts=ts, force=force)),
         ("fred_meta", lambda: fred.fetch_meta(ts=ts, force=force)),
         ("coinmetrics", lambda: onchain.fetch_coinmetrics(start=cm_start, ts=ts, force=force)),
@@ -159,6 +160,7 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
     put(
         "borrow_rates", [llama.parse_yields_borrow(e, pools) for e in E("llama_yields_lend_borrow")]
     )
+    put("exchange_fees", [llama.parse_exchange_fees(e) for e in E("llama_api_exchange_fees")])
     # oi_rubik (1D and 1H) is parsed by the hourly job only (write sets, work order 3)
     put("macro", [fred.parse_series(e) for e in E("fred_csv_series")])
     put("onchain", [onchain.parse_coinmetrics(e) for e in E("coinmetrics_asset_metrics")])
@@ -174,7 +176,40 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
     )
     put("proposals", [snapshot.parse_proposals(e) for e in E("snapshot_proposals")])
     counts.update(compute_supply_and_events(as_of))
+    counts.update(compute_exchange(as_of))
     return counts
+
+
+def compute_exchange(as_of: date | None = None) -> dict[str, int]:
+    """Exchange-token fundamentals snapshot for panel 8 (work order 7, §3). Descriptive; the
+    residual IC and dispersion are computed at JSON-write time and shown on the methods page."""
+    from monitor.compute import exchange as ex
+
+    now, sha = utc_now(), git_sha()
+    as_of = as_of or now.date()
+    uni = archive.read("universe")
+    ef = archive.read("exchange_fees")
+    if uni is None or ef is None:
+        return {"exchange_fundamentals": 0}
+    df = ex.fundamentals(
+        as_of,
+        uni,
+        archive.read("markets"),
+        ef,
+        archive.read("prices_daily"),
+        archive.read("wash_filters"),
+        archive.read("perp_snapshot"),
+        archive.read("funding_daily"),
+    )
+    if df is None or not df.height:
+        return {"exchange_fundamentals": 0}
+    df = df.with_columns(
+        pl.lit("compute.exchange.fundamentals").alias("source"),
+        pl.lit(now).alias("fetched_at"),
+        pl.lit(sha).alias("git_sha"),
+    )
+    archive.replace_slice("exchange_fundamentals", "as_of", as_of, df)
+    return {"exchange_fundamentals": df.height}
 
 
 def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
@@ -363,6 +398,9 @@ def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
         symbols,
         cliff_th=th["rules"]["cliff"],
         expiry_oi_share_min=th.get("events", {}).get("expiry_oi_share_min", 0.10),
+        burns=__import__("monitor.compute.exchange", fromlist=["burn_events"]).burn_events(
+            archive.read("prices_daily")
+        ),
     )
     strip = strip.with_columns(
         pl.lit(as_of).alias("as_of"), pl.lit(now).alias("fetched_at"), pl.lit(sha).alias("git_sha")
@@ -418,6 +456,7 @@ def write_daily_json(out: Path = SITE_DATA) -> None:
         "cliff_study": _cliff_study(),
         "rule43_drivers": _rule43_drivers(),
         "fragility_validation": _phi_validation(),
+        "exchange": _exchange(),
     }
     (out / "daily.json").write_text(dump_json(payload))
     write_history_json(out)
@@ -456,6 +495,28 @@ def _onchain_summary() -> list[dict]:
             }
         )
     return out
+
+
+def _exchange() -> dict:
+    """Panel 8 (exchange tokens): the fundamentals snapshot, the within-sector residual IC and
+    the dispersion evidence (work order 7, §3/§4a/§7). Descriptive until the IC clears."""
+    from monitor.compute import exchange as ex
+
+    f = archive.read("exchange_fundamentals")
+    if f is None or not f.height:
+        return {}
+    latest = f.filter(pl.col("as_of") == f["as_of"].max())
+    ef = archive.read("exchange_fees")
+    prices = archive.read("prices_daily")
+    uni = archive.read("universe")
+    ic = ex.residual_ic(ef, prices) if ef is not None and prices is not None else {}
+    disp = ex.dispersion(prices, uni) if prices is not None and uni is not None else {}
+    return {
+        "as_of": str(latest["as_of"][0]),
+        "tokens": latest.drop("source", "fetched_at", "git_sha", "as_of").to_dicts(),
+        "residual_ic": ic,
+        "dispersion": disp,
+    }
 
 
 def _phi_validation() -> dict:

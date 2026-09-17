@@ -34,6 +34,8 @@
 <div class="panel"><p>Φ is the mean of five components. Four are 250-day walk-forward robust z-scores (MAD × 1.4826): OI-weighted Tier 1 funding; aggregate OKX open interest over Tier 1 market cap; the negative of the BTC variance risk premium (DVOL² − RV²₃₀, the daily DVOL history plus today's live DVOL); the negative of 30-day stablecoin growth. The fifth, since 2026-09-08, is a bounded range-position score: pos₉₀ = (P − min₉₀)/(max₉₀ − min₉₀) and z_dd = 4·(pos₉₀ − ½) ∈ [−2, 2], with no standardisation. It replaces a robust z of the drawdown from the 90-day high, which is bounded at zero and, over a downtrending window, made any day near the high a tail event: on 2026-09-08 it read +2.53 for a price 2.7 % below the high. The mechanical reading is unchanged (at the top of the recent range the liquidation mass sits below). Each component carries its sample size; a component that is null while its source is fresh fails the build rather than publishing Φ on fewer components; a stale source is shown as a gap in the state reading. History and live values come from the same builder.</p></div>
 <h2>Does Φ predict the damage after a shock?</h2>
 <div class="panel"><div id="phival">loading data/daily.json …</div></div>
+<h2>Exchange tokens: within-sector relative value and dispersion</h2>
+<div class="panel"><div id="exmethods">loading data/daily.json …</div></div>
 <h2 id="volstate">Vol-state diagnostics</h2>
 <div class="panel"><div id="volstate-diag">loading data/hourly.json …</div></div>
 <h2>Factor model</h2>
@@ -41,6 +43,31 @@
 <script>
 (async function(){
   const d = await (await fetch('data/daily.json',{cache:'no-store'})).json();
+  (function(){
+    const ex=d.exchange; if(!ex){ document.getElementById('exmethods').textContent='exchange sub-module not built yet'; return; }
+    const ic=ex.residual_ic||{}, dp=ex.dispersion||{};
+    const ev=(dp.event_dates||[]).map(e=>'<li>'+e.date+' — '+e.event+'</li>').join('');
+    document.getElementById('exmethods').innerHTML=
+      '<h3>Within-sector residual IC (work order 7 §4a)</h3>'+
+      '<p>The pooled cross-sectional null the notes reported averaged a real within-sector signal, where it exists, against ~150 tokens that have no fundamentals. This tests the exchange-token sector alone: for the on-chain sub-sector (verified fees), each token\'s next-week return in excess of the equal-weight sector return (which removes the common market and sector component) is regressed on its trailing 30-day fee growth; the weekly cross-sectional Spearman IC is averaged with a Newey–West standard error, the same walk-forward bar every other claim cleared.</p>'+
+      '<table><tbody>'+
+      '<tr><td>on-chain names with verified fees</td><td>'+(ic.n_names==null?'—':ic.n_names)+'</td></tr>'+
+      '<tr><td>of those, with price history (tradeable)</td><td>'+(ic.n_names_priced==null?'—':ic.n_names_priced)+'</td></tr>'+
+      '<tr><td>weekly cross-sections</td><td>'+(ic.n_weeks==null?'—':ic.n_weeks)+'</td></tr>'+
+      '<tr><td>residual IC</td><td>'+(ic.ic==null?'not estimable':ic.ic.toFixed(3)+(ic.ic_se?' ± '+ic.ic_se.toFixed(3):''))+'</td></tr>'+
+      '<tr><td>decision</td><td><b>'+(ic.published?'published — see panel 5':'held descriptive, no trade')+'</b></td></tr>'+
+      '</tbody></table>'+
+      '<p class="meta">'+(ic.reason||'')+' Nothing is published until the residual clears the bar, exactly as Φ and the cliff rule were made descriptive when their tests failed.</p>'+
+      '<h3>Dispersion evidence (shown, not assumed; §7)</h3>'+
+      '<table><tbody>'+
+      '<tr><td>exchange-token average pairwise weekly-return correlation</td><td>'+(dp.sector_avg_pairwise_corr!=null?dp.sector_avg_pairwise_corr.toFixed(3):'n/a')+' ('+(dp.sector_n_pairs||0)+' pairs)</td></tr>'+
+      '<tr><td>all-universe average pairwise correlation</td><td>'+(dp.all_universe_avg_pairwise_corr!=null?dp.all_universe_avg_pairwise_corr.toFixed(3):'n/a')+'</td></tr>'+
+      '<tr><td>sector-mean return correlation to BTC</td><td>'+(dp.sector_return_corr_to_btc!=null?dp.sector_return_corr_to_btc.toFixed(3):'n/a')+'</td></tr>'+
+      '</tbody></table>'+
+      '<p class="meta">A lower within-sector correlation than the broad universe is the idiosyncratic dispersion this sub-module trades on. '+(dp.note||'')+'</p>'+
+      '<h3>Idiosyncratic event dates</h3><ul>'+ev+'</ul>'+
+      '<p class="meta">The sector-vs-name moves on these dates would populate here once daily price history spans them; HYPE and JUP postdate the 2022 events, and only BNB has the full history.</p>';
+  })();
   document.getElementById('val-meta').textContent = 'daily data ' + d.generated_at;
   const hr = d.hit_rates || {};
   const names = {'4.1':'crowded long (negative 5-day return)','4.1p':'crowded long, partial inputs: z_FR and OI percentile only (history has no liquidation density or depth)','4.2':'capitulation (positive 5-day return)','4.2p':'capitulation, partial inputs: z_FR and 5-day OI drop only (history has no liquidation volume)'};

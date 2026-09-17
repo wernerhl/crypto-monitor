@@ -65,3 +65,11 @@ sizing:
   vol_target_ann: 0.20
   kelly_shrink: 0.5
   kelly_cap: 0.25
+
+# Exchange-token sub-module (work order 7). Solvency-sensor divergence: the venue's token
+# underperforming the exchange-token sector by more than this over 5 days raises a
+# counterparty alert (the token-implied-distress input that would have flagged FTX). This is
+# a calibration; recorded once, not tuned to a backtest.
+exchange_token:
+  solvency_divergence_5d: 0.15   # 15% 5-day underperformance vs the sector
+  calibrated_on: 2026-09-17

@@ -33,9 +33,9 @@ def main(argv: list[str]) -> int:
         browser.close()
     short = {k: v for k, v in lengths.items() if v <= 500}
     print(f"panels: {lengths}")
-    ok = len(lengths) >= 7 and not short and not errors
-    if len(lengths) < 7:
-        print(f"::error::only {len(lengths)} panels found")
+    ok = len(lengths) >= 8 and not short and not errors
+    if len(lengths) < 8:
+        print(f"::error::only {len(lengths)} panels found (expected 8)")
     if short:
         print(f"::error::panels with ≤ 500 characters: {short}")
     for e in errors:

@@ -47,3 +47,5 @@ burns:
       - {date: 2026-01-16, tokens: 1100000, note: "34th (estimate)"}
       - {date: 2026-04-16, tokens: 1050000, note: "35th (estimate)"}
       - {date: 2026-07-16, tokens: 1010000, note: "36th (estimate)"}
+      - {date: 2026-10-16, tokens: 980000, note: "37th (estimate; superseded when the report lands)"}
+      - {date: 2027-01-16, tokens: 950000, note: "38th (estimate)"}

@@ -129,12 +129,25 @@ def compute_venue_panel(now: datetime, sha: str) -> dict:
             pl.lit(sha).alias("git_sha"),
         ),
     )
+    # exchange-token-as-solvency-sensor (work order 7, §5): the token's own price/funding read
+    # for each venue whose token is in the universe, with a divergence flag (the FTX input)
+    from monitor.compute import exchange as ex
+
+    th = _cfg("thresholds.yaml").get("exchange_token", {})
+    token_solvency = ex.solvency_signals(
+        now.date(),
+        uni,
+        archive.read("prices_daily"),
+        archive.read("funding_daily"),
+        float(th.get("solvency_divergence_5d", 0.15)),
+    )
     return {
         "venues": venues.to_dicts(),
         "exposure": exposure.to_dicts(),
         "low_score": low,
         "stablecoins": st_exp.to_dicts(),
         "systemic": systemic,
+        "token_solvency": token_solvency,
         "reviewed_on": str(vcfg["reviewed_on"]),
         "nav_usd": book["nav_usd"],
     }

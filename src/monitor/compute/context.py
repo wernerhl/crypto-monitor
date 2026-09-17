@@ -78,6 +78,7 @@ def event_strip(
     symbols: dict[str, str],
     cliff_th: dict | None = None,
     expiry_oi_share_min: float = 0.10,
+    burns: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Next-four-weeks strip: qualifying cliffs (Rule 5.1: > 1 % of float or > 2 days of real
     volume — linear vesting is aggregated in ESP, not listed), governance, hand-maintained
@@ -179,6 +180,26 @@ def event_strip(
         "source": pl.Utf8,
         "link": pl.Utf8,
     }
+    # burn calendar (work order 7, §6): a scheduled burn is a supply REDUCTION, its own event
+    # kind, tagged positive-for-holders — not forced through the unlock-cliff label
+    # quarterly burns rarely fall inside a 4-week window; look 45 days ahead so the next
+    # scheduled supply reduction is surfaced (each row is dated, so the horizon is explicit)
+    burn_end = as_of + timedelta(days=45)
+    if burns is not None and burns.height:
+        for r in burns.filter((pl.col("date") >= as_of) & (pl.col("date") <= burn_end)).to_dicts():
+            usd = r.get("usd")
+            rows.append(
+                {
+                    "date": r["date"],
+                    "kind": "burn",
+                    "asset": r["symbol"],
+                    "title": f"{r['tokens']:,.0f} {r['symbol']} {r.get('kind', 'burn')} (positive for holders)"
+                    + (f", ~{usd / 1e6:,.0f}M USD" if usd else ""),
+                    "detail": "scheduled supply reduction; " + str(r.get("source", ""))[:80],
+                    "source": "exchange_tokens.yaml",
+                    "link": None,
+                }
+            )
     # D2: a "next four weeks" strip never lists a past date
     rows = [r for r in rows if r["date"] >= as_of]
     return pl.DataFrame(rows, schema=schema).sort("date") if rows else pl.DataFrame(schema=schema)

@@ -565,3 +565,44 @@ leaving the live site stuck at 2026-09-14 with 18 stale tables. Root causes and 
   optional so a sleeping Mac reports and collector-alerts rather than failing the daily gate.
 After the fixes: hourly and daily green including the freshness gate, Φ live on 5 of 5,
 collector coverage rising (0.05 and climbing), heartbeat current.
+
+## 2026-09-17 — Exchange-token sub-module (work order 7)
+A sector sub-module for the one sector with equity-like cash flows. It changes nothing in the
+market-state layer, Φ, or any threshold; it adds fundamentals, a within-sector relative-value
+test, a solvency sensor and a burn calendar. Built behind work order 6's freshness/collector
+gates (green before this started) and inheriting the freshness contract. Designed so the
+machinery extends to any fee-generating protocol (`subtype`, not hard-coded exchange names).
+* **Taxonomy (§1).** CRO, OKB, BNB, HT reassigned from L1/L2 to `exchange-token`; HYPE, JUP,
+  DYDX, GMX from derivatives-protocol. Definition in `config/universe.yaml`; the
+  cex/onchain split, DefiLlama slugs, CEX fee tiers and published burns in
+  `config/exchange_tokens.yaml` and `config/exchange_fees.yaml`; venues.yaml links each venue
+  to its token.
+* **Fundamentals (§2–3), panel 8.** On-chain fees/revenue/holders-revenue from DefiLlama
+  parent summaries (verified, exact; `exchange_fees` table). CEX revenue estimated from
+  wash-filtered spot+derivative volume × a blended fee tier (wide error bar), only for the
+  venues the system collects volume for (binance→BNB, okx→OKB); the rest show n/a. Burn /
+  distribution yield (BNB quarterly burns exact from config; on-chain buyback from
+  holders-revenue), price-to-fees shown as a rank within the sub-sector, fee growth 30/90d,
+  volume market share and trend, a solvency block, and a `revenue_quality` tag carried into
+  every use. Live: HYPE ≈ $1.0B annualised fees (verified), BNB ≈ $1.3B (estimated).
+* **Within-sector relative value (§4a): held descriptive, no trade.** Only two on-chain names
+  (HYPE, JUP) have both verified fees and price history in the tracked universe (DYDX and GMX
+  are not collected), so the within-sector cross-section is too small to estimate a residual
+  IC. The panel and any RV structure stay descriptive, exactly as Φ and the cliff rule were
+  made descriptive when their tests failed. The dispersion claim is shown, not assumed:
+  exchange-token average pairwise weekly-return correlation ≈ 0.39 against ≈ 0.44 for the
+  broad universe, and ≈ 0.69 to BTC — the idiosyncratic dispersion the sub-module is about.
+* **Solvency sensor (§5), into the venue panel.** For each venue whose token is in the
+  universe (binance→BNB, okx→OKB): the token's price vs its 90-day range and z, perp funding
+  z, 5-day return vs the exchange-token sector, and a divergence flag when the token
+  underperforms the sector by more than `exchange_token.solvency_divergence_5d` (0.15, frozen)
+  — the token-implied-distress read that would have flagged FTX. A divergence raises a
+  counterparty alert. Basis and on-chain net flows are not available for these tokens (null).
+* **Burn calendar (§6).** Scheduled burns run through the event strip with the sign flipped as
+  a `burn` event kind, positive-for-holders, on a 45-day look-ahead (quarterly cadence rarely
+  falls inside four weeks). Next: BNB 980,000 on 2026-10-16.
+* **Honesty rails (§7).** Estimated CEX figures never drive a published trade; no §4 trade
+  until the residual IC clears; the RV structure is gated on the solvency screen; the
+  dispersion evidence is computed and shown. Methods page carries the residual-IC decision,
+  the dispersion figures and the idiosyncratic-event dates. Panel 8 is added to the H1
+  rendered-page check (eight panels now).

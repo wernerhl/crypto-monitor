@@ -134,6 +134,20 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
                         "body": f"Exposure {100 * e['share_nav']:.1f}% of NAV against a limit of {100 * e['limit_share_nav']:.1f}% (grade {e.get('grade', '?')}). The book is the illustrative one in config/book.yaml.",
                     }
                 )
+        for t in v.get("token_solvency", []):
+            if t.get("divergence"):
+                vs = t.get("vs_sector_5d")
+                fz = t.get("funding_z")
+                out.append(
+                    {
+                        "key": f"token-distress:{t['venue']}",
+                        "kind": "venue",
+                        "title": f"Token-implied distress on {t['venue']}: {t['token']} diverging from the sector",
+                        "body": f"{t['token']} is {100 * vs:.0f}% below the exchange-token sector over 5 days"
+                        + (f", funding z {fz:+.1f}" if fz is not None else "")
+                        + f"; the venue's static score is unchanged. This is the token-implied-distress read (work order 7 §5): a token collapsing while reported reserves are flat is the input that would have flagged FTX. price vs 90-day range {t.get('price_vs_90d_range')}, price z {t.get('price_z')}.",
+                    }
+                )
         low = v.get("low_score") or {}
         if low.get("breach"):
             out.append(

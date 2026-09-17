@@ -103,3 +103,16 @@ the unit test whose comments carry the hand-computed expected value.
 | factors, betas | eq. 9.2 | MKT (cap-weighted), tercile long-shorts SMB/MOM/LIQ, sector minus market; WLS betas over 26 weeks, half-life 8 | `factor_returns`, `factor_betas` | `crosssection.factor_returns`, `rolling_betas` | `test_ew_weights_half_life` |
 | screen IC | §9.4 | mean over 52 weeks of Spearman(screen, next-week return), s.e. = sd/√n | `screen_ic` | `crosssection.spearman_ic` | `test_sector_standardise_and_ic` (IC 1.0) |
 | rule hit rates | §4.5, §10 | share of fired evaluations whose forward outcome matched the rule's action; n reported | `hit_rates` | `hitrates.hit_rates` | (integration; backfill) |
+
+## Exchange-token sub-module (work order 7)
+| indicator | ref | definition | source | function | test |
+|---|---|---|---|---|---|
+| sector taxonomy | §1 | `exchange-token` = primary value-accrual is fee revenue or buyback/burn from a trading venue; split `exchange-cex` / `exchange-onchain` in `config/exchange_tokens.yaml` | `config/universe.yaml`, registry | `compute.exchange.universe_members` | `test_work_order_7::test_taxonomy_reassigned_and_split_into_cex_and_onchain` |
+| on-chain fees | §2a | DefiLlama parent `summary/fees` dailyFees/Revenue/HoldersRevenue (exact) | `exchange_fees` | `fetch.llama.parse_exchange_fees`, `compute.exchange.onchain_token_fees` | `test_onchain_fees_are_verified_and_mapped_to_ids` |
+| CEX revenue (estimated) | §2b | wash-filtered spot+deriv volume × blended fee tier, wide error bar, `revenue_quality=estimated` | `exchange_fundamentals` | `compute.exchange.cex_token_revenue` | `test_cex_revenue_is_estimated_with_an_error_bar_only_for_tracked_venues` |
+| burn/distribution yield | §3 | trailing-4-quarter tokens retired ÷ supply (CEX burns exact; on-chain buyback from holders-revenue) | `exchange_fundamentals` | `compute.exchange.burn_events`, `fundamentals` | `test_burn_events_are_positive_for_holders_and_dated` |
+| price-to-fees rank | §3 | FDV ÷ annualised fees, ranked within the sub-sector (not absolute) | `exchange_fundamentals` | `compute.exchange.fundamentals` | — |
+| within-sector residual IC | §4a | next-week return in excess of the equal-weight sector return, regressed on trailing fee growth; Newey–West; descriptive until it clears the bar | daily.json `exchange.residual_ic` | `compute.exchange.residual_ic` | `test_residual_ic_is_descriptive_when_the_cross_section_is_too_small` |
+| dispersion | §7 | sector average pairwise weekly-return correlation and correlation to BTC vs the all-universe figure | daily.json `exchange.dispersion` | `compute.exchange.dispersion` | — |
+| token-implied solvency | §5 | per venue with a token in the universe: price vs 90-day range and z, funding z, 5-day return vs the sector, divergence flag (frozen threshold `exchange_token.solvency_divergence_5d`) | risk.json `venue.token_solvency` | `compute.exchange.solvency_signals` | `test_solvency_divergence_flags_a_token_underperforming_the_sector` |
+| burn event | §6 | scheduled supply reduction, `burn` event kind, positive-for-holders, 45-day look-ahead | `event_strip` | `compute.context.event_strip` | `test_event_strip_shows_burns_as_their_own_kind_within_45_days` |
