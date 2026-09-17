@@ -1,0 +1,15 @@
+# Blended effective take rates for CEX revenue estimation (work order 7, §2b). These are
+# ESTIMATES of the realised fee as a fraction of notional, after the maker/taker mix, VIP
+# tiers and native-token discounts that a real book of flow sees — NOT the headline taker
+# fee. Every revenue figure built from these carries revenue_quality = estimated and a wide
+# error bar (lo/hi). Only venues the system collects wash-filtered volume for produce a
+# revenue estimate; the rest show n/a. Reviewed with the public fee schedules.
+reviewed_on: 2026-09-17
+review_cadence: quarterly
+# fraction of notional; lo/hi bracket the plausible blended rate
+fees:
+  binance:    {spot: 0.00060, spot_lo: 0.00030, spot_hi: 0.00090, deriv: 0.00025, deriv_lo: 0.00015, deriv_hi: 0.00040, source: "binance.com/en/fee/schedule"}
+  okx:        {spot: 0.00060, spot_lo: 0.00030, spot_hi: 0.00090, deriv: 0.00025, deriv_lo: 0.00015, deriv_hi: 0.00040, source: "okx.com/fees"}
+  bybit:      {spot: 0.00060, spot_lo: 0.00030, spot_hi: 0.00090, deriv: 0.00025, deriv_lo: 0.00015, deriv_hi: 0.00040, source: "bybit.com/en/help-center/article/Trading-Fee-Structure"}
+  coinbase:   {spot: 0.00120, spot_lo: 0.00060, spot_hi: 0.00250, deriv: 0.00040, deriv_lo: 0.00020, deriv_hi: 0.00060, source: "coinbase.com/advanced-fees"}
+  kraken:     {spot: 0.00040, spot_lo: 0.00020, spot_hi: 0.00070, deriv: 0.00025, deriv_lo: 0.00015, deriv_hi: 0.00040, source: "kraken.com/features/fee-schedule"}

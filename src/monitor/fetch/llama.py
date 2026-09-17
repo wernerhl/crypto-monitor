@@ -351,3 +351,85 @@ def parse_yields_borrow(env: Envelope, pools: dict[str, str]) -> pl.DataFrame:
         "git_sha": pl.Utf8,
     }
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+
+
+def _exchange_onchain_slugs() -> list[str]:
+    """DefiLlama parent slugs for the exchange-onchain tokens (config/exchange_tokens.yaml)."""
+    import yaml
+
+    from monitor.paths import CONFIG
+
+    reg = yaml.safe_load((CONFIG / "exchange_tokens.yaml").read_text())
+    return sorted(
+        {
+            t["defillama"]
+            for t in reg["tokens"].values()
+            if t.get("subtype") == "exchange-onchain" and t.get("defillama")
+        }
+    )
+
+
+def fetch_exchange_fees(ts: datetime | None = None, force: bool = False) -> Path:
+    """Fees, revenue and holders-revenue for the on-chain exchange protocols (work order 7,
+    §2a). DefiLlama `summary/fees/{parent-slug}` with the three dataTypes; endpoints and slugs
+    verified live 2026-09-17. These numbers are exact (on-chain)."""
+
+    def go(c):
+        recs = []
+        for slug in _exchange_onchain_slugs():
+            for dt in ("dailyFees", "dailyRevenue", "dailyHoldersRevenue"):
+                recs.append(c.get(f"/summary/fees/{slug}", params={"dataType": dt}))
+        return recs
+
+    return run_dataset("llama_api", "exchange_fees", "daily", go, ts=ts, force=force)
+
+
+def parse_exchange_fees(env: Envelope) -> pl.DataFrame:
+    """date, slug, fees_usd, revenue_usd, holders_revenue_usd (verified, on-chain). The
+    envelope holds three records (dataTypes) per protocol, in slug order."""
+    import re
+
+    fetched = datetime.fromisoformat(env.fetched_at)
+    # regroup records by the slug in their url and the dataType param
+    by_slug: dict[str, dict[str, list]] = {}
+    for rec in env.records:
+        m = re.search(r"/summary/fees/([^?]+)", rec.url)
+        dt = re.search(r"dataType=([A-Za-z]+)", rec.url)
+        if not m or not dt or not isinstance(rec.body, dict):
+            continue
+        slug = m.group(1)
+        chart = rec.body.get("totalDataChart") or []
+        by_slug.setdefault(slug, {})[dt.group(1)] = chart
+    rows = []
+    for slug, series in by_slug.items():
+        fees = {int(ts): float(v) for ts, v in series.get("dailyFees", []) if v is not None}
+        rev = {int(ts): float(v) for ts, v in series.get("dailyRevenue", []) if v is not None}
+        hold = {
+            int(ts): float(v) for ts, v in series.get("dailyHoldersRevenue", []) if v is not None
+        }
+        for ts_s in sorted(set(fees) | set(rev) | set(hold)):
+            rows.append(
+                {
+                    "date": datetime.fromtimestamp(ts_s, tz=UTC).date(),
+                    "slug": slug,
+                    "fees_usd": fees.get(ts_s),
+                    "revenue_usd": rev.get(ts_s),
+                    "holders_revenue_usd": hold.get(ts_s),
+                    "revenue_quality": "verified",
+                    "source": "defillama summary/fees (parent)",
+                    "fetched_at": fetched,
+                    "git_sha": env.git_sha,
+                }
+            )
+    schema = {
+        "date": pl.Date,
+        "slug": pl.Utf8,
+        "fees_usd": pl.Float64,
+        "revenue_usd": pl.Float64,
+        "holders_revenue_usd": pl.Float64,
+        "revenue_quality": pl.Utf8,
+        "source": pl.Utf8,
+        "fetched_at": pl.Datetime("us", "UTC"),
+        "git_sha": pl.Utf8,
+    }
+    return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)

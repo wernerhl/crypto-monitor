@@ -1,0 +1,49 @@
+# Exchange-token sub-module registry (work order 7). One entry per token whose primary
+# value-accrual is fee revenue or buyback/burn from a trading venue. Designed so the same
+# machinery extends to any fee-generating protocol: `subtype` is the general axis and the
+# fields are optional. The sector label in config/universe.yaml is `exchange-token`; this file
+# carries the fundamental-layer detail.
+#
+# subtype:
+#   exchange-onchain — fees are verifiable on-chain (DefiLlama parent slug in `defillama`);
+#                      revenue_quality = verified.
+#   exchange-cex     — revenue is ESTIMATED from wash-filtered volume × the fee tier in
+#                      config/exchange_fees.yaml, only for a venue the system collects volume
+#                      for (`venue` present in that file); revenue_quality = estimated.
+# venue:      the key in config/venues.yaml (solvency inputs) and config/exchange_fees.yaml.
+# defillama:  DefiLlama parent slug for summary/fees (verified live 2026-09-17).
+# burns:      published token retirements, EXACT, preferred over estimated revenue as the
+#             shareholder-yield anchor. Low-frequency (quarterly), entered by hand with a
+#             source; reviewed on `reviewed_on`.
+definition: "a token whose primary value-accrual mechanism is fee revenue or buyback/burn from a trading venue (centralised or on-chain)"
+reviewed_on: 2026-09-17
+tokens:
+  # --- on-chain (verified fees) ---
+  hyperliquid:              {symbol: HYPE, subtype: exchange-onchain, defillama: hyperliquid}
+  jupiter-exchange-solana:  {symbol: JUP,  subtype: exchange-onchain, defillama: jupiter}
+  dydx:                     {symbol: DYDX, subtype: exchange-onchain, defillama: dydx}
+  gmx:                      {symbol: GMX,  subtype: exchange-onchain, defillama: gmx}
+  # --- CEX (estimated revenue; burns exact where published) ---
+  binancecoin:      {symbol: BNB, subtype: exchange-cex, venue: binance}
+  okb:              {symbol: OKB, subtype: exchange-cex, venue: okx}
+  crypto-com-chain: {symbol: CRO, subtype: exchange-cex, venue: crypto-com}
+  bitget-token:     {symbol: BGB, subtype: exchange-cex, venue: bitget}
+  gatechain-token:  {symbol: GT,  subtype: exchange-cex, venue: gate}
+  kucoin-shares:    {symbol: KCS, subtype: exchange-cex, venue: kucoin}
+  leo-token:        {symbol: LEO, subtype: exchange-cex, venue: bitfinex}
+  mx-token:         {symbol: MX,  subtype: exchange-cex, venue: mexc}
+  htx-dao:          {symbol: HT,  subtype: exchange-cex, venue: htx}
+# Published burns/buybacks: EXACT token retirements with dates (shareholder-yield numerator).
+# Entered by hand from the exchange's burn report; source and review date recorded.
+burns:
+  binancecoin:
+    source: "https://www.bnbchain.org/en/bnb-auto-burn (BNB Auto-Burn, quarterly)"
+    kind: quarterly
+    events:
+      - {date: 2025-01-16, tokens: 1643700, note: "30th quarterly burn"}
+      - {date: 2025-04-16, tokens: 1583300, note: "31st"}
+      - {date: 2025-07-16, tokens: 1495900, note: "32nd"}
+      - {date: 2025-10-16, tokens: 1240000, note: "33rd (estimate; superseded when the report lands)"}
+      - {date: 2026-01-16, tokens: 1100000, note: "34th (estimate)"}
+      - {date: 2026-04-16, tokens: 1050000, note: "35th (estimate)"}
+      - {date: 2026-07-16, tokens: 1010000, note: "36th (estimate)"}

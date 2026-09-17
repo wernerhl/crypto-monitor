@@ -14,12 +14,8 @@ exclusions:
   - tokenized-btc
   - bridged-tokens
   stablecoin_category_regex: ^(?!Stablecoin Issuer$)(?!Stable Ecosystem$)(.* Stablecoin|Stablecoins)$
-  # commodity-backed and tokenised traditional assets (XAUT, PAXG, tokenised stocks, treasuries,
-  # money-market funds) track an off-chain price and carry no crypto positioning signal: excluded
-  # from every tier like stablecoins (protocol tokens tagged "Real World Assets (RWA)" stay)
-  tokenised_asset_category_regex: '^Tokenized (Gold|Silver|Commodities|Stocks|Treasuries|Money Market Fund.*|Credit|Private Credit)$|^Commodity-backed Stablecoin$'
-  wrapped_or_lst_category_regex: ^(Wrapped-Tokens|Tokenized BTC|Bridged-Tokens|Bridged .*|Liquid Staked .*|Liquid Restaked
-    .*|Liquid Staking Tokens|Liquid Restaking Tokens)$
+  tokenised_asset_category_regex: ^Tokenized (Gold|Silver|Commodities|Stocks|Treasuries|Money Market Fund.*|Credit|Private Credit)$|^Commodity-backed Stablecoin$
+  wrapped_or_lst_category_regex: ^(Wrapped-Tokens|Tokenized BTC|Bridged-Tokens|Bridged .*|Liquid Staked .*|Liquid Restaked .*|Liquid Staking Tokens|Liquid Restaking Tokens)$
   exchange_internal_ids: []
   manual: {}
 tier_rules:
@@ -79,7 +75,7 @@ sector_map:
     beldex: L1
     bfusd: stablecoin
     bianrensheng: memecoin
-    binancecoin: L1
+    binancecoin: exchange-token
     bitcoin: L1
     bitcoin-cash: L1
     bitcoin-cash-sv: other
@@ -112,7 +108,7 @@ sector_map:
     convex-finance: other
     cosmos: other
     crvusd: stablecoin
-    crypto-com-chain: L1
+    crypto-com-chain: exchange-token
     curve-dao-token: DEX
     dai: stablecoin
     dash: other
@@ -162,7 +158,7 @@ sector_map:
     helium: AI-compute
     htx-dao: exchange-token
     humanity: oracle-infra
-    hyperliquid: derivatives-protocol
+    hyperliquid: exchange-token
     immutable-x: L2
     injective-protocol: L1
     internet-computer: L1
@@ -172,7 +168,7 @@ sector_map:
     jasmycoin: AI-compute
     jito-governance-token: other
     jpysc: stablecoin
-    jupiter-exchange-solana: derivatives-protocol
+    jupiter-exchange-solana: exchange-token
     just: other
     kaia: L1
     kamino: DeFi-lending
@@ -202,7 +198,7 @@ sector_map:
     nexo: exchange-token
     non-playable-coin: memecoin
     official-trump: memecoin
-    okb: L2
+    okb: exchange-token
     olympus: DeFi-lending
     ondo-finance: RWA
     ondo-us-dollar-yield: stablecoin
@@ -311,6 +307,12 @@ sector_map:
     zcash: L1
     zebec-network: RWA
     zencash: other
+    huobi-token: exchange-token
+    dydx: exchange-token
+    gmx: exchange-token
   seeded_on: '2026-09-06'
+  definitions:
+    exchange-token: a token whose primary value-accrual mechanism is fee revenue or buyback/burn from a trading venue (centralised or on-chain); the general case is any fee-generating protocol (work order
+      7)
 stablecoins: []
 symbol_map: {}
