@@ -1,14 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Thu, 17 Sep 2026 05:41:03 +0000</lastBuildDate>
-<item><title>Freshness: 3 table(s) stale in the hourly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:hourly@202609170541</guid><pubDate>Thu, 17 Sep 2026 05:41:03 +0000</pubDate><description>Tables owned by the hourly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
-
-- dvol_daily: stale — last data 2026-09-15 00:00 UTC, 54 h old against a 30 h budget (hourly)
-- vol_state: stale — last data 2026-09-15 00:00 UTC, 54 h old against a 30 h budget (daily)
-- vrp_history: stale — last data 2026-09-15 00:00 UTC, 54 h old against a 30 h budget (daily)
-
-The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
+<lastBuildDate>Thu, 17 Sep 2026 05:44:06 +0000</lastBuildDate>
 <item><title>Freshness: 7 table(s) stale in the daily job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:daily@202609170541</guid><pubDate>Thu, 17 Sep 2026 05:41:03 +0000</pubDate><description>Tables owned by the daily job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
 - book_risk: lagging — lags its parent positioning by 48 h (more than its 30 h budget)
@@ -16,8 +9,14 @@ The site still publishes the freshest available data; this names what is behind.
 - hit_rates: lagging — lags its parent rule_fires by 48 h (more than its 30 h budget)
 - prices_hourly: stale — last data 2026-09-15 05:00 UTC, 49 h old against a 30 h budget (daily)
 - proposals: stale — last data 2026-09-15 06:17 UTC, 47 h old against a 30 h budget (daily)
-- venue_listings: stale — last data 2026-09-15 06:13 UTC, 47 h old against a 30 h budget (daily)
+- venue_listings: stale — last data 2026-09-15 06:13 UTC, 48 h old against a 30 h budget (daily)
 - venue_scores: lagging — lags its parent wash_filters by 48 h (more than its 30 h budget)
+
+The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
+<item><title>Freshness: 2 table(s) stale in the hourly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:hourly@202609170541</guid><pubDate>Thu, 17 Sep 2026 05:41:03 +0000</pubDate><description>Tables owned by the hourly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
+
+- vol_state: stale — last data 2026-09-15 00:00 UTC, 54 h old against a 30 h budget (daily)
+- vrp_history: stale — last data 2026-09-15 00:00 UTC, 54 h old against a 30 h budget (daily)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Freshness: 2 table(s) stale in the weekly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:weekly@202609170541</guid><pubDate>Thu, 17 Sep 2026 05:41:03 +0000</pubDate><description>Tables owned by the weekly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
