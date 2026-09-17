@@ -40,6 +40,8 @@ PANEL = {
     "cliffs": "#p-events",
     "venue": "#p-venue",
     "dataset": "status.html",
+    "collector": "#p-triggers",
+    "freshness": "status.html",
 }
 
 
@@ -89,6 +91,33 @@ def current_conditions(site_data: Path = SITE / "data") -> list[dict]:
                         "body": f"Last liq_coverage hour for {r['venue']}: {r['hour']:%Y-%m-%d %H:%M} UTC. The Mac collector (launchd agents, docs/runbook.md) has not committed a websocket envelope for this venue in more than three hours: the machine slept, the agent died, or its clone is stuck on a rebase. Coverage holes are shown, never interpolated.",
                     }
                 )
+    # freshness (work order 7): one durable condition per job whose owned tables breach the
+    # contract, so staleness is a GitHub alert that names the tables and auto-closes when the
+    # job is clean again — the loud signal that the removed hard-fail used to provide
+    from monitor import freshness
+
+    for jb in ("hourly", "daily", "weekly"):
+        # alert only on tables that exist and fell behind (stale/lagging), not on
+        # never-built (unavailable) tables — those are the gate's business, and a fresh test
+        # archive is full of them
+        v = [
+            f"{r['table']}: {r['status']} — {r['reason']}"
+            for r in freshness.table_rows()
+            if r["job"] == jb and r["status"] in ("stale", "lagging") and not r["optional"]
+        ]
+        if v:
+            out.append(
+                {
+                    "key": f"freshness:{jb}",
+                    "kind": "freshness",
+                    "title": f"Freshness: {len(v)} table(s) stale in the {jb} job",
+                    "body": "Tables owned by the "
+                    + jb
+                    + " job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):\n\n- "
+                    + "\n- ".join(v)
+                    + "\n\nThe site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.",
+                }
+            )
     rk = site_data / "risk.json"
     if rk.exists():
         try:

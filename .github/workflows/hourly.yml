@@ -69,3 +69,16 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+  freshness-gate:
+    needs: [hourly, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.x"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - name: freshness gate (reddens the run if a hourly-owned table is stale; does NOT block deploy, which already ran)
+        run: uv run monitor freshness-gate hourly

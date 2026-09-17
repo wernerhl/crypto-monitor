@@ -52,7 +52,6 @@ def table_rows(now: datetime | None = None) -> list[dict]:
     reason. `status` ∈ {fresh, stale, lagging, unavailable}."""
     now = now or utc_now()
     c = contract()
-    periods = c["period_hours"]
     latest: dict[str, datetime | None] = {}
     rows_n: dict[str, int] = {}
     for t, spec in c["tables"].items():
@@ -104,10 +103,14 @@ def table_rows(now: datetime | None = None) -> list[dict]:
                 else:
                     lag = (pd_ - ct).total_seconds() / 3600
                 row["parent_lag_hours"] = round(max(lag, 0.0), 2)
-                if lag > periods.get(spec["cadence"], 24) and row["status"] == "fresh":
+                # a derived table may trail its parent by up to its own budget; beyond that
+                # the child stopped building while the parent advanced (work order 7 fix: a
+                # daily grid legitimately trails an hourly parent by ~a day, which the old
+                # "one cadence period" rule wrongly flagged, then hard-failed the whole job)
+                if lag > budget and row["status"] == "fresh":
                     row["status"] = "lagging"
                     row["reason"] = (
-                        f"lags its parent {parent} by {lag:.0f} h (more than one {spec['cadence']} period)"
+                        f"lags its parent {parent} by {lag:.0f} h (more than its {budget:.0f} h budget)"
                     )
         out.append(row)
     return out

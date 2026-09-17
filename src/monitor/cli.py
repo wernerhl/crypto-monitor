@@ -127,10 +127,14 @@ def compute(
     from monitor import freshness
 
     def _finish(j: str) -> None:
-        """A3: every job writes status_<job>.json from the freshness contract and fails when a
-        table it owns breaches its budget or lags its parent."""
+        """Every job writes status_<job>.json from the freshness contract and logs any
+        violations. It does NOT raise: a stale table must never block the commit/deploy of the
+        fresh data (work order 7 fix; a hard fail here froze the whole site for two days when
+        one derived grid tripped the lag rule). The run is reddened by the post-deploy
+        `freshness-gate` job, and staleness raises a durable alert instead."""
         typer.echo(f"status: {freshness.write_status(j)}")
-        freshness.assert_job(j)
+        for v in freshness.violations(j):
+            typer.echo(f"::warning::freshness: {v}")
 
     if job in ("all", "hourly"):
         from monitor import jobs_hourly
@@ -162,6 +166,24 @@ def compute(
         for k, v in jobs_weekly.compute_weekly().items():
             typer.echo(f"{k}: {v}")
         _finish("weekly")
+
+
+@app.command(name="freshness-gate")
+def freshness_gate(job: str = typer.Argument(...)) -> None:
+    """Exit 1 when tables owned by `job` breach the freshness contract. Runs as a post-deploy
+    workflow step so the run goes red for visibility WITHOUT blocking the commit/deploy that
+    already published the freshest data (work order 7)."""
+    import sys
+
+    from monitor import freshness
+
+    v = freshness.violations(job)
+    if v:
+        typer.echo(f"freshness contract violated by job {job}:")
+        for x in v:
+            typer.echo(f"  {x}")
+        sys.exit(1)
+    typer.echo(f"freshness ok for {job}")
 
 
 @app.command()
