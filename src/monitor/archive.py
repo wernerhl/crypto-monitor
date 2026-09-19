@@ -93,7 +93,7 @@ KEYS: dict[str, list[str]] = {
     "borrow_rates": ["as_of", "asset"],
     "exchange_fees": ["date", "slug"],
     "exchange_fundamentals": ["as_of", "id"],
-    "resistance_model": ["as_of", "side", "r_def", "horizon"],
+    "resistance_model": ["as_of"],
     "resistance_active": ["as_of", "base", "side", "r_def"],
     "resistance_scorecard": ["base", "date", "side", "r_def", "horizon"],
     "trades_vol": ["as_of", "structure", "asset", "instrument"],

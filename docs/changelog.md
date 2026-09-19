@@ -641,3 +641,41 @@ machinery extends to any fee-generating protocol (`subtype`, not hard-coded exch
   Methods page carries the event definition, the calibration curve and the explicit Φ answer;
   `scripts/resistance_note.py` regenerates `docs/notes/resistance_tests.md`. Panel 9 is added
   to the H1 rendered-page check (nine panels now).
+
+## 2026-09-19 — Work order 9: making the resistance model honest (competing risks, recalibration)
+* **Competing-risks labelling (§2.1).** The five-day snapshot lumped *unresolved* tests into a
+  "chop" bucket that flattered both the break and reject probabilities. The outcome is now
+  time-to-break vs time-to-reject with the 40-day window and end-of-data as censoring; the
+  published quantity is the cause-specific cumulative incidence (Aalen–Johansen) at 5/10/20/40
+  days — P(the level breaks before it holds) — plus the median time-to-resolution per cause
+  (break ~1 day, reject ~5–7 days). "chop" is censoring, not an outcome.
+* **Partial pooling (§1.2).** The twelve independent per-cell fits are replaced by one
+  ridge-penalised multinomial hazard over all six single-definition cells (cell as a factor), so
+  the sparse 90-day-high cell borrows the shared covariate slopes instead of starving.
+* **Walk-forward recalibration (§1.1).** An isotonic map (predicted→realised, fit only on data
+  before each evaluation date) sits on top of the hazard model; the panel publishes the
+  recalibrated cumulative incidence and keeps the raw in the JSON for one release. Brier at 20d:
+  raw 0.199 → recalibrated 0.195 vs a base-rate-only 0.200 — the tail overconfidence the audit
+  flagged (predicted 0.95, observed 0.76) is gone.
+* **Bootstrap intervals (§1.3).** Every published probability carries a 16th–84th percentile band
+  from a block bootstrap over calendar weeks; the panel shows "break 66% (62–69)", never a bare
+  point. Bands are on the recalibrated scale.
+* **Consensus definition (§2.2).** A test is "confirmed" when ≥2 of {90d high, swing, volume
+  shelf} fire the same day. The data choose the headline by out-of-sample Brier: consensus days
+  0.181 beat every single definition (swing 0.191, shelf 0.201, 90d 0.204) and non-consensus
+  days 0.200, so the panel leads with consensus and keeps the three definitions as a robustness
+  strip.
+* **Live scorecard (§1.4).** Every test that resolves since go-live records the recalibrated
+  P(break) at the test and the realised cause; the panel shows the forward Brier against the
+  base-rate Brier (skill over the naive forecast). Empty until tests resolve, then accumulates.
+* **Crowding overlay held preliminary (Tier 3).** Φ's coefficient on P(reject) is still
+  definition-dependent (significant on the volume shelf, not the 90-day high) and the Λ⁻/D
+  magnitude cell is still n≈0 (collector-era only). The overlay never drives a published number;
+  a standing line is added to the 6 October review.
+* **Wider history (§4.1).** `scripts/backfill_prices_history.py` pages Coinbase daily candles
+  back to 2015 for the Tier-1 list, verified against the Binance overlap (median |Δ| ≈ 0.05%),
+  and adds the pre-Binance history the exchanges lacked — BTC to 2015-07 (+1067 days), ETH to
+  2016-05, LTC to 2016-08. The alts already reached their Binance listing, so the gain is
+  concentrated in the three oldest majors (+110 events). The whole block is stored as JSON in
+  `resistance_model`; panel 9 and the methods note lead with the recalibrated cumulative
+  incidence. No threshold changed, no trigger added, Φ untouched.

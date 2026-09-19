@@ -31,7 +31,7 @@
 <p class="intuition">The one sector with equity-like cash flows: fee revenue, a shareholder yield from burns, an idiosyncratic tail (exchange solvency) that is orthogonal to BTC, and a market-priced solvency signal in the token itself. Ranking here is within one sector with real fundamentals. On-chain fees are verified; CEX revenue is estimated and flagged.</p><div id="c-exchange"></div></section>
 
 <section class="panel" id="p-resistance"><div class="phead"><h2>9 · Resistance / support tests</h2><span class="meta" id="m-resistance"></span></div>
-<p class="intuition">Φ is not a direction forecaster. This panel estimates two separate things and multiplies them: the probability of a clean break vs a rejection at a test, and the size of the move each way. The asymmetry lives in the size — a rejection can be rare and still dominate because its move is large. The base rate is measured on full price history (the anchor); the crowding/Φ overlay is preliminary on a short leverage sample and is never presented as established below the sample floor. Every probability is conditional on the level definition and whether the daily close has cleared, and carries its event count.</p><div id="c-resistance"></div></section>
+<p class="intuition">Φ is not a direction forecaster. The published quantity is a competing-risks cumulative incidence: the probability of the level <i>breaking</i> before it is <i>rejected</i> (holds), by horizon — "chop" is censoring, not an outcome, so it no longer flatters either side. Every number is recalibrated walk-forward (a model that says 95% must be right 95% of the time) and carries a block-bootstrap band; the headline uses the consensus of the three level definitions when the data say consensus predicts better. The crowding/Φ overlay stays preliminary on its short sample and never drives a published number.</p><div id="c-resistance"></div></section>
 
 <script>
 (async function(){
@@ -219,61 +219,62 @@
     document.getElementById('m-exchange').textContent='as of '+(ex.as_of||'')+' · DefiLlama fees (verified), wash-filtered volume × fee tiers (estimated), config/exchange_tokens.yaml';
   }
 
-  // ---------- 9 resistance / support tests
+  // ---------- 9 resistance / support tests (work order 9: competing risks + recalibration)
   (function(){
     const el=document.getElementById('c-resistance'); if(!el) return;
     const rz=d&&d.resistance;
-    if(!(rz&&rz.cells&&rz.cells.length)){ el.innerHTML='<p class="small">The resistance/support model is not available in this run. It is recomputed by the daily job from full price history (from '+((rz&&rz.history_start)||'2018')+'); the base rate publishes when a cell clears '+((rz&&rz.params&&rz.params.min_events_publish)||20)+' week-clustered events, and the crowding/Φ overlay stays preliminary until it clears the same floor.</p>'; return; }
-    const pc=v=>v==null?'—':(100*v).toFixed(1)+'%'; const sg=v=>v==null?'—':(v>0?'+':'')+(100*v).toFixed(1)+'%'; const f2=v=>v==null?'—':v.toFixed(2);
-    const NAME={hi:'90d high',swing:'swing high',vp:'volume shelf'}, NAMEs={hi:'90d low',swing:'swing low',vp:'volume shelf'};
+    if(!(rz&&rz.cells&&rz.cells.length)){ el.innerHTML='<p class="small">The resistance/support model is not available in this run. It is recomputed by the daily job from full price history (from '+((rz&&rz.history_start)||'2018')+') as a competing-risks cumulative incidence, recalibrated walk-forward.</p>'; return; }
+    const pc=v=>v==null?'—':(100*v).toFixed(0)+'%'; const sg=v=>v==null?'—':(v>0?'+':'')+(100*v).toFixed(1)+'%';
+    const bnd=b=>b?(' <span class="small">('+(100*b[0]).toFixed(0)+'–'+(100*b[1]).toFixed(0)+')</span>'):'';
+    const NAME={hi:'90d high',swing:'swing high',vp:'volume shelf',consensus:'consensus'}, NAMEs={hi:'90d low',swing:'swing low',vp:'volume shelf',consensus:'consensus'};
     const lname=(side,rd)=>(side==='support'?NAMEs[rd]:NAME[rd])||rd;
+    const HZ=(rz.params&&rz.params.cif_horizons)||[5,10,20,40];
     let html='';
-    // active tests (§5) — the panel shows only when an asset is in a test
+    // open tests (§5), led by recalibrated cumulative incidence with bootstrap bands
     const act=(rz.active||[]);
     if(act.length){
-      html+='<h3>Tests open now ('+act.length+')</h3>';
-      html+='<table><thead><tr><th>asset</th><th>side</th><th>level</th><th>close cleared?</th><th>horizon</th><th>P(break)</th><th>P(reject)</th><th>P(chop)</th><th>E[move]</th><th>if close clears</th></tr></thead><tbody>';
+      html+='<h3>Tests open now ('+act.length+') — cumulative incidence: probability the level breaks vs holds</h3>';
+      html+='<table><thead><tr><th>asset</th><th>side</th><th>level</th><th>close cleared?</th><th>outcome</th>'+HZ.map(h=>'<th>'+h+'d</th>').join('')+'</tr></thead><tbody>';
       act.sort((a,b)=>a.side<b.side?-1:1);
       act.forEach(t=>{
-        (rz.params.horizons||[5,20]).forEach((H,hi)=>{
-          const p=(t.probs&&t.probs[String(H)])||{}; const n=p.now||{}, cl=p.if_clear||{};
-          const drv=lname(t.side,t.r_def);
-          html+='<tr>'+(hi===0?'<td rowspan="'+(rz.params.horizons||[5,20]).length+'"><b>'+t.base+'</b></td><td rowspan="'+(rz.params.horizons||[5,20]).length+'">'+t.side+'</td><td rowspan="'+(rz.params.horizons||[5,20]).length+'">'+drv+'<br><span class="small">'+sg(t.dist)+' away</span></td><td rowspan="'+(rz.params.horizons||[5,20]).length+'">'+(t.close_cleared?'<span class="badge amber">cleared</span>':'<span class="badge">not yet</span>')+'</td>':'')
-            +'<td>'+H+'d</td><td>'+pc(n.break)+'</td><td>'+pc(n.reject)+'</td><td>'+pc(n.chop)+'</td><td>'+sg(p.exp_move_now)+'</td><td class="small">'+pc(cl.break)+' / '+pc(cl.reject)+' → '+sg(p.exp_move_if_clear)+'</td></tr>';
-        });
+        const cb=t.cif_break||{}, cr=t.cif_reject||{}, bb=t.band_break||{};
+        html+='<tr><td rowspan="2"><b>'+t.base+'</b></td><td rowspan="2">'+t.side+'</td><td rowspan="2">'+lname(t.side,t.r_def)+(t.r_def==='consensus'?' <span class="badge green">2/3</span>':'')+'<br><span class="small">'+sg(t.dist)+' away</span></td><td rowspan="2">'+(t.close_cleared?'<span class="badge amber">cleared</span>':'<span class="badge">not yet</span>')+'</td>'
+          +'<td>break</td>'+HZ.map(h=>'<td><b>'+pc(cb[h])+'</b>'+bnd(bb[h])+'</td>').join('')+'</tr>';
+        html+='<tr><td>reject</td>'+HZ.map(h=>'<td>'+pc(cr[h])+'</td>').join('')+'</tr>';
       });
       html+='</tbody></table>';
-      // one-line reading in the house style, for the first test
-      const t0=act[0], p0=(t0.probs&&t0.probs[String((rz.params.horizons||[5])[0])])||{}, n0=p0.now||{};
-      const H0=(rz.params.horizons||[5])[0];
-      html+='<p class="small">Reading: at this '+t0.base+' '+t0.side+' test against the '+lname(t0.side,t0.r_def)+', with the close '+(t0.close_cleared?'already through the level':'not yet through the level')+', the model puts P('+(t0.side==='support'?'hold/bounce':'reject')+' over '+H0+'d) at '+pc(n0.reject)+' and P(break) at '+pc(n0.break)+'; a daily close clearing the level moves P(break) to '+pc((p0.if_clear||{}).break)+'. Conditional, not a forecast.</p>';
+      const t0=act[0], cb0=t0.cif_break||{}, cr0=t0.cif_reject||{}, raw0=t0.cif_break_raw||{};
+      html+='<p class="small">Reading: at this '+t0.base+' '+t0.side+' test against the '+lname(t0.side,t0.r_def)+', with the close '+(t0.close_cleared?'already through the level':'not yet through the level')+', the recalibrated model puts P(upward resolution before downward, by 20d) at '+pc(cb0['20'])+bnd((t0.band_break||{})['20'])+' and P(downward first) at '+pc(cr0['20'])+'. The raw model said '+pc(raw0['20'])+' before recalibration. Conditional cumulative incidence, not a point forecast; the balance is still unresolved at 20d.</p>';
     } else {
-      html+='<h3>No asset is in a test right now</h3><p class="small">The scorecard below is the running record of resolved tests; the tables are the measured base rates.</p>';
+      html+='<h3>No asset is in a test right now</h3><p class="small">The scorecard is the running record; the tables below are the measured cumulative incidence.</p>';
     }
-    // running scorecard (§5, §8)
+    // live scorecard with skill over the base rate (§1.4)
     const sb=rz.scorecard||{n:0,rows:[]};
     html+='<h3>Live scorecard</h3>';
-    if(sb.n){ html+='<p class="small">'+sb.n+' tests resolved since go-live ('+rz.calibrated_on+'); mean multiclass Brier '+(sb.brier==null?'n/a':sb.brier.toFixed(3))+' (lower is better; a base-rate-only forecast is the benchmark). Most recent:</p>';
+    if(sb.n){ html+='<p class="small">'+sb.n+' tests resolved since go-live ('+rz.calibrated_on+'). Forward Brier '+(sb.brier==null?'n/a':sb.brier.toFixed(3))+' vs base-rate Brier '+(sb.base_rate_brier==null?'n/a':sb.base_rate_brier.toFixed(3))+' — skill '+(sb.skill==null?'n/a':(100*sb.skill).toFixed(0)+'%')+' over the naive forecast. Most recent:</p>';
       html+='<table><thead><tr><th>resolved</th><th>asset</th><th>side</th><th>level</th><th>P(break) at test</th><th>outcome</th></tr></thead><tbody>'+sb.rows.slice(-12).reverse().map(r=>'<tr><td>'+r.resolve_date+'</td><td>'+r.base+'</td><td>'+r.side+'</td><td>'+lname(r.side,r.r_def)+'</td><td>'+pc(r.p_break)+'</td><td>'+r.realized+'</td></tr>').join('')+'</tbody></table>';
-    } else { html+='<p class="small">No test has resolved since go-live ('+rz.calibrated_on+') yet; the scorecard accumulates in public from here, which is the honest way to display a live probability model.</p>'; }
-    // measured base rates + magnitude asymmetry + the explicit Φ answer (§3, §4)
-    html+='<h3>Measured base rates and the size asymmetry (full history from '+rz.history_start+')</h3>';
-    html+='<table><thead><tr><th>side</th><th>level</th><th>H</th><th>n</th><th>P(break)</th><th>P(reject)</th><th>P(chop)</th><th>E[break move]</th><th>E[reject move]</th><th>Φ→P(reject) z <span class="small">(prelim)</span></th></tr></thead><tbody>';
-    rz.cells.forEach(c=>{
-      const br=c.base_rate||{}, mg=c.magnitude||{}, ov=c.overlay||{}, ph=ov.phi_on_reject||{};
-      const mb=(mg.break||{}), mr=(mg.reject||{});
-      const zt=ph.z==null?'—':(ph.z.toFixed(2)+(Math.abs(ph.z)>=2?(ov.converged?'*':'†'):''));
-      html+='<tr><td>'+c.side+'</td><td>'+lname(c.side,c.r_def)+'</td><td>'+c.horizon+'d</td><td>'+c.n_events+(c.published?'':' <span class="badge">below floor</span>')+'</td><td>'+pc(br.break)+'</td><td>'+pc(br.reject)+'</td><td>'+pc(br.chop)+'</td><td>'+sg(mb.mean)+(mb.se?' ±'+(100*mb.se).toFixed(1):'')+'</td><td>'+sg(mr.mean)+(mr.se?' ±'+(100*mr.se).toFixed(1):'')+'</td><td>'+zt+'</td></tr>';
+    } else { html+='<p class="small">No test has resolved since go-live ('+rz.calibrated_on+') yet; the forward scorecard (Brier vs base rate) accumulates in public from here — the only evidence of calibration going forward rather than in backtest.</p>'; }
+    // cumulative incidence by cell — headline is the consensus definition (§2.2)
+    const head=rz.headline_def||'consensus';
+    html+='<h3>Cumulative incidence by cell (headline: '+head+'), full history from '+rz.history_start+'</h3>';
+    html+='<table><thead><tr><th>side</th><th>level</th><th>n</th><th>cause</th>'+HZ.map(h=>'<th>'+h+'d</th>').join('')+'<th>med. days</th><th>E[move]</th></tr></thead><tbody>';
+    const order=c=>((c.r_def==='consensus'?0:1)+(c.side==='resistance'?0:0.5));
+    rz.cells.slice().sort((a,b)=>order(a)-order(b)||(a.side<b.side?-1:1)).forEach(c=>{
+      const cb=c.cif_break||{}, cr=c.cif_reject||{}, bb=c.band_break||{}, mt=c.median_ttr||{}, mg=c.magnitude||{};
+      const hl=c.r_def===head?' style="font-weight:600"':'';
+      html+='<tr'+hl+'><td rowspan="2">'+c.side+'</td><td rowspan="2">'+lname(c.side,c.r_def)+(c.r_def===head?' <span class="badge green">headline</span>':'')+'</td><td rowspan="2">'+c.n+'</td><td>break</td>'+HZ.map(h=>'<td>'+pc(cb[h])+bnd(bb[h])+'</td>').join('')+'<td>'+(mt.break==null?'—':mt.break)+'</td><td>'+sg((mg.break||{})[HZ[2]]?.mean)+'</td></tr>';
+      html+='<tr><td>reject</td>'+HZ.map(h=>'<td>'+pc(cr[h])+'</td>').join('')+'<td>'+(mt.reject==null?'—':mt.reject)+'</td><td>'+sg((mg.reject||{})[HZ[2]]?.mean)+'</td></tr>';
     });
-    html+='</tbody></table>'+CM.csv(rz.cells.map(c=>({side:c.side,level:c.r_def,H:c.horizon,n:c.n_events,pbreak:(c.base_rate||{}).break,preject:(c.base_rate||{}).reject,Ebreak:(c.magnitude||{}).break?.mean,Ereject:(c.magnitude||{}).reject?.mean,phi_reject_z:(c.overlay||{}).phi_on_reject?.z})),'resistance_cells');
-    // the explicit Φ answer + Λ/D claim status
-    const vp5=rz.cells.find(c=>c.side==='resistance'&&c.r_def==='vp'&&c.horizon===5)||{};
-    const anySig=rz.cells.some(c=>{const z=((c.overlay||{}).phi_on_reject||{}).z; return z!=null&&Math.abs(z)>=2;});
-    const lam=(vp5.lambda_over_depth_magnitude)||{};
-    html+='<div class="grid2"><div><h3>Does Φ predict a breakdown? (§4)</h3><p class="small">'+(anySig?'A weak association appears in some level definitions but does not hold across all three, so it is not treated as established.':'Across all three level definitions, Φ\'s coefficient on P(reject) does not clear two clustered standard errors — Φ does not separate rejection <i>probability</i> from the base rate on the sample available.')+' This overlay is preliminary (marked in the last column: * clears 2 s.e. with a converged fit, † otherwise) and re-runs as the leverage history lengthens. The hypothesis with a mechanism — that Φ scales the <i>size</i> of the losing move, not its probability — is tested by the Λ/D magnitude regression, not this coefficient.</p></div>'+
-      '<div><h3>Λ/D on rejection size (the mechanism)</h3><p class="small">'+(lam.published?'The liquidation-mass-over-depth regression clears the sample floor; see the methods page for the coefficient.':'<b>Insufficient sample ('+(lam.n==null?0:lam.n)+' rejection events with a liquidation-mass reading).</b> The claim that Λ/D and OI percentile predict a larger rejection drawdown — the leverage-bites-the-loser mechanism — cannot yet be tested: liquidation depth exists only from the collector era. Reported preliminary and re-run on schedule; nothing is published on it.')+'</p></div></div>';
-    el.innerHTML=html;
-    document.getElementById('m-resistance').textContent='as of '+(rz.as_of||'')+' · base rate on full history, crowding overlay preliminary · frozen params in config/resistance_model.yaml (calibrated '+rz.calibrated_on+')';
+    html+='</tbody></table><p class="small">Bands are the 16th–84th percentile from a block bootstrap over calendar weeks. "chop" is not shown: an unresolved test is censoring, not an outcome. Median days is the time-to-resolution for that cause; E[move] is the '+HZ[2]+'-day continuation (break) or maximum adverse excursion (reject).</p>';
+    // consensus vs single-definition Brier (§2.2/2.3) + the explicit Φ answer (preliminary)
+    const bbd=(rz.recalibration&&rz.recalibration.brier_by_def)||{};
+    const bstr=k=>bbd[k]&&bbd[k].brier!=null?bbd[k].brier.toFixed(3):'n/a';
+    const ov=rz.overlay||{}, phi=ov.phi_on_reject||{}, lam=ov.lambda_over_depth_magnitude||{};
+    const anySig=Object.values(phi).some(p=>p&&p.z!=null&&Math.abs(p.z)>=2);
+    html+='<div class="grid2"><div><h3>Which definition leads? (§2.2)</h3><p class="small">Out-of-sample Brier by definition: consensus '+bstr('consensus_days')+' vs non-consensus '+bstr('non_consensus_days')+'; single definitions 90d '+bstr('hi')+', swing '+bstr('swing')+', shelf '+bstr('vp')+'. The data pick <b>'+head+'</b> as the headline; the single definitions stay as the robustness strip above.</p></div>'+
+      '<div><h3>Does Φ predict a breakdown? (Tier 3, preliminary)</h3><p class="small">'+(anySig?'Φ\'s coefficient on P(reject) is significant in the volume-shelf definition ('+(phi.vp&&phi.vp.z!=null?'z='+phi.vp.z.toFixed(1):'')+') but not the 90-day-high definition, so it is definition-dependent and not treated as established.':'Φ does not separate rejection probability from the base rate across all three definitions on the sample available.')+' The Λ/D mechanism is <b>insufficient sample (n='+(lam.n==null?0:lam.n)+')</b> — liquidation depth is collector-era only. The overlay is preliminary and never drives a published number; it re-runs as the data accrue.</p></div></div>';
+    el.innerHTML=html+CM.csv(rz.cells.map(c=>({side:c.side,level:c.r_def,n:c.n,cif_break_20:(c.cif_break||{})['20'],cif_reject_20:(c.cif_reject||{})['20'],med_break:(c.median_ttr||{}).break,med_reject:(c.median_ttr||{}).reject})),'resistance_cells');
+    document.getElementById('m-resistance').textContent='as of '+(rz.as_of||'')+' · competing-risks cumulative incidence, pooled + walk-forward recalibrated, bootstrap bands · config/resistance_model.yaml (calibrated '+rz.calibrated_on+')';
   })();
 
 })();

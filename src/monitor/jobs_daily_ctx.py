@@ -214,10 +214,11 @@ def compute_exchange(as_of: date | None = None) -> dict[str, int]:
 
 
 def compute_resistance(as_of: date | None = None) -> dict[str, int]:
-    """Work order 8 — resistance/support-test conditional probability model. Fits the base-rate
-    multinomial (7a) on full price history and the crowding overlay (7b) on the short leverage
-    sample, detects tests currently open, and writes the model summary, the live panel rows and the
-    running scorecard. Descriptive measurement: no trigger, no threshold, Phi untouched."""
+    """Work orders 8 + 9 — resistance/support model. WO9 re-casts the outcome as competing risks
+    (time-to-break vs time-to-reject with censoring), pools the cells, recalibrates walk-forward, and
+    puts a block-bootstrap band on every published cumulative-incidence number. The whole assembled
+    block is stored as JSON in resistance_model; the open tests and the running scorecard are the
+    structured tables. Descriptive measurement: no trigger, no threshold, Phi untouched."""
     import json
 
     from monitor.compute import resistance as rz
@@ -244,41 +245,42 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
             pl.lit(now).alias("fetched_at"), pl.lit(sha).alias("git_sha"),
         )
 
-    # model summary — one row per (side, r_def, horizon); nested fields stored as JSON strings
-    cells = rz.model_cells(events, c)
-    jcols = ("base_rate", "calibration", "reject_effects", "magnitude", "overlay",
-             "lambda_over_depth_magnitude")
-    mrows = []
-    for cell in cells:
-        row = {
-            "as_of": as_of, "side": cell["side"], "r_def": cell["r_def"], "horizon": cell["horizon"],
-            "n_events": cell.get("n_events", 0), "n_weeks": cell.get("n_weeks", 0),
-            "n_oos": cell.get("n_oos", 0), "converged": bool(cell.get("converged", False)),
-            "published": bool(cell.get("published", False)), "reason": cell.get("reason", ""),
-        }
-        for k in jcols:
-            row[k] = json.dumps(cell.get(k))
-        mrows.append(row)
-    mdf = _stamp(pl.DataFrame(mrows))
+    model = rz.run_model(events, c, as_of, calibrated_on)
+    active = rz.active_block(model, c, as_of)
+    overlay = rz.tier3_overlay(model["single"], c)
+
+    block = {
+        "as_of": str(as_of), "calibrated_on": str(calibrated_on), "history_start": "2018-06-21",
+        "method": "competing-risks cumulative incidence (Aalen-Johansen), pooled hazard, "
+                  "walk-forward isotonic recalibration, block-bootstrap bands",
+        "params": {
+            "cif_horizons": c["competing_risks"]["cif_horizons"],
+            "max_window_days": c["competing_risks"]["max_window_days"],
+            "consensus_min_defs": c["consensus"]["min_defs"],
+            "proximity_band": c["event"]["proximity_band"],
+            "break_margin_m": c["event"]["labels"]["break_margin_m"],
+            "min_events_publish": c["samples"]["min_events_publish"],
+            "bootstrap_n": c["bootstrap"]["n"],
+        },
+        "headline_def": model["headline_def"],
+        "cells": model["cells"],
+        "recalibration": {k: model["recal"][k] for k in
+                          ("brier", "reliability", "n_oos", "primary_horizon", "brier_by_def")},
+        "active": active,
+        "overlay": overlay,
+    }
+    mdf = _stamp(pl.DataFrame([{"as_of": as_of, "block": json.dumps(block, default=str)}]))
     archive.replace_slice("resistance_model", "as_of", as_of, mdf)
-    counts["resistance_model"] = mdf.height
+    counts["resistance_model"] = 1
 
-    # live panel rows (may be empty when nothing is in a test)
-    act = rz.active_tests(events, as_of, c)
-    if act.height:
-        act = act.with_columns(
-            pl.lit(as_of).alias("as_of"),
-            pl.col("probs").map_elements(json.dumps, return_dtype=pl.String).alias("probs"),
-        )
-        archive.replace_slice("resistance_active", "as_of", as_of, _stamp(act))
-        counts["resistance_active"] = act.height
+    if active:
+        arows = [{"as_of": as_of, "base": a["base"], "side": a["side"], "r_def": a["r_def"],
+                  "payload": json.dumps(a, default=str)} for a in active]
+        archive.replace_slice("resistance_active", "as_of", as_of, _stamp(pl.DataFrame(arows)))
+        counts["resistance_active"] = len(arows)
 
-    # running scorecard — resolved tests since go-live
-    sc = rz.scorecard(events, as_of, calibrated_on, c)
+    sc = rz.scorecard_cif(events, model, c, as_of, calibrated_on)
     if sc.height:
-        sc = sc.with_columns(
-            pl.col("predicted").map_elements(json.dumps, return_dtype=pl.String).alias("predicted")
-        )
         archive.upsert("resistance_scorecard", _stamp(sc))
         counts["resistance_scorecard"] = sc.height
     return counts
@@ -593,74 +595,43 @@ def _exchange() -> dict:
 
 
 def _resistance() -> dict:
-    """Panel 9 (resistance / support tests): the tests currently open with their live break/reject/
-    chop probabilities and expected moves, the per-cell base-rate + overlay model summary, and the
-    running calibration scorecard (work order 8, §5). Every probability carries its event definition
-    and n; nothing crowding-conditioned is presented as established below the §6 floor."""
+    """Panel 9 (resistance / support tests, work orders 8 + 9). Reads the assembled competing-risks
+    block stored by compute_resistance and merges the running scorecard (predicted P(break) at the
+    test vs realised cause, a forward Brier against the base rate). Every published number is a
+    recalibrated cause-specific cumulative incidence with a bootstrap band."""
     import json
-
-    from monitor.compute import resistance as rz
 
     m = archive.read("resistance_model")
     if m is None or not m.height:
         return {}
-    c = rz.cfg()
     latest = m.filter(pl.col("as_of") == m["as_of"].max())
-    cells = []
-    for r in latest.sort(["side", "r_def", "horizon"]).to_dicts():
-        cell = {k: r[k] for k in ("side", "r_def", "horizon", "n_events", "n_weeks", "n_oos",
-                                  "converged", "published", "reason")}
-        for k in ("base_rate", "calibration", "reject_effects", "magnitude", "overlay",
-                  "lambda_over_depth_magnitude"):
-            cell[k] = json.loads(r[k]) if r.get(k) else None
-        cells.append(cell)
-
-    act = archive.read("resistance_active")
-    active = []
-    if act is not None and act.height:
-        a = act.filter(pl.col("as_of") == act["as_of"].max())
-        for r in a.to_dicts():
-            row = {k: r[k] for k in ("base", "date", "side", "r_def", "R", "dist", "level_age",
-                                     "range_width", "rv", "close_cleared", "btc_ret20", "btc_dd90")}
-            row["date"] = str(row["date"])
-            row["probs"] = json.loads(r["probs"]) if r.get("probs") else {}
-            active.append(row)
+    block = json.loads(latest["block"][0])
 
     sc = archive.read("resistance_scorecard")
-    scoreboard = {"n": 0, "brier": None, "rows": []}
+    scoreboard = {"n": 0, "brier": None, "base_rate_brier": None, "skill": None, "rows": []}
     if sc is not None and sc.height:
         rows = sc.sort("resolve_date").to_dicts()
-        briers = []
+        briers, ybar = [], []
         out_rows = []
         for r in rows:
-            realized = r["realized"]
-            pred = json.loads(r["predicted"]) if r.get("predicted") else {}
-            if pred:
-                briers.append(sum((pred.get(k, 0.0) - (1.0 if k == realized else 0.0)) ** 2
-                                  for k in rz.LABELS))
+            y = 1.0 if r["realized"] == "break" else 0.0
+            pb = r.get("p_break")
+            if pb is not None:
+                briers.append((pb - y) ** 2)
+                ybar.append(y)
             out_rows.append({"base": r["base"], "date": str(r["date"]),
                              "resolve_date": str(r["resolve_date"]), "side": r["side"],
-                             "r_def": r["r_def"], "p_break": r.get("p_break"), "realized": realized})
+                             "r_def": r["r_def"], "p_break": pb, "realized": r["realized"]})
+        base = sum(ybar) / len(ybar) if ybar else None
+        model_brier = round(sum(briers) / len(briers), 4) if briers else None
+        base_brier = round(sum((base - y) ** 2 for y in ybar) / len(ybar), 4) if ybar else None
         scoreboard = {
-            "n": len(out_rows),
-            "brier": round(sum(briers) / len(briers), 4) if briers else None,
+            "n": len(out_rows), "brier": model_brier, "base_rate_brier": base_brier,
+            "skill": round(1 - model_brier / base_brier, 3) if (model_brier and base_brier) else None,
             "rows": out_rows[-40:],
         }
-
-    return {
-        "as_of": str(latest["as_of"][0]),
-        "calibrated_on": str(c["calibrated_on"]),
-        "history_start": "2018-06-21",
-        "params": {
-            "proximity_band": c["event"]["proximity_band"], "approach_k": c["event"]["approach_k"],
-            "break_margin_m": c["event"]["labels"]["break_margin_m"],
-            "hold_h": c["event"]["labels"]["hold_h"], "horizons": c["event"]["horizons_days"],
-            "min_events_publish": c["samples"]["min_events_publish"],
-        },
-        "cells": cells,
-        "active": active,
-        "scorecard": scoreboard,
-    }
+    block["scorecard"] = scoreboard
+    return block
 
 
 def _phi_validation() -> dict:

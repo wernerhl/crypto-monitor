@@ -55,5 +55,28 @@ samples:
 assets: [BTC, ETH, BNB, SOL, XRP, ADA, AVAX, LINK, LTC, DOT, DOGE, MATIC, APT, ARB, SUI]
 venue_priority: [binance, coinbase, okx, bybit, kraken]
 
+# --- work order 9: make the estimates honest (frozen 2026-09-19) ------------------------------
+# The five-day snapshot conflated "unresolved" with a real outcome; the raw multinomial was
+# overconfident at the tails. WO9 re-casts the outcome as competing risks (time-to-break vs
+# time-to-reject with censoring), pools the twelve cells, recalibrates walk-forward, and puts a
+# bootstrap band on every published number. No new indicator, no threshold change, no trigger.
+competing_risks:
+  max_window_days: 40         # right-censoring window; "chop" is censoring, not a published outcome
+  cif_horizons: [5, 10, 20, 40]  # cause-specific cumulative incidence reported at these horizons
+consensus:
+  min_defs: 2                 # a test is "confirmed" when >= this many of {hi,swing,vp} fire that day
+recalibration:
+  method: isotonic            # walk-forward isotonic map raw->realised; Platt fallback if unstable
+  min_pairs: 40               # below this many out-of-sample pairs, publish raw and say "uncalibrated"
+pooling:
+  ridge_C: 0.5                # sklearn inverse L2 strength for the pooled multinomial hazard (shrinkage)
+  day_features: true          # discrete-time hazard uses day and log1p(day) as the baseline shape
+bootstrap:
+  n: 120                      # block-bootstrap replicates over calendar weeks (model-free CIF band)
+  n_model: 60                 # replicates for the conditional (pooled-model) active-test band; refits
+  block: week                 # resample the existing clustering unit
+  lo_pct: 16                  # report the 16th-84th percentile band (one-sigma)
+  hi_pct: 84
+
 # §7a history note: the daily klines begin 2018-06-21 (Binance spot), not 2017 — the model uses each
 # asset's available history and states the true start on the methods page; it does not claim 2017.

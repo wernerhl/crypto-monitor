@@ -1,11 +1,11 @@
-"""Regenerate docs/notes/resistance_tests.md from the resistance model (work order 8, §8).
+"""Regenerate docs/notes/resistance_tests.md from the resistance model (work orders 8 + 9, §8).
 
     PYTHONPATH=src uv run --no-sync python scripts/resistance_note.py
 
-Recomputes the walk-forward event list and the two objects (direction base rate, magnitude) from
-full price history, and writes the note with the frozen event definition, all three reference-level
-definitions, the calibration curve, the explicit Φ answer, and the running scorecard. Reporting
-only: no threshold changed, no trigger added, Φ untouched."""
+Recomputes the competing-risks event list and the model from full price history, and writes the
+note with the frozen event definition, the cause-specific cumulative incidence with bootstrap bands,
+the recalibration before/after, the consensus-vs-definition Brier comparison, and the explicit
+(preliminary) Φ answer. Reporting only: no threshold changed, no trigger added, Φ untouched."""
 
 from __future__ import annotations
 
@@ -18,17 +18,17 @@ from monitor.compute import resistance as rz
 OUT = Path("docs/notes")
 
 
-def pc(v: float | None) -> str:
-    return "—" if v is None else f"{100 * v:+.1f}%"
-
-
-def p0(v: float | None) -> str:
+def pc(v) -> str:
     return "—" if v is None else f"{100 * v:.1f}%"
 
 
+def sg(v) -> str:
+    return "—" if v is None else f"{100 * v:+.1f}%"
+
+
 def name(side: str, rd: str) -> str:
-    hi = {"hi": "90d high", "swing": "swing high", "vp": "volume shelf"}
-    lo = {"hi": "90d low", "swing": "swing low", "vp": "volume shelf"}
+    hi = {"hi": "90d high", "swing": "swing high", "vp": "volume shelf", "consensus": "consensus"}
+    lo = {"hi": "90d low", "swing": "swing low", "vp": "volume shelf", "consensus": "consensus"}
     return (lo if side == "support" else hi).get(rd, rd)
 
 
@@ -42,91 +42,78 @@ def main() -> None:
         events, archive.read("positioning_history"), archive.read("fragility_series"),
         archive.read("positioning"),
     )
-    cells = rz.model_cells(events, c)
+    calibrated_on = date.fromisoformat(str(c["calibrated_on"]))
     as_of = events["date"].max()
-    ev = c["event"]
+    model = rz.run_model(events, c, as_of, calibrated_on)
+    cells, rc = model["cells"], model["recal"]
+    HZ = c["competing_risks"]["cif_horizons"]
+    prim = rc["primary_horizon"]
 
     L: list[str] = []
-    L.append("# Resistance / support tests — conditional probability model\n")
-    L.append(f"Generated {date.today().isoformat()} from price history beginning 2018-06-21 "
-             f"(Binance daily klines; the model does not claim 2017). Frozen parameters in "
-             f"`config/resistance_model.yaml`, calibrated {c['calibrated_on']}. This is descriptive "
-             f"measurement: **no trigger, no threshold change, Φ untouched.**\n")
-    L.append("## The framing (fixed)\n")
-    L.append("Φ is not a direction forecaster. The model estimates two separate objects and "
-             "multiplies them: **(1) P(direction | state at a test)** — a clean break vs a rejection "
-             "vs chop — and **(2) E(move | direction)** — the size of each move. The tradable "
-             "quantity is (1)×(2). It stays honest when (1) is near a coin flip because the "
-             "asymmetry lives in (2).\n")
-    L.append("## Event definition (§1)\n")
-    L.append(f"A resistance test on day *t* requires all of: 5-day and 3-day return positive into "
-             f"the level; close within {p0(ev['proximity_band'])} of a reference resistance *R*; and "
-             f"approach from below over the prior {ev['approach_k']} days. The support test is the "
-             f"mirror. A **clean break** is a close beyond *R* by {p0(ev['labels']['break_margin_m'])} "
-             f"that holds {ev['labels']['hold_h']} closes; a **rejection** is a close back through *R* "
-             f"with a lower low (resistance) / higher high (support) than the pre-test swing within the "
-             f"horizon; otherwise **chop**. Levels and state are taken as of *t−1* (causal).\n")
-    L.append("Three reference levels, computed in parallel and all reported (never one picked after "
-             "seeing results): **90-day high**, **most recent confirmed swing high** (5-bar fractal), "
-             "and **nearest high-volume node above price** in a 90-day volume-by-price profile.\n")
+    L.append("# Resistance / support tests — competing-risks conditional probability model\n")
+    L.append(f"Generated {date.today().isoformat()} from price history beginning 2018-06-21. Frozen "
+             f"parameters in `config/resistance_model.yaml`, calibrated {c['calibrated_on']}. "
+             f"Descriptive measurement: **no trigger, no threshold change, Φ untouched.**\n")
+    L.append("## What work order 9 changed\n")
+    L.append("The five-day snapshot (work order 8) lumped *unresolved* tests into a \"chop\" bucket, "
+             "which flattered both the break and the reject probabilities, and the raw multinomial was "
+             "overconfident at the tails. WO9 re-casts the outcome as **competing risks**: for each "
+             "test we record the time to a break and the time to a rejection, whichever comes first, "
+             f"with the {c['competing_risks']['max_window_days']}-day window and end-of-data as "
+             "censoring. The published quantity is the cause-specific **cumulative incidence** — "
+             "P(the level breaks before it holds) by horizon — recalibrated walk-forward and carrying "
+             "a block-bootstrap band. \"Chop\" is censoring, not an outcome.\n")
 
-    L.append("## Base rate and magnitude, by cell (§3, §7a)\n")
-    L.append("| side | level | H | n | weeks | P(break) | P(reject) | P(chop) | E[break] | E[reject] | published |")
-    L.append("|---|---|---|---|---|---|---|---|---|---|---|")
-    for x in cells:
-        br, mg = x.get("base_rate", {}), x.get("magnitude", {})
-        mb, mr = mg.get("break", {}), mg.get("reject", {})
-        L.append(f"| {x['side']} | {name(x['side'], x['r_def'])} | {x['horizon']}d | {x['n_events']} "
-                 f"| {x.get('n_weeks', '—')} | {p0(br.get('break'))} | {p0(br.get('reject'))} "
-                 f"| {p0(br.get('chop'))} | {pc(mb.get('mean'))} | {pc(mr.get('mean'))} "
-                 f"| {'yes' if x['published'] else 'below floor'} |")
-    L.append("")
-    L.append("The size asymmetry is the point: a rejection is typically the minority outcome, but "
-             "its move (a maximum adverse excursion) is materially larger than the break "
-             "continuation, so P×E is not dominated by the more likely direction.\n")
+    L.append(f"## Cause-specific cumulative incidence (§2.1), horizons {HZ} days\n")
+    L.append("| side | level | n | cause | " + " | ".join(f"{h}d" for h in HZ) + " | med. days |")
+    L.append("|---|---|---|---|" + "---|" * (len(HZ) + 1))
+    for x in sorted(cells, key=lambda z: (z["r_def"] != "consensus", z["side"])):
+        cb, cr, mt = x["cif_break"], x["cif_reject"], x["median_ttr"]
+        L.append(f"| {x['side']} | {name(x['side'], x['r_def'])} | {x['n']} | break | "
+                 + " | ".join(pc(cb.get(h)) for h in HZ) + f" | {mt.get('break', '—')} |")
+        L.append("| | | | reject | " + " | ".join(pc(cr.get(h)) for h in HZ)
+                 + f" | {mt.get('reject', '—')} |")
+    L.append("\nBands (not shown in this table; on the panel) are the "
+             f"{c['bootstrap']['n']}-replicate block bootstrap over calendar weeks, 16th–84th "
+             "percentile. The size asymmetry survives: a rejection is the minority outcome but its "
+             "move is larger, so the expected move is not dominated by the more likely direction.\n")
 
-    big = sorted(cells, key=lambda z: -z["n_events"])[0]
-    L.append(f"## Out-of-sample calibration — {big['side']} / {name(big['side'], big['r_def'])} / "
-             f"{big['horizon']}d (§3a)\n")
-    cal = big.get("calibration", [])
-    if cal:
-        L.append("| predicted P(break) | observed | n |")
-        L.append("|---|---|---|")
-        for r in cal:
-            L.append(f"| {p0(r['predicted'])} | {p0(r['observed'])} | {r['n']} |")
-    else:
-        L.append("_Calibration curve accumulates as out-of-sample events resolve._")
-    L.append("")
+    L.append("## Partial pooling and walk-forward recalibration (§1.1, §1.2)\n")
+    L.append("One partially-pooled multinomial hazard (ridge, cell as a factor) is fit over all six "
+             "single-definition cells so the sparse 90-day-high cell borrows the shared covariate "
+             "slopes. A walk-forward isotonic map (predicted→realised, estimated only on prior data) "
+             "is applied on top; the recalibrated probability is what the panel publishes, with the "
+             "raw retained in the JSON for one release.\n")
+    b = rc["brier"].get(prim, {})
+    L.append(f"Brier at {prim} days: raw **{b.get('raw')}** → recalibrated **{b.get('recal')}** vs a "
+             f"base-rate-only **{b.get('base_rate')}** ({b.get('n')} out-of-sample tests). "
+             "Recalibration removes the tail overconfidence the audit flagged (a cell that predicted "
+             "0.95 and was right 0.76 of the time).\n")
 
-    L.append("## The explicit Φ answer (§4)\n")
-    zs = [(name(x["side"], x["r_def"]), x["horizon"],
-           ((x.get("overlay", {}) or {}).get("phi_on_reject") or {}).get("z"))
-          for x in cells if x["side"] == "resistance"]
-    L.append("Φ's coefficient on P(reject), resistance side, by level definition: "
-             + "; ".join(f"{d}/{h}d z={'—' if z is None else round(z, 2)}" for d, h, z in zs) + ".")
-    L.append("\nIt clears two clustered standard errors in the volume-shelf definition but not the "
-             "90-day-high definition. **Φ does not robustly separate rejection _probability_ from the "
-             "base rate across all three definitions** on the sample available — reported for all "
-             "three, not the best one. The overlay is preliminary and re-runs as the leverage history "
-             "lengthens.\n")
-    lam = next((x for x in cells if x["side"] == "resistance" and x["r_def"] == "vp"
-                and x["horizon"] == 5), {}).get("lambda_over_depth_magnitude", {})
-    L.append("### Λ/D on rejection size — the mechanism\n")
-    if lam.get("published"):
-        L.append(f"The rejection drawdown regressed on Λ⁻/D and OI percentile clears the floor: "
-                 f"`{lam.get('drivers')}`.\n")
-    else:
-        L.append(f"**Insufficient sample (n={lam.get('n', 0)}).** Liquidation depth exists only from "
-                 f"the collector era, so the rejection events with a Λ/D reading are far below the "
-                 f"{c['samples']['min_events_publish']}-event floor. The leverage-bites-the-loser "
-                 f"magnitude claim cannot yet be tested; nothing is published on it.\n")
+    L.append("## Consensus vs single definition (§2.2)\n")
+    bbd = rc.get("brier_by_def", {})
 
-    sc = archive.read("resistance_scorecard")
-    n_sc = 0 if sc is None else sc.height
-    L.append("## Running scorecard (§5, §8)\n")
-    L.append(f"{n_sc} tests resolved since go-live ({c['calibrated_on']}). The scorecard accumulates "
-             f"in public; each resolved test carries the model's predicted class probabilities and the "
-             f"realised outcome, so live calibration is visible on the panel.\n")
+    def bs(k):
+        v = bbd.get(k, {})
+        return f"{v.get('brier')} (n={v.get('n')})" if v.get("brier") is not None else "n/a"
+
+    L.append(f"Out-of-sample Brier at {prim} days by selection: consensus days {bs('consensus_days')}, "
+             f"non-consensus days {bs('non_consensus_days')}; single definitions "
+             f"90d {bs('hi')}, swing {bs('swing')}, shelf {bs('vp')}. The data pick "
+             f"**{model['headline_def']}** as the headline; the single definitions remain the "
+             "robustness strip.\n")
+
+    L.append("## The Φ answer (Tier 3, preliminary)\n")
+    ov = rz.tier3_overlay(model["single"], c)
+    zl = "; ".join(f"{name('resistance', k)} z={(ov['phi_on_reject'].get(k) or {}).get('z'):.2f}"
+                   if (ov["phi_on_reject"].get(k) or {}).get("z") is not None else f"{name('resistance', k)} z=—"
+                   for k in rz.R_DEFS)
+    L.append(f"Φ's coefficient on P(reject), resistance side, by definition: {zl}. Significant in the "
+             "volume-shelf definition but not the 90-day-high — definition-dependent, not established. "
+             f"The mechanistic Λ⁻/D claim is **insufficient sample "
+             f"(n={ov['lambda_over_depth_magnitude'].get('n', 0)})**: liquidation depth is collector-"
+             "era only. The overlay never drives a published number and re-runs as data accrue.\n")
+    L.append(f"> {ov['review_note']}\n")
     L.append(f"\n_As of {as_of}. Regenerate with `scripts/resistance_note.py`._\n")
 
     OUT.mkdir(parents=True, exist_ok=True)

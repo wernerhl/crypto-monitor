@@ -129,3 +129,19 @@ the unit test whose comments carry the hand-computed expected value.
 | Φ → P(reject) (overlay) | §4/§7b | Φ + funding z added on their shorter samples; Φ's coefficient on P(reject) with clustered s.e. and n; preliminary, definition-dependent, never below the floor | daily.json `resistance.cells[].overlay` | `compute.resistance.fit_direction` | `test_overlay_preliminary_and_lambda_claim_insufficient` |
 | Λ⁻/D on rejection size | §4 | rejection drawdown regressed on liquidation-mass-over-depth and OI percentile; collector-era only → insufficient sample, nothing published | daily.json `resistance.cells[].lambda_over_depth_magnitude` | `compute.resistance.overlay_magnitude_reject` | `test_overlay_preliminary_and_lambda_claim_insufficient` |
 | live scorecard | §5/§8 | resolved tests since go-live with predicted class probs vs realised outcome; multiclass Brier | `resistance_scorecard`, daily.json `resistance.scorecard` | `compute.resistance.scorecard` | — |
+
+### Resistance / support tests — work order 9 (competing risks)
+
+Work order 9 supersedes the WO8 snapshot above. The published quantity is now a cause-specific
+cumulative incidence, recalibrated and banded.
+
+| indicator | ref | definition | source | code |
+|---|---|---|---|---|
+| competing-risks outcome | §2.1 | time-to-break vs time-to-reject over a 40-day window, end-of-data censored; "chop" is censoring, not an outcome | `resistance_model.block` | `compute.resistance._time_to_events`, `build_events` |
+| cause-specific cumulative incidence | §2.1 | Aalen–Johansen P(break before reject) and mirror at 5/10/20/40d + median time-to-resolution | daily.json `resistance.cells[].cif_break/cif_reject` | `compute.resistance.cif_empirical` |
+| pooled hazard (conditional) | §1.2 | one ridge-penalised discrete-time competing-risks multinomial over all six cells, cell as a factor (partial pooling) | live active tests | `compute.resistance.fit_pooled_hazard`, `predict_cif_tests` |
+| walk-forward recalibration | §1.1 | isotonic map predicted→realised fit only on prior data; the published number is recalibrated, the raw retained one release | daily.json `resistance.recalibration`, `active[].cif_break_raw` | `compute.resistance.walkforward_recalibrate` |
+| bootstrap band | §1.3 | 16th–84th percentile from a block bootstrap over calendar weeks, on the recalibrated scale | `cells[].band_break`, `active[].band_break` | `compute.resistance._cif_bootstrap`, `_active_bands` |
+| consensus headline | §2.2 | test confirmed when ≥2 of {hi,swing,vp} fire; headline chosen by out-of-sample Brier | daily.json `resistance.headline_def`, `recalibration.brier_by_def` | `compute.resistance.consensus_events`, `run_model` |
+| forward scorecard | §1.4 | recalibrated P(break) at each resolved test vs realised cause; forward Brier vs base-rate Brier | `resistance_scorecard`, daily.json `resistance.scorecard` | `compute.resistance.scorecard_cif` |
+| widened history | §4.1 | Coinbase daily candles back to 2015 for the majors, verified against the Binance overlap | `prices_daily` (venue=coinbase) | `scripts/backfill_prices_history.py` |

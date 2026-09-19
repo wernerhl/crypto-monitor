@@ -166,12 +166,16 @@ make site                  # render ./site
 uv run monitor universe show --tier 1
 uv run monitor alerts --dry-run
 PYTHONPATH=src uv run --no-sync python scripts/unlock_drift_note.py   # docs/notes/pre_unlock_drift.md
-PYTHONPATH=src uv run --no-sync python scripts/resistance_note.py     # docs/notes/resistance_tests.md (work order 8)
+PYTHONPATH=src uv run --no-sync python scripts/resistance_note.py     # docs/notes/resistance_tests.md (work orders 8+9)
+PYTHONPATH=src uv run --no-sync python scripts/backfill_prices_history.py  # widen daily-close history (WO9 §4.1)
 ```
-The resistance/support model (panel 9) is computed by the daily job (`compute.resistance`,
-tables `resistance_model`/`resistance_active`/`resistance_scorecard`); the note above just
-re-derives the tables and calibration for `docs/notes/`. Its parameters are frozen in
-`config/resistance_model.yaml` — change them only in a dated review, never to move a number.
+The resistance/support model (panel 9) is computed by the daily job (`compute.resistance`); work
+order 9 recasts it as competing-risks cumulative incidence, partially pooled, walk-forward
+recalibrated, with block-bootstrap bands, and stores the whole block as JSON in `resistance_model`
+(open tests in `resistance_active`, the forward record in `resistance_scorecard`). Its parameters
+are frozen in `config/resistance_model.yaml` — change them only in a dated review, never to move a
+number. `backfill_prices_history.py` is a one-off/occasional deepening of `prices_daily` from
+Coinbase (verified against the Binance overlap); it is idempotent and safe to re-run.
 **Run local recomputes one at a time, and from the clone outside the synced folder
 (`~/crypto-monitor`).** The code enforces it: `archive.upsert` refuses to write from a clone
 whose path contains `Documents`, `Desktop`, `Downloads`, `Library/CloudStorage`, `Dropbox`,
