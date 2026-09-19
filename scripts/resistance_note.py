@@ -51,7 +51,8 @@ def main() -> None:
 
     L: list[str] = []
     L.append("# Resistance / support tests — competing-risks conditional probability model\n")
-    L.append(f"Generated {date.today().isoformat()} from price history beginning 2018-06-21. Frozen "
+    L.append(f"Generated {date.today().isoformat()} from price history beginning {events['date'].min()} "
+             f"(majors backfilled to 2015 from Coinbase, §4.1; alts from their listing). Frozen "
              f"parameters in `config/resistance_model.yaml`, calibrated {c['calibrated_on']}. "
              f"Descriptive measurement: **no trigger, no threshold change, Φ untouched.**\n")
     L.append("## What work order 9 changed\n")

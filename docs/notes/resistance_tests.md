@@ -1,6 +1,6 @@
 # Resistance / support tests — competing-risks conditional probability model
 
-Generated 2026-09-19 from price history beginning 2018-06-21. Frozen parameters in `config/resistance_model.yaml`, calibrated 2026-09-19. Descriptive measurement: **no trigger, no threshold change, Φ untouched.**
+Generated 2026-09-19 from price history beginning 2015-09-22 (majors backfilled to 2015 from Coinbase, §4.1; alts from their listing). Frozen parameters in `config/resistance_model.yaml`, calibrated 2026-09-19. Descriptive measurement: **no trigger, no threshold change, Φ untouched.**
 
 ## What work order 9 changed
 

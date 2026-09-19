@@ -249,8 +249,9 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
     active = rz.active_block(model, c, as_of)
     overlay = rz.tier3_overlay(model["single"], c)
 
+    hist_start = str(events["date"].min()) if events.height else "2018-06-21"
     block = {
-        "as_of": str(as_of), "calibrated_on": str(calibrated_on), "history_start": "2018-06-21",
+        "as_of": str(as_of), "calibrated_on": str(calibrated_on), "history_start": hist_start,
         "method": "competing-risks cumulative incidence (Aalen-Johansen), pooled hazard, "
                   "walk-forward isotonic recalibration, block-bootstrap bands",
         "params": {
