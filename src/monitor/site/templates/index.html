@@ -30,6 +30,9 @@
 <section class="panel" id="p-exchange"><div class="phead"><h2>8 · Exchange tokens</h2><span class="meta" id="m-exchange"></span></div>
 <p class="intuition">The one sector with equity-like cash flows: fee revenue, a shareholder yield from burns, an idiosyncratic tail (exchange solvency) that is orthogonal to BTC, and a market-priced solvency signal in the token itself. Ranking here is within one sector with real fundamentals. On-chain fees are verified; CEX revenue is estimated and flagged.</p><div id="c-exchange"></div></section>
 
+<section class="panel" id="p-resistance"><div class="phead"><h2>9 · Resistance / support tests</h2><span class="meta" id="m-resistance"></span></div>
+<p class="intuition">Φ is not a direction forecaster. This panel estimates two separate things and multiplies them: the probability of a clean break vs a rejection at a test, and the size of the move each way. The asymmetry lives in the size — a rejection can be rare and still dominate because its move is large. The base rate is measured on full price history (the anchor); the crowding/Φ overlay is preliminary on a short leverage sample and is never presented as established below the sample floor. Every probability is conditional on the level definition and whether the daily close has cleared, and carries its event count.</p><div id="c-resistance"></div></section>
+
 <script>
 (async function(){
   const [h, d, rk, st, hist, scr] = await Promise.all([CM.json('data/hourly.json'), CM.json('data/daily.json'), CM.json('data/risk.json'), CM.json('data/status.json'), CM.json('data/history.json'), CM.json('data/screens.json')]);
@@ -215,6 +218,63 @@
     document.getElementById('c-exchange').innerHTML=html;
     document.getElementById('m-exchange').textContent='as of '+(ex.as_of||'')+' · DefiLlama fees (verified), wash-filtered volume × fee tiers (estimated), config/exchange_tokens.yaml';
   }
+
+  // ---------- 9 resistance / support tests
+  (function(){
+    const el=document.getElementById('c-resistance'); if(!el) return;
+    const rz=d&&d.resistance;
+    if(!(rz&&rz.cells&&rz.cells.length)){ el.innerHTML='<p class="small">The resistance/support model is not available in this run. It is recomputed by the daily job from full price history (from '+((rz&&rz.history_start)||'2018')+'); the base rate publishes when a cell clears '+((rz&&rz.params&&rz.params.min_events_publish)||20)+' week-clustered events, and the crowding/Φ overlay stays preliminary until it clears the same floor.</p>'; return; }
+    const pc=v=>v==null?'—':(100*v).toFixed(1)+'%'; const sg=v=>v==null?'—':(v>0?'+':'')+(100*v).toFixed(1)+'%'; const f2=v=>v==null?'—':v.toFixed(2);
+    const NAME={hi:'90d high',swing:'swing high',vp:'volume shelf'}, NAMEs={hi:'90d low',swing:'swing low',vp:'volume shelf'};
+    const lname=(side,rd)=>(side==='support'?NAMEs[rd]:NAME[rd])||rd;
+    let html='';
+    // active tests (§5) — the panel shows only when an asset is in a test
+    const act=(rz.active||[]);
+    if(act.length){
+      html+='<h3>Tests open now ('+act.length+')</h3>';
+      html+='<table><thead><tr><th>asset</th><th>side</th><th>level</th><th>close cleared?</th><th>horizon</th><th>P(break)</th><th>P(reject)</th><th>P(chop)</th><th>E[move]</th><th>if close clears</th></tr></thead><tbody>';
+      act.sort((a,b)=>a.side<b.side?-1:1);
+      act.forEach(t=>{
+        (rz.params.horizons||[5,20]).forEach((H,hi)=>{
+          const p=(t.probs&&t.probs[String(H)])||{}; const n=p.now||{}, cl=p.if_clear||{};
+          const drv=lname(t.side,t.r_def);
+          html+='<tr>'+(hi===0?'<td rowspan="'+(rz.params.horizons||[5,20]).length+'"><b>'+t.base+'</b></td><td rowspan="'+(rz.params.horizons||[5,20]).length+'">'+t.side+'</td><td rowspan="'+(rz.params.horizons||[5,20]).length+'">'+drv+'<br><span class="small">'+sg(t.dist)+' away</span></td><td rowspan="'+(rz.params.horizons||[5,20]).length+'">'+(t.close_cleared?'<span class="badge amber">cleared</span>':'<span class="badge">not yet</span>')+'</td>':'')
+            +'<td>'+H+'d</td><td>'+pc(n.break)+'</td><td>'+pc(n.reject)+'</td><td>'+pc(n.chop)+'</td><td>'+sg(p.exp_move_now)+'</td><td class="small">'+pc(cl.break)+' / '+pc(cl.reject)+' → '+sg(p.exp_move_if_clear)+'</td></tr>';
+        });
+      });
+      html+='</tbody></table>';
+      // one-line reading in the house style, for the first test
+      const t0=act[0], p0=(t0.probs&&t0.probs[String((rz.params.horizons||[5])[0])])||{}, n0=p0.now||{};
+      const H0=(rz.params.horizons||[5])[0];
+      html+='<p class="small">Reading: at this '+t0.base+' '+t0.side+' test against the '+lname(t0.side,t0.r_def)+', with the close '+(t0.close_cleared?'already through the level':'not yet through the level')+', the model puts P('+(t0.side==='support'?'hold/bounce':'reject')+' over '+H0+'d) at '+pc(n0.reject)+' and P(break) at '+pc(n0.break)+'; a daily close clearing the level moves P(break) to '+pc((p0.if_clear||{}).break)+'. Conditional, not a forecast.</p>';
+    } else {
+      html+='<h3>No asset is in a test right now</h3><p class="small">The scorecard below is the running record of resolved tests; the tables are the measured base rates.</p>';
+    }
+    // running scorecard (§5, §8)
+    const sb=rz.scorecard||{n:0,rows:[]};
+    html+='<h3>Live scorecard</h3>';
+    if(sb.n){ html+='<p class="small">'+sb.n+' tests resolved since go-live ('+rz.calibrated_on+'); mean multiclass Brier '+(sb.brier==null?'n/a':sb.brier.toFixed(3))+' (lower is better; a base-rate-only forecast is the benchmark). Most recent:</p>';
+      html+='<table><thead><tr><th>resolved</th><th>asset</th><th>side</th><th>level</th><th>P(break) at test</th><th>outcome</th></tr></thead><tbody>'+sb.rows.slice(-12).reverse().map(r=>'<tr><td>'+r.resolve_date+'</td><td>'+r.base+'</td><td>'+r.side+'</td><td>'+lname(r.side,r.r_def)+'</td><td>'+pc(r.p_break)+'</td><td>'+r.realized+'</td></tr>').join('')+'</tbody></table>';
+    } else { html+='<p class="small">No test has resolved since go-live ('+rz.calibrated_on+') yet; the scorecard accumulates in public from here, which is the honest way to display a live probability model.</p>'; }
+    // measured base rates + magnitude asymmetry + the explicit Φ answer (§3, §4)
+    html+='<h3>Measured base rates and the size asymmetry (full history from '+rz.history_start+')</h3>';
+    html+='<table><thead><tr><th>side</th><th>level</th><th>H</th><th>n</th><th>P(break)</th><th>P(reject)</th><th>P(chop)</th><th>E[break move]</th><th>E[reject move]</th><th>Φ→P(reject) z <span class="small">(prelim)</span></th></tr></thead><tbody>';
+    rz.cells.forEach(c=>{
+      const br=c.base_rate||{}, mg=c.magnitude||{}, ov=c.overlay||{}, ph=ov.phi_on_reject||{};
+      const mb=(mg.break||{}), mr=(mg.reject||{});
+      const zt=ph.z==null?'—':(ph.z.toFixed(2)+(Math.abs(ph.z)>=2?(ov.converged?'*':'†'):''));
+      html+='<tr><td>'+c.side+'</td><td>'+lname(c.side,c.r_def)+'</td><td>'+c.horizon+'d</td><td>'+c.n_events+(c.published?'':' <span class="badge">below floor</span>')+'</td><td>'+pc(br.break)+'</td><td>'+pc(br.reject)+'</td><td>'+pc(br.chop)+'</td><td>'+sg(mb.mean)+(mb.se?' ±'+(100*mb.se).toFixed(1):'')+'</td><td>'+sg(mr.mean)+(mr.se?' ±'+(100*mr.se).toFixed(1):'')+'</td><td>'+zt+'</td></tr>';
+    });
+    html+='</tbody></table>'+CM.csv(rz.cells.map(c=>({side:c.side,level:c.r_def,H:c.horizon,n:c.n_events,pbreak:(c.base_rate||{}).break,preject:(c.base_rate||{}).reject,Ebreak:(c.magnitude||{}).break?.mean,Ereject:(c.magnitude||{}).reject?.mean,phi_reject_z:(c.overlay||{}).phi_on_reject?.z})),'resistance_cells');
+    // the explicit Φ answer + Λ/D claim status
+    const vp5=rz.cells.find(c=>c.side==='resistance'&&c.r_def==='vp'&&c.horizon===5)||{};
+    const anySig=rz.cells.some(c=>{const z=((c.overlay||{}).phi_on_reject||{}).z; return z!=null&&Math.abs(z)>=2;});
+    const lam=(vp5.lambda_over_depth_magnitude)||{};
+    html+='<div class="grid2"><div><h3>Does Φ predict a breakdown? (§4)</h3><p class="small">'+(anySig?'A weak association appears in some level definitions but does not hold across all three, so it is not treated as established.':'Across all three level definitions, Φ\'s coefficient on P(reject) does not clear two clustered standard errors — Φ does not separate rejection <i>probability</i> from the base rate on the sample available.')+' This overlay is preliminary (marked in the last column: * clears 2 s.e. with a converged fit, † otherwise) and re-runs as the leverage history lengthens. The hypothesis with a mechanism — that Φ scales the <i>size</i> of the losing move, not its probability — is tested by the Λ/D magnitude regression, not this coefficient.</p></div>'+
+      '<div><h3>Λ/D on rejection size (the mechanism)</h3><p class="small">'+(lam.published?'The liquidation-mass-over-depth regression clears the sample floor; see the methods page for the coefficient.':'<b>Insufficient sample ('+(lam.n==null?0:lam.n)+' rejection events with a liquidation-mass reading).</b> The claim that Λ/D and OI percentile predict a larger rejection drawdown — the leverage-bites-the-loser mechanism — cannot yet be tested: liquidation depth exists only from the collector era. Reported preliminary and re-run on schedule; nothing is published on it.')+'</p></div></div>';
+    el.innerHTML=html;
+    document.getElementById('m-resistance').textContent='as of '+(rz.as_of||'')+' · base rate on full history, crowding overlay preliminary · frozen params in config/resistance_model.yaml (calibrated '+rz.calibrated_on+')';
+  })();
 
 })();
 </script>

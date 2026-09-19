@@ -36,6 +36,8 @@
 <div class="panel"><div id="phival">loading data/daily.json …</div></div>
 <h2>Exchange tokens: within-sector relative value and dispersion</h2>
 <div class="panel"><div id="exmethods">loading data/daily.json …</div></div>
+<h2 id="resmethods">Resistance / support tests: the two objects, calibration, and the Φ answer</h2>
+<div class="panel"><div id="resistance-methods">loading data/daily.json …</div></div>
 <h2 id="volstate">Vol-state diagnostics</h2>
 <div class="panel"><div id="volstate-diag">loading data/hourly.json …</div></div>
 <h2>Factor model</h2>
@@ -67,6 +69,33 @@
       '<p class="meta">A lower within-sector correlation than the broad universe is the idiosyncratic dispersion this sub-module trades on. '+(dp.note||'')+'</p>'+
       '<h3>Idiosyncratic event dates</h3><ul>'+ev+'</ul>'+
       '<p class="meta">The sector-vs-name moves on these dates would populate here once daily price history spans them; HYPE and JUP postdate the 2022 events, and only BNB has the full history.</p>';
+  })();
+  (function(){
+    const rz=d.resistance; const box=document.getElementById('resistance-methods');
+    if(!rz||!rz.cells){ box.textContent='resistance/support model not built yet'; return; }
+    const pc=v=>v==null?'—':(100*v).toFixed(1)+'%'; const sg=v=>v==null?'—':(v>0?'+':'')+(100*v).toFixed(1)+'%';
+    const NAME={hi:'90d high',swing:'swing high',vp:'volume shelf'}, NAMEs={hi:'90d low',swing:'swing low',vp:'volume shelf'};
+    const lname=(s,r)=>(s==='support'?NAMEs[r]:NAME[r])||r;
+    const p=rz.params||{};
+    let h='<h3>Event definition (frozen in config/resistance_model.yaml, calibrated '+rz.calibrated_on+')</h3>'+
+      '<p>A <b>resistance test</b> on day t requires all of: a positive 5-day and 3-day return into the level, the close within '+pc(p.proximity_band)+' of a reference resistance R, and an approach from below over the prior '+p.approach_k+' days. The mirror <b>support test</b> flips the signs. Three reference levels are computed in parallel and all three are reported (never one chosen after the fact): the 90-day high, the most recent confirmed swing high (a 5-bar fractal, causal), and the nearest high-volume node above price in a 90-day volume-by-price profile. A <b>clean break</b> is a close beyond R by '+pc(p.break_margin_m)+' that holds '+p.hold_h+' closes; a <b>rejection</b> is a close back through R with a lower low (resistance) / higher high (support) than the pre-test swing within the horizon; otherwise <b>chop</b>. Every level and state variable is taken as of t−1. History begins '+rz.history_start+' (Binance daily klines; the model does not claim 2017).</p>'+
+      '<h3>Two objects, multiplied (§3)</h3><p>(1) P(direction) is a walk-forward multinomial logit on price/structure + market context (the base rate, 7a); (2) E(move | direction) is the mean continuation (break) or maximum adverse excursion (reject) at each horizon, with a Newey–West standard error (3b). The published expected move is their product. Standard errors on the direction model are clustered by ISO week. The base rate publishes when a cell clears '+p.min_events_publish+' week-clustered events; the crowding/Φ overlay (7b) adds Φ and funding-z on their shorter samples and is always preliminary until it clears the same floor.</p>'+
+      '<table><thead><tr><th>side</th><th>level</th><th>H</th><th>n</th><th>weeks</th><th>OOS</th><th>P(break)</th><th>P(reject)</th><th>P(chop)</th><th>E[break]</th><th>E[reject]</th><th>Φ→reject β (s.e.)</th><th>published</th></tr></thead><tbody>';
+    rz.cells.forEach(c=>{ const br=c.base_rate||{}, mg=c.magnitude||{}, ph=((c.overlay||{}).phi_on_reject)||{}; const mb=mg.break||{}, mr=mg.reject||{};
+      h+='<tr><td>'+c.side+'</td><td>'+lname(c.side,c.r_def)+'</td><td>'+c.horizon+'d</td><td>'+c.n_events+'</td><td>'+(c.n_weeks||'—')+'</td><td>'+(c.n_oos||'—')+'</td><td>'+pc(br.break)+'</td><td>'+pc(br.reject)+'</td><td>'+pc(br.chop)+'</td><td>'+sg(mb.mean)+'</td><td>'+sg(mr.mean)+'</td><td>'+(ph.beta==null?'—':ph.beta.toFixed(3)+' ('+(ph.se==null?'':ph.se.toFixed(3))+')')+'</td><td>'+(c.published?'yes':'<span class="badge">below floor</span>')+'</td></tr>'; });
+    h+='</tbody></table>';
+    // calibration (OOS reliability) for the largest cell
+    const big=rz.cells.slice().sort((a,b)=>b.n_events-a.n_events)[0];
+    const cal=(big.calibration||[]);
+    h+='<h3>Out-of-sample calibration (reliability of P(break), '+big.side+' / '+lname(big.side,big.r_def)+' / '+big.horizon+'d)</h3>';
+    h+=cal.length? '<table><thead><tr><th>predicted</th><th>observed</th><th>n</th></tr></thead><tbody>'+cal.map(r=>'<tr><td>'+pc(r.predicted)+'</td><td>'+pc(r.observed)+'</td><td>'+r.n+'</td></tr>').join('')+'</tbody></table><p class="meta">A calibrated model tracks the diagonal: predicted ≈ observed. Expanding-window walk-forward, refit on a fixed cadence; never smoothed.</p>' : '<p class="meta">calibration curve accumulates as out-of-sample events resolve.</p>';
+    // the explicit Φ answer (§4) + Λ/D mechanism
+    const zlist=rz.cells.filter(c=>c.side==='resistance').map(c=>({d:lname(c.side,c.r_def),H:c.horizon,z:(((c.overlay||{}).phi_on_reject)||{}).z}));
+    const lam=(rz.cells.find(c=>c.side==='resistance'&&c.r_def==='vp'&&c.horizon===5)||{}).lambda_over_depth_magnitude||{};
+    h+='<h3>The explicit Φ answer (§4)</h3><p>Φ\'s coefficient on P(reject) in the direction model, resistance side, by level definition: '+zlist.map(x=>x.d+'/'+x.H+'d z='+(x.z==null?'—':x.z.toFixed(2))).join('; ')+'. It is significant (|z|≥2) in the volume-shelf definition but not the 90-day-high definition, so Φ does not <i>robustly</i> separate rejection probability from the base rate across all three definitions on the sample available — the honest, definition-dependent result, reported for all three rather than the best one. This overlay is preliminary and re-runs as the leverage history lengthens. The distinct, mechanistic claim — that Φ scales the <i>size</i> of the losing move — is tested next.</p>'+
+      '<h3>Λ/D on rejection size — the leverage-bites-the-loser mechanism</h3><p>'+(lam.published?'The regression of the rejection drawdown on liquidation-mass-over-depth (Λ⁻/D) and OI percentile clears the sample floor; coefficients: '+JSON.stringify(lam.drivers)+'.':'<b>Insufficient sample (n='+(lam.n==null?0:lam.n)+').</b> Liquidation depth exists only from the collector era, so the number of rejection events with a Λ/D reading is far below the '+p.min_events_publish+'-event floor. The claim is reported preliminary and nothing is published on it; it becomes testable as the collector history lengthens.')+'</p>'+
+      '<p class="meta">Scorecard: '+(rz.scorecard&&rz.scorecard.n?rz.scorecard.n+' resolved tests since go-live, mean multiclass Brier '+(rz.scorecard.brier==null?'n/a':rz.scorecard.brier.toFixed(3)):'no tests resolved since go-live yet')+'. Full note: <code>docs/notes/resistance_tests.md</code>. No threshold changed and no trigger was added.</p>';
+    box.innerHTML=h;
   })();
   document.getElementById('val-meta').textContent = 'daily data ' + d.generated_at;
   const hr = d.hit_rates || {};

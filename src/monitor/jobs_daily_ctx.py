@@ -177,6 +177,7 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
     put("proposals", [snapshot.parse_proposals(e) for e in E("snapshot_proposals")])
     counts.update(compute_supply_and_events(as_of))
     counts.update(compute_exchange(as_of))
+    counts.update(compute_resistance(as_of))
     return counts
 
 
@@ -210,6 +211,77 @@ def compute_exchange(as_of: date | None = None) -> dict[str, int]:
     )
     archive.replace_slice("exchange_fundamentals", "as_of", as_of, df)
     return {"exchange_fundamentals": df.height}
+
+
+def compute_resistance(as_of: date | None = None) -> dict[str, int]:
+    """Work order 8 — resistance/support-test conditional probability model. Fits the base-rate
+    multinomial (7a) on full price history and the crowding overlay (7b) on the short leverage
+    sample, detects tests currently open, and writes the model summary, the live panel rows and the
+    running scorecard. Descriptive measurement: no trigger, no threshold, Phi untouched."""
+    import json
+
+    from monitor.compute import resistance as rz
+
+    now, sha = utc_now(), git_sha()
+    as_of = as_of or now.date()
+    prices = archive.read("prices_daily")
+    if prices is None or not prices.height:
+        return {"resistance_model": 0}
+    c = rz.cfg()
+    events = rz.build_events(prices, c)
+    if not events.height:
+        return {"resistance_model": 0}
+    events = rz.attach_state(
+        events, archive.read("positioning_history"), archive.read("fragility_series"),
+        archive.read("positioning"),
+    )
+    calibrated_on = date.fromisoformat(str(c["calibrated_on"]))
+    counts: dict[str, int] = {}
+
+    def _stamp(df: pl.DataFrame) -> pl.DataFrame:
+        return df.with_columns(
+            pl.lit("compute.resistance").alias("source"),
+            pl.lit(now).alias("fetched_at"), pl.lit(sha).alias("git_sha"),
+        )
+
+    # model summary — one row per (side, r_def, horizon); nested fields stored as JSON strings
+    cells = rz.model_cells(events, c)
+    jcols = ("base_rate", "calibration", "reject_effects", "magnitude", "overlay",
+             "lambda_over_depth_magnitude")
+    mrows = []
+    for cell in cells:
+        row = {
+            "as_of": as_of, "side": cell["side"], "r_def": cell["r_def"], "horizon": cell["horizon"],
+            "n_events": cell.get("n_events", 0), "n_weeks": cell.get("n_weeks", 0),
+            "n_oos": cell.get("n_oos", 0), "converged": bool(cell.get("converged", False)),
+            "published": bool(cell.get("published", False)), "reason": cell.get("reason", ""),
+        }
+        for k in jcols:
+            row[k] = json.dumps(cell.get(k))
+        mrows.append(row)
+    mdf = _stamp(pl.DataFrame(mrows))
+    archive.replace_slice("resistance_model", "as_of", as_of, mdf)
+    counts["resistance_model"] = mdf.height
+
+    # live panel rows (may be empty when nothing is in a test)
+    act = rz.active_tests(events, as_of, c)
+    if act.height:
+        act = act.with_columns(
+            pl.lit(as_of).alias("as_of"),
+            pl.col("probs").map_elements(json.dumps, return_dtype=pl.String).alias("probs"),
+        )
+        archive.replace_slice("resistance_active", "as_of", as_of, _stamp(act))
+        counts["resistance_active"] = act.height
+
+    # running scorecard — resolved tests since go-live
+    sc = rz.scorecard(events, as_of, calibrated_on, c)
+    if sc.height:
+        sc = sc.with_columns(
+            pl.col("predicted").map_elements(json.dumps, return_dtype=pl.String).alias("predicted")
+        )
+        archive.upsert("resistance_scorecard", _stamp(sc))
+        counts["resistance_scorecard"] = sc.height
+    return counts
 
 
 def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
@@ -457,6 +529,7 @@ def write_daily_json(out: Path = SITE_DATA) -> None:
         "rule43_drivers": _rule43_drivers(),
         "fragility_validation": _phi_validation(),
         "exchange": _exchange(),
+        "resistance": _resistance(),
     }
     (out / "daily.json").write_text(dump_json(payload))
     write_history_json(out)
@@ -516,6 +589,77 @@ def _exchange() -> dict:
         "tokens": latest.drop("source", "fetched_at", "git_sha", "as_of").to_dicts(),
         "residual_ic": ic,
         "dispersion": disp,
+    }
+
+
+def _resistance() -> dict:
+    """Panel 9 (resistance / support tests): the tests currently open with their live break/reject/
+    chop probabilities and expected moves, the per-cell base-rate + overlay model summary, and the
+    running calibration scorecard (work order 8, §5). Every probability carries its event definition
+    and n; nothing crowding-conditioned is presented as established below the §6 floor."""
+    import json
+
+    from monitor.compute import resistance as rz
+
+    m = archive.read("resistance_model")
+    if m is None or not m.height:
+        return {}
+    c = rz.cfg()
+    latest = m.filter(pl.col("as_of") == m["as_of"].max())
+    cells = []
+    for r in latest.sort(["side", "r_def", "horizon"]).to_dicts():
+        cell = {k: r[k] for k in ("side", "r_def", "horizon", "n_events", "n_weeks", "n_oos",
+                                  "converged", "published", "reason")}
+        for k in ("base_rate", "calibration", "reject_effects", "magnitude", "overlay",
+                  "lambda_over_depth_magnitude"):
+            cell[k] = json.loads(r[k]) if r.get(k) else None
+        cells.append(cell)
+
+    act = archive.read("resistance_active")
+    active = []
+    if act is not None and act.height:
+        a = act.filter(pl.col("as_of") == act["as_of"].max())
+        for r in a.to_dicts():
+            row = {k: r[k] for k in ("base", "date", "side", "r_def", "R", "dist", "level_age",
+                                     "range_width", "rv", "close_cleared", "btc_ret20", "btc_dd90")}
+            row["date"] = str(row["date"])
+            row["probs"] = json.loads(r["probs"]) if r.get("probs") else {}
+            active.append(row)
+
+    sc = archive.read("resistance_scorecard")
+    scoreboard = {"n": 0, "brier": None, "rows": []}
+    if sc is not None and sc.height:
+        rows = sc.sort("resolve_date").to_dicts()
+        briers = []
+        out_rows = []
+        for r in rows:
+            realized = r["realized"]
+            pred = json.loads(r["predicted"]) if r.get("predicted") else {}
+            if pred:
+                briers.append(sum((pred.get(k, 0.0) - (1.0 if k == realized else 0.0)) ** 2
+                                  for k in rz.LABELS))
+            out_rows.append({"base": r["base"], "date": str(r["date"]),
+                             "resolve_date": str(r["resolve_date"]), "side": r["side"],
+                             "r_def": r["r_def"], "p_break": r.get("p_break"), "realized": realized})
+        scoreboard = {
+            "n": len(out_rows),
+            "brier": round(sum(briers) / len(briers), 4) if briers else None,
+            "rows": out_rows[-40:],
+        }
+
+    return {
+        "as_of": str(latest["as_of"][0]),
+        "calibrated_on": str(c["calibrated_on"]),
+        "history_start": "2018-06-21",
+        "params": {
+            "proximity_band": c["event"]["proximity_band"], "approach_k": c["event"]["approach_k"],
+            "break_margin_m": c["event"]["labels"]["break_margin_m"],
+            "hold_h": c["event"]["labels"]["hold_h"], "horizons": c["event"]["horizons_days"],
+            "min_events_publish": c["samples"]["min_events_publish"],
+        },
+        "cells": cells,
+        "active": active,
+        "scorecard": scoreboard,
     }
 
 

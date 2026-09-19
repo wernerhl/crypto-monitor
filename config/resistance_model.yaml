@@ -1,0 +1,59 @@
+_doc: >
+  Work order 8 — resistance/support-test conditional probability model. Every parameter here is
+  FROZEN before estimation and must not be tuned to the outcome (honesty rail §6). The model
+  estimates two separate objects and multiplies them: P(direction | state at a test) and
+  E(move | direction, state); the tradable quantity is their product. It publishes panel 9 and a
+  methods note; it adds no trigger, changes no threshold, and does not touch Φ's definition.
+  Change calibrated_on and bump the labels only in a dated review, never to improve a number.
+
+calibrated_on: 2026-09-19
+
+# §1 event definition — a resistance test on day t requires ALL of: an up-move into the level,
+# proximity to a reference resistance R_t, and approach from below. The mirror support test uses
+# the same machinery with the signs flipped (down-move into a range-low / swing-low / volume shelf).
+event:
+  trend:
+    ret5_gt: 0.0          # 5-day return strictly positive (resistance side; flipped for support)
+    ret3_gt: 0.0          # and 3-day return strictly positive
+  proximity_band: 0.02    # |P_t / R_t - 1| <= band  (2%)
+  approach_k: 3           # P_{t-k} strictly on the approaching side of R_t for the prior k days
+  labels:
+    break_margin_m: 0.005 # clean break: close exceeds R_t by m; rejection: close falls back below by m
+    hold_h: 2             # break must hold: h closes on the break side of R_t*(1-m) [support: (1+m)]
+    react_h: 5            # rejection window: within h days close returns through the level AND a
+                          # lower low (resistance) / higher high (support) than the pre-test swing
+  horizons_days: [5, 20]  # object (2) magnitude measured at these horizons
+
+# §1 the three reference-level definitions, computed in parallel and ALL reported (never pick one
+# after seeing results). Every level is taken as of t-1 so it is causal.
+reference_levels:
+  hi:
+    window_days: 90       # R^hi = 90-day high, the range-top the monitor already uses
+  swing:
+    fractal_w: 5          # R^swing = most recent confirmed swing high: a local max with w bars each
+                          # side; confirmed only w bars later, so causal as of t-1
+    lookback_days: 120    # search window for the most recent confirmed swing
+  vp:
+    window_days: 90       # R^vp = nearest high-volume node above price in a 90-day volume-by-price
+    bins: 24              # profile resolution (price bins over the 90-day range)
+    min_node_share: 0.05  # a node must hold at least this share of window volume to count as a shelf
+
+# §7 the two-sample split. 7a base rate runs on full price history with price/structure + market
+# context only. 7b crowding overlay adds leverage/Φ regressors on their shorter samples and is
+# labelled preliminary until a cell clears min_events_publish independent (week-clustered) events.
+samples:
+  min_events_publish: 20      # §6 floor: below this a cell shows "insufficient sample (n=k)" and the
+                              # base-rate-only number, never a logit fit on single digits
+  min_train_events: 60        # walk-forward: no out-of-sample prediction before the train set has this
+  refit_cadence_days: 30      # expanding-window refit cadence for the walk-forward backtest
+  calibration_bins: 10        # reliability-curve bins for the out-of-sample calibration check
+  cluster: week               # standard errors clustered by ISO calendar week (tests bunch); the
+                              # pooled multi-asset fit clusters by (week, asset)
+
+# assets: BTC first, then Tier-1 names over their available history (§7a). Frozen list; add names
+# only in a dated review. Canonical daily close is taken from the first venue present per (base,date).
+assets: [BTC, ETH, BNB, SOL, XRP, ADA, AVAX, LINK, LTC, DOT, DOGE, MATIC, APT, ARB, SUI]
+venue_priority: [binance, coinbase, okx, bybit, kraken]
+
+# §7a history note: the daily klines begin 2018-06-21 (Binance spot), not 2017 — the model uses each
+# asset's available history and states the true start on the methods page; it does not claim 2017.

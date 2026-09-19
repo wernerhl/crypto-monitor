@@ -606,3 +606,38 @@ machinery extends to any fee-generating protocol (`subtype`, not hard-coded exch
   dispersion evidence is computed and shown. Methods page carries the residual-IC decision,
   the dispersion figures and the idiosyncratic-event dates. Panel 8 is added to the H1
   rendered-page check (eight panels now).
+
+## 2026-09-19 — Work order 8: resistance/support conditional-probability model (panel 9)
+* **Framing (fixed).** Φ is not a direction forecaster. The model estimates two separate
+  objects and multiplies them: (1) P(direction | state at a test) — a break/reject/chop
+  multinomial — and (2) E(move | direction) — the size each way. The published expected move
+  is (1)×(2); it stays honest when (1) is a coin flip because the asymmetry lives in (2). No
+  trigger, no threshold change, Φ untouched. `config/resistance_model.yaml` freezes every
+  parameter with a `calibrated_on` date.
+* **Event definition (§1).** A resistance test needs a positive 5- and 3-day return into the
+  level, the close within 2% of a reference resistance R, and an approach from below over the
+  prior 3 days (support test is the mirror). Three R definitions are computed in parallel and
+  all three reported (never one picked after results): 90-day high, most recent confirmed
+  swing high (5-bar fractal, causal), and nearest high-volume node above price in a 90-day
+  volume-by-price profile. Break = close beyond R by 0.5% held 2 closes; reject = close back
+  through R with a lower low (resistance)/higher high (support) than the pre-test swing;
+  otherwise chop. Levels and state are taken as of t−1 (no look-ahead).
+* **Two-sample split (§7), enforced.** The base rate (7a) is fit on full price history from
+  2018-06-21 (Binance daily klines; the model does not claim 2017) with price/structure +
+  market context only — hundreds of events per cell, so it publishes: e.g. at a 90-day-high
+  resistance test, P(break) 66%, P(reject) 8.5%, but the break continuation averages +9.8% at
+  5d against a −17.4% rejection drawdown — the size asymmetry is the point. Walk-forward
+  out-of-sample calibration, week-clustered standard errors.
+* **Crowding/Φ overlay (7b), preliminary.** Adds Φ (market series back to 2017-12) and funding
+  z (2020-11 on) on their shorter samples. Φ's coefficient on P(reject) clears two clustered
+  s.e. in the volume-shelf definition (z≈2.2) but not the 90-day-high definition (z≈−0.1), so
+  Φ does not robustly separate rejection *probability* from the base rate — reported for all
+  three definitions, not the best one. The mechanistic claim — Λ⁻/D and OI percentile predict
+  a larger rejection drawdown — is **insufficient sample**: liquidation depth is collector-era
+  only, far below the 20-event floor, so nothing is published on it.
+* **Panel 9 + scorecard.** Shows tests open now with P(break/reject/chop) and expected move,
+  both "now" and "if the daily close clears the level"; when none are open, the measured base
+  rates and the running calibration scorecard (resolved tests since go-live, multiclass Brier).
+  Methods page carries the event definition, the calibration curve and the explicit Φ answer;
+  `scripts/resistance_note.py` regenerates `docs/notes/resistance_tests.md`. Panel 9 is added
+  to the H1 rendered-page check (nine panels now).

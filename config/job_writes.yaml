@@ -16,6 +16,7 @@ daily:
            fees_tvl, macro, macro_latest, onchain, btc_chain, eth_staking, proposals,
            esp, dilution, cliffs, cliff_calendar, event_strip, hit_rates,
            venue_scores, book_risk, borrow_rates, exchange_fees, exchange_fundamentals,
+           resistance_model, resistance_active, resistance_scorecard,
            fetch_status_daily, fetch_status_daily-hourly-klines]
   site: [site/data/daily.json, site/data/history.json, site/data/status.json, site/data/status_daily.json, site/data/universe.json, site/data/build.json, site/data/risk.json]
   raw: true

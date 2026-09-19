@@ -166,7 +166,12 @@ make site                  # render ./site
 uv run monitor universe show --tier 1
 uv run monitor alerts --dry-run
 PYTHONPATH=src uv run --no-sync python scripts/unlock_drift_note.py   # docs/notes/pre_unlock_drift.md
+PYTHONPATH=src uv run --no-sync python scripts/resistance_note.py     # docs/notes/resistance_tests.md (work order 8)
 ```
+The resistance/support model (panel 9) is computed by the daily job (`compute.resistance`,
+tables `resistance_model`/`resistance_active`/`resistance_scorecard`); the note above just
+re-derives the tables and calibration for `docs/notes/`. Its parameters are frozen in
+`config/resistance_model.yaml` — change them only in a dated review, never to move a number.
 **Run local recomputes one at a time, and from the clone outside the synced folder
 (`~/crypto-monitor`).** The code enforces it: `archive.upsert` refuses to write from a clone
 whose path contains `Documents`, `Desktop`, `Downloads`, `Library/CloudStorage`, `Dropbox`,

@@ -1,5 +1,5 @@
 """Rendered-page check (work order 6, H1): load the deployed page in headless Chromium, assert
-that the seven panels each carry more than 500 characters of text, that no console error or
+that the nine panels each carry more than 500 characters of text, that no console error or
 page error fired, and save a screenshot. Exit 1 on any failure.
 
     python scripts/check_rendered_page.py https://wernerhl.github.io/crypto-monitor/ shot.png
@@ -33,9 +33,9 @@ def main(argv: list[str]) -> int:
         browser.close()
     short = {k: v for k, v in lengths.items() if v <= 500}
     print(f"panels: {lengths}")
-    ok = len(lengths) >= 8 and not short and not errors
-    if len(lengths) < 8:
-        print(f"::error::only {len(lengths)} panels found (expected 8)")
+    ok = len(lengths) >= 9 and not short and not errors
+    if len(lengths) < 9:
+        print(f"::error::only {len(lengths)} panels found (expected 9)")
     if short:
         print(f"::error::panels with ≤ 500 characters: {short}")
     for e in errors:

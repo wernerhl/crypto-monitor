@@ -550,3 +550,26 @@ tables:
     kind: derived
     parent: exchange_fees
     time_col: as_of
+  resistance_model:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    parent: prices_daily
+    time_col: as_of
+  resistance_active:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    parent: resistance_model
+    time_col: as_of
+    optional: true   # legitimately empty when no asset is currently in a test
+  resistance_scorecard:
+    cadence: event
+    budget_hours: 8760
+    job: daily
+    kind: derived
+    parent: resistance_model
+    time_col: resolve_date
+    optional: true   # accumulates only as live tests resolve after go-live
