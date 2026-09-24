@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Thu, 24 Sep 2026 09:56:46 +0000</lastBuildDate>
+<lastBuildDate>Thu, 24 Sep 2026 14:57:40 +0000</lastBuildDate>
 <item><title>Freshness: 2 table(s) stale in the weekly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:weekly@202609230020</guid><pubDate>Wed, 23 Sep 2026 00:20:51 +0000</pubDate><description>Tables owned by the weekly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
-- factor_betas: stale — last data 2026-09-15 00:00 UTC, 226 h old against a 192 h budget (weekly)
-- factor_returns: stale — last data 2026-09-15 00:00 UTC, 226 h old against a 192 h budget (weekly)
+- factor_betas: stale — last data 2026-09-15 00:00 UTC, 231 h old against a 192 h budget (weekly)
+- factor_returns: stale — last data 2026-09-15 00:00 UTC, 231 h old against a 192 h budget (weekly)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Collector silent: no binance coverage row for 7 h [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-triggers</link><guid isPermaLink="false">collector:binance@202609171325</guid><pubDate>Thu, 17 Sep 2026 13:25:09 +0000</pubDate><description>Last liq_coverage hour for binance: 2026-09-17 06:00 UTC. The Mac collector (launchd agents, docs/runbook.md) has not committed a websocket envelope for this venue in more than three hours: the machine slept, the agent died, or its clone is stuck on a rebase. Coverage holes are shown, never interpolated.</description></item>
