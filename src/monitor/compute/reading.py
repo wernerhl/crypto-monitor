@@ -48,6 +48,11 @@ def state_reading(
     low_score_breach: bool,
     gaps: list[dict] | None = None,
     calendar: list[dict] | None = None,
+    trend_btc: dict | None = None,
+    trend_continuation: dict | None = None,
+    active_tests: list[dict] | None = None,
+    conflicts: list[dict] | None = None,
+    demand: dict | None = None,
 ) -> list[dict]:
     seg: list[dict] = []
     add = seg.append
@@ -60,6 +65,10 @@ def state_reading(
         add({"t": f"{as_of.isoformat()}: the positioning summary Φ is "})
         add({"t": f"{phi:+.2f}", "href": "#p-state"})
         add({"t": f" ({word}, {frag.get('n_components') or 0} of 5 components)"})
+        if phi > 1:  # WO10 §4: a reader must not infer bearishness from "levered"
+            add({"t": "; ", })
+            add({"t": "Φ carries no directional information (see validation)",
+                 "cls": "small", "href": "#p-state"})
         for g in gaps or []:
             add({"t": "; "})
             add(
@@ -98,6 +107,17 @@ def state_reading(
         add({"t": "Implied minus realised variance: "})
         add({"t": ", ".join(bits), "href": "#p-state"})
         add({"t": ". "})
+        # WO10 §3 — convexity is two-sided: cheap implied is cheap in BOTH directions, and the trend
+        # state names which side is the cheap one. A reading, not a trade rule.
+        btc_vrp = next((v for c, v in vr if c == "BTC" and v is not None), None)
+        if btc_vrp is not None and btc_vrp < 0:
+            st = (trend_btc or {}).get("state")
+            cheap = ("upside (call) convexity" if st == "UPTREND"
+                     else "downside (put) convexity" if st == "DOWNTREND"
+                     else "convexity on either side")
+            add({"t": "With implied below realised, options are cheap in both directions; "})
+            add({"t": f"in a BTC {st or 'RANGE'} the cheap side is {cheap}", "href": "#p-state"})
+            add({"t": " (a reading, not a trade). "})
     # --- front basis sign
     front = [r for r in basis_term if r.get("base") == "BTC" and r.get("basis_ann") is not None]
     if front:
@@ -116,20 +136,42 @@ def state_reading(
         if p is not None:
             add({"t": "BTC open interest to market cap sits at the "})
             add({"t": f"{_ordinal(round(100 * p))} percentile", "href": "#p-triggers"})
-            add(
-                {
-                    "t": f" of its 250-day range (n = {positioning_btc.get('oi_rel_pctile_n') or 0}). "
-                }
-            )
+            add({"t": f" of its 250-day range (n = {positioning_btc.get('oi_rel_pctile_n') or 0})"})
+            # WO10 §1: the leverage reading is conditional on the trend state
+            st = (trend_btc or {}).get("state")
+            if st:
+                cb = ((trend_continuation or {}).get("by_state") or {}).get(st) or {}
+                rate = cb.get("p_up")
+                tail = (
+                    f", continuation base rate {100 * rate:.0f}%" if rate is not None else ""
+                )
+                add({"t": f" — read in a BTC {st}{tail} (Φ scales the size of a losing move, not its direction). "})
+            else:
+                add({"t": ". "})
     if dd_90 is not None or dd_cycle is not None:
-        add({"t": "BTC is "})
+        add({"t": "On the daily close, BTC is "})  # WO10 §5: every price statement says close/intraday
         add({"t": f"{_pct(dd_90)} from its 90-day high", "href": "#p-state"})
-        add({"t": f" and {_pct(dd_cycle)} from its cycle high. "})
+        add({"t": f" and {_pct(dd_cycle)} from its cycle high (daily closes; a level is cleared on a close only). "})
     # --- stablecoin growth
     if sc_growth_30d is not None:
         add({"t": "Stablecoin supply grew "})
         add({"t": _pct(sc_growth_30d), "href": "#p-state"})
         add({"t": " over 30 days. "})
+    # --- WO10 §2: demand-side flows (the buyer the stablecoin proxy can miss)
+    if demand:
+        cp = next((p for p in (demand.get("coinbase_premium") or []) if p.get("base") == "BTC"), None)
+        nf = next((f for f in (demand.get("exchange_net_flow") or []) if f.get("base") == "BTC"), None)
+        bits = []
+        if cp and cp.get("premium_z") is not None:
+            z = cp["premium_z"]
+            bits.append(f"BTC Coinbase premium at z {z:+.1f} ({'US spot bid leading' if z > 1 else 'US spot lagging' if z < -1 else 'in line'})")
+        if nf and nf.get("net_flow_7d_usd") is not None:
+            v = nf["net_flow_7d_usd"]
+            bits.append(f"exchange net {'outflow' if v > 0 else 'inflow'} {abs(v) / 1e9:.1f}B over 7d ({'accumulation' if v > 0 else 'sell-side inventory building'})")
+        if bits:
+            add({"t": "Demand: "})
+            add({"t": "; ".join(bits), "href": "#p-state"})
+            add({"t": ". "})
     # --- rules and venues
     firing = [
         r
@@ -195,6 +237,29 @@ def state_reading(
         add({"t": "No venue limit is breached on the example book"})
         add({"t": "", "href": "#p-venue"})
         add({"t": ". "})
+    # WO10 §4 — reconcile the reading with the resistance model: when a Tier-1 name is in a test,
+    # incorporate the recalibrated break/reject cumulative incidence, and log a conflict whenever
+    # the leverage state (Φ levered) and the test model point opposite ways.
+    phi_val = frag.get("phi") if frag else None
+    for t in (active_tests or []):
+        cb = ((t.get("cif_break") or {}).get("20"))
+        cr = ((t.get("cif_reject") or {}).get("20"))
+        if cb is None:
+            continue
+        lvl = t.get("r_def", "level")
+        add({"t": f"{t.get('base')} is in a {t.get('side')} test ({lvl}); the resistance model puts "})
+        add({"t": f"break {100 * cb:.0f}% / reject {100 * (cr or 0):.0f}% over 20d", "href": "#p-resistance"})
+        add({"t": f" (cleared: {'yes' if t.get('close_cleared') else 'not on a daily close'}). "})
+        if phi_val is not None and phi_val > 1 and cb is not None and cb > (cr or 0):
+            msg = (f"{t.get('base')}: leverage state Φ={phi_val:+.2f} (levered) vs resistance model "
+                   f"break {100 * cb:.0f}% — the tested base rate leans continuation, not breakdown")
+            if conflicts is not None:
+                conflicts.append({"base": t.get("base"), "phi": round(phi_val, 2),
+                                  "cif_break_20": round(cb, 4), "cif_reject_20": round(cr or 0, 4),
+                                  "note": msg})
+            add({"t": "Reading conflict logged: ", "cls": "alert"})
+            add({"t": msg, "cls": "alert", "href": "#resmethods"})
+            add({"t": ". "})
     return [s for s in seg if s["t"] != "" or "href" not in s]
 
 

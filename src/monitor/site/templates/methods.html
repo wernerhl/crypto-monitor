@@ -38,6 +38,8 @@
 <div class="panel"><div id="exmethods">loading data/daily.json …</div></div>
 <h2 id="resmethods">Resistance / support tests: the two objects, calibration, and the Φ answer</h2>
 <div class="panel"><div id="resistance-methods">loading data/daily.json …</div></div>
+<h2 id="trendmethods">Trend state: continuation base rate and the Φ interaction</h2>
+<div class="panel"><div id="trend-methods">loading data/daily.json …</div></div>
 <h2 id="volstate">Vol-state diagnostics</h2>
 <div class="panel"><div id="volstate-diag">loading data/hourly.json …</div></div>
 <h2>Factor model</h2>
@@ -134,6 +136,19 @@
   const h = await (await fetch('data/hourly.json',{cache:'no-store'})).json();
   const vs = (h.vol_state||[])[0];
   document.getElementById('volstate-diag').innerHTML = vs && vs.p_high!=null ? '<p>Status ' + vs.status + ', n = ' + vs.n_obs + ', P(high) = ' + vs.p_high.toFixed(3) + ', expected duration high ' + vs.expected_duration_high.toFixed(1) + ' d, low ' + vs.expected_duration_low.toFixed(1) + ' d.</p><p>Parameters (std errors): <code>' + vs.params + '</code> <code>' + vs.std_errors + '</code></p><p class="meta">Filtered probabilities only; smoothed probabilities appear nowhere in a decision.</p>' : '<p class="stale"><span class="badge">unavailable</span> ' + (vs ? vs.status : 'no vol-state row') + '</p>';
+  // WO10 §1 — trend continuation base rate and the Φ-by-trend interaction; §4 — reading conflicts
+  (function(){ const tz=d.trend, box=document.getElementById('trend-methods'); if(!box) return;
+    if(!tz||!tz.continuation){ box.textContent='trend layer not built yet'; return; }
+    const pc=v=>v==null?'n/a':(100*v).toFixed(1)+'%'; const sg=v=>v==null?'n/a':(v>=0?'+':'')+(100*v).toFixed(2);
+    const cb=(tz.continuation.by_state)||{}, pt=(tz.phi_by_trend&&tz.phi_by_trend.by_state)||{};
+    let x='<h3>Frozen rule (config/trend_state.yaml, calibrated '+tz.calibrated_on+')</h3><p>UPTREND = close above a rising 50-day and 200-day average with the 20-day above the 50-day; DOWNTREND is the mirror; everything else is RANGE. Computed daily from the canonical close, causal (each day uses only closes up to that day). It is a state and a base rate — never a trigger, and it changes no threshold and does not touch Φ.</p>';
+    x+='<h3>Continuation base rate · P(next-'+tz.continuation.horizon+'d return &gt; 0 | state), pooled, week-clustered s.e.</h3><table><thead><tr><th>state</th><th>n</th><th>P(up)</th><th>s.e.</th></tr></thead><tbody>'+['UPTREND','RANGE','DOWNTREND'].map(s=>'<tr><td>'+s+'</td><td>'+((cb[s]||{}).n||0)+'</td><td>'+pc((cb[s]||{}).p_up)+'</td><td>±'+((cb[s]||{}).se==null?'n/a':(100*cb[s].se).toFixed(1)+'%')+'</td></tr>').join('')+'</tbody></table>';
+    x+='<h3>Does Φ change meaning once conditioned on trend? (§1 interaction, descriptive — Φ is not tuned to this)</h3><p class="meta">The post-mortem finding: the system measured how much leverage sits on the market and had no representation of which way it is going, so a trend being bought read as a fragility warning. Conditioned on trend state, Φ\'s sign against the forward return flips.</p><table><thead><tr><th>state</th><th>n</th><th>mean Φ</th><th>mean fwd '+tz.phi_by_trend.horizon+'d ret</th><th>corr(Φ, fwd ret)</th></tr></thead><tbody>'+['UPTREND','RANGE','DOWNTREND'].map(s=>{const r=pt[s]||{};return '<tr><td>'+s+'</td><td>'+(r.n||0)+'</td><td>'+(r.mean_phi==null?'n/a':sg(r.mean_phi))+'</td><td>'+(r.mean_fwd_ret==null?'n/a':pc(r.mean_fwd_ret))+'</td><td>'+(r.corr_phi_fwd==null?'n/a':sg(r.corr_phi_fwd))+'</td></tr>';}).join('')+'</tbody></table>';
+    const cf=(h.reading_conflicts)||[];
+    x+='<h3>Reading conflicts (§4) — leverage state vs the test model, running list</h3>';
+    x+= cf.length ? '<ul>'+cf.map(c=>'<li>'+c.note+'</li>').join('')+'</ul>' : '<p class="meta">No reading conflict in the current run. A conflict is logged whenever a levered Φ (&gt; 1) is reported while the resistance model\'s cumulative incidence leans continuation — the exact 13/19 September case the post-mortem is about.</p>';
+    box.innerHTML=x;
+  })();
   try {
     const rk = await (await fetch('data/risk.json',{cache:'no-store'})).json();
     const scj = await (await fetch('data/screens.json',{cache:'no-store'})).json();

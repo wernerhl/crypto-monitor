@@ -178,6 +178,7 @@ def compute_context(as_of: date | None = None, rebuild: bool = False) -> dict[st
     counts.update(compute_supply_and_events(as_of))
     counts.update(compute_exchange(as_of))
     counts.update(compute_resistance(as_of))
+    counts.update(compute_trend(as_of))
     return counts
 
 
@@ -285,6 +286,29 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
         archive.upsert("resistance_scorecard", _stamp(sc))
         counts["resistance_scorecard"] = sc.height
     return counts
+
+
+def compute_trend(as_of: date | None = None) -> dict[str, int]:
+    """Work order 10 §1 — trend state, the missing market layer. Classify each Tier-1 asset
+    UPTREND / DOWNTREND / RANGE from a frozen momentum rule and snapshot it; the continuation base
+    rate and the Φ-by-trend interaction are computed at JSON-write time. A state and a base rate,
+    not a trigger; no threshold, no Φ change."""
+    from monitor.compute import trend as tr
+
+    now, sha = utc_now(), git_sha()
+    as_of = as_of or now.date()
+    prices = archive.read("prices_daily")
+    if prices is None or not prices.height:
+        return {"trend_state": 0}
+    st = tr.states(prices, tr.cfg())
+    if not st:
+        return {"trend_state": 0}
+    df = pl.DataFrame(st).with_columns(
+        pl.lit(as_of).alias("as_of"), pl.lit("compute.trend").alias("source"),
+        pl.lit(now).alias("fetched_at"), pl.lit(sha).alias("git_sha"),
+    )
+    archive.replace_slice("trend_state", "as_of", as_of, df)
+    return {"trend_state": df.height}
 
 
 def compute_supply_and_events(as_of: date | None = None) -> dict[str, int]:
@@ -533,6 +557,8 @@ def write_daily_json(out: Path = SITE_DATA) -> None:
         "fragility_validation": _phi_validation(),
         "exchange": _exchange(),
         "resistance": _resistance(),
+        "trend": _trend(),
+        "demand": _demand(),
     }
     (out / "daily.json").write_text(dump_json(payload))
     write_history_json(out)
@@ -592,6 +618,41 @@ def _exchange() -> dict:
         "tokens": latest.drop("source", "fetched_at", "git_sha", "as_of").to_dicts(),
         "residual_ic": ic,
         "dispersion": disp,
+    }
+
+
+def _demand() -> dict:
+    """Panel 3 demand layer (work order 10 §2): Coinbase premium and exchange net flow (both from
+    data already held), with US spot ETF flows and exchange stablecoin inflow named but marked
+    unavailable rather than scraped."""
+    from monitor.compute import demand as dm
+
+    prices = archive.read("prices_daily")
+    onchain = archive.read("onchain")
+    if prices is None:
+        return {}
+    return dm.block(prices, onchain)
+
+
+def _trend() -> dict:
+    """Panel 3 trend layer (work order 10 §1): the current per-asset trend state, the historical
+    continuation base rate per state (walk-forward, week-clustered s.e.), and the Φ-by-trend
+    interaction for the methods page. A state and a base rate — not a trigger."""
+    from monitor.compute import trend as tr
+
+    t = archive.read("trend_state")
+    if t is None or not t.height:
+        return {}
+    c = tr.cfg()
+    latest = t.filter(pl.col("as_of") == t["as_of"].max())
+    prices = archive.read("prices_daily")
+    fs = archive.read("fragility_series")
+    return {
+        "as_of": str(latest["as_of"][0]),
+        "calibrated_on": str(c["calibrated_on"]),
+        "states": latest.drop("source", "fetched_at", "git_sha", "as_of").sort("base").to_dicts(),
+        "continuation": tr.continuation_base_rate(prices, c) if prices is not None else {},
+        "phi_by_trend": tr.phi_by_trend(prices, fs, c) if prices is not None else {},
     }
 
 

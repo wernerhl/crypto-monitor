@@ -7,7 +7,8 @@ hourly:
   tables: [perp_snapshot, long_short, oi_rubik, oi_daily, liquidations, liq_coverage, options, dvol,
            futures_marks, orderbook_depth, trade_stats, prices_hourly, wash_filters, liquidity,
            positioning, options_metrics, fragility, fragility_series, rule_fires, vol_state,
-           funding_daily, vrp_history, dvol_daily, trades_carry, trades_vol, alerts, fetch_status_hourly]
+           funding_daily, vrp_history, dvol_daily, trades_carry, trades_vol, alerts, fetch_status_hourly,
+           positioning_history, oi_history, reading_conflict]
   site: [site/data/hourly.json, site/data/status_hourly.json, site/alerts.xml]
   raw: true
 daily:
@@ -16,7 +17,7 @@ daily:
            fees_tvl, macro, macro_latest, onchain, btc_chain, eth_staking, proposals,
            esp, dilution, cliffs, cliff_calendar, event_strip, hit_rates,
            venue_scores, book_risk, borrow_rates, exchange_fees, exchange_fundamentals,
-           resistance_model, resistance_active, resistance_scorecard,
+           resistance_model, resistance_active, resistance_scorecard, trend_state,
            fetch_status_daily, fetch_status_daily-hourly-klines]
   site: [site/data/daily.json, site/data/history.json, site/data/status.json, site/data/status_daily.json, site/data/universe.json, site/data/build.json, site/data/risk.json]
   raw: true

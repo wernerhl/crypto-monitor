@@ -281,12 +281,14 @@ tables:
     time_col: date
     parent: oi_rubik
   oi_history:
-    cadence: backfill
-    budget_hours: 9600
-    job: backfill
-    kind: source
+    cadence: daily
+    budget_hours: 30
+    job: hourly
+    kind: derived
+    parent: oi_daily
     time_col: date
-    optional: true
+    # work order 10 §6: rolled forward from the live OI each hourly run; the hourly job fails
+    # (fail-not-publish) if it lags oi_daily by more than a day, so it can no longer silently freeze
   oi_rubik:
     cadence: hourly
     budget_hours: 3
@@ -360,13 +362,14 @@ tables:
     time_col: ts
     parent: funding_daily
   positioning_history:
-    cadence: backfill
-    budget_hours: 9600
-    job: backfill
+    cadence: daily
+    budget_hours: 30
+    job: hourly
     kind: derived
     time_col: date
-    parent: funding_history
-    optional: true
+    parent: positioning
+    # work order 10 §6: rolled forward from the live positioning snapshot each hourly run so the
+    # resistance overlay's leverage history stays current; parent-lag assertion fails the job
   prices_daily:
     cadence: daily
     budget_hours: 54
@@ -557,6 +560,20 @@ tables:
     kind: derived
     parent: prices_daily
     time_col: as_of
+  trend_state:
+    cadence: daily
+    budget_hours: 30
+    job: daily
+    kind: derived
+    parent: prices_daily
+    time_col: as_of
+  reading_conflict:
+    cadence: event
+    budget_hours: 8760
+    job: hourly
+    kind: derived
+    time_col: as_of
+    optional: true   # a running log of reading-vs-test conflicts; legitimately empty most days
   resistance_active:
     cadence: daily
     budget_hours: 30

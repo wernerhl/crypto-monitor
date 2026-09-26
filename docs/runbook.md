@@ -255,3 +255,21 @@ under 3 minutes, all 200.
 | Deribit | 10 | 20 / s | > 95 % |
 If the run exceeds 10 minutes the workflow fails with a scope message: drop Tier 2 books
 first (they only feed the liquidity gate), then reduce trade sampling to three venues.
+
+## Analyst discipline (work order 10 §5)
+
+No directional lean may be stated in a reading, an alert, or analyst commentary that **contradicts
+the system's tested base rate** — currently the resistance model (cumulative incidence) and the
+trend-continuation rate — unless it is explicitly labelled:
+
+> mechanism-only judgment; not supported by the system's tests (see X)
+
+where X names the test it contradicts. A mechanism (crowding, Φ, liquidation mass) is a hypothesis,
+not a base rate. The 13 and 19 September 2026 downside leans (from the crowding mechanism, while the
+resistance model said break 67% and BTC then broke) are the case that motivated this rule; they are
+logged in the changelog and the post-mortem note.
+
+Every price statement in a reading or alert states whether it is a **daily CLOSE or an INTRADAY**
+print; a resistance/support level is cleared on a close only, never on an intraday touch. The
+reading generator enforces the close/intraday wording and logs a `reading_conflict` row whenever the
+leverage state and the test model point opposite ways (shown on the methods page).

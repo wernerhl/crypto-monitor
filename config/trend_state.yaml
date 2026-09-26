@@ -1,0 +1,28 @@
+_doc: >
+  Work order 10 §1 — trend state as a first-class market layer beside Φ. Time-series momentum is the
+  most replicated regularity in this asset class and lived in the system only as a cross-sectional
+  screen. This adds a per-asset categorical state (UPTREND / DOWNTREND / RANGE) from a FROZEN rule,
+  plus its historical continuation base rate. It is a STATE and a BASE RATE, never a trigger; it
+  changes no threshold and does not touch Φ. The leverage reading is made conditional on it: "new
+  longs at the 99th OI pct in an UPTREND" is a different sentence from the same at a failing range
+  top in a DOWNTREND. Change calibrated_on only in a dated review, never to fit an outcome.
+
+calibrated_on: 2026-09-26
+
+ma_windows: [20, 50, 200]   # simple moving averages and their slopes
+slope_lookback: 5           # a MA is "rising" if it is above its value slope_lookback sessions ago
+ret_windows: {"1m": 21, "3m": 63}   # trailing return windows in sessions
+donchian: [20, 55]          # breakout channels: at a new high / new low / inside
+continuation_horizon: 20    # base rate reported as P(next-N-session return > 0 | state)
+min_state_events: 100       # a state's base rate is shown only above this many clustered events
+
+# frozen categorical rule (§1): uptrend = close above a rising 50d and 200d with 20d > 50d;
+# downtrend is the mirror; everything else is range.
+rule:
+  uptrend:   {close_above: 50, rising: [50, 200], fast_above_slow: [20, 50]}
+  downtrend: {close_below: 50, falling: [50, 200], fast_below_slow: [20, 50]}
+
+# assets: BTC and ETH first, then the Tier-1 list (same canonical daily close as the resistance
+# model). Frozen; add names only in a dated review.
+assets: [BTC, ETH, BNB, SOL, XRP, ADA, AVAX, LINK, LTC, DOT, DOGE, MATIC, APT, ARB, SUI]
+venue_priority: [binance, coinbase, okx, bybit, kraken]

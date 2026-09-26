@@ -679,3 +679,45 @@ machinery extends to any fee-generating protocol (`subtype`, not hard-coded exch
   concentrated in the three oldest majors (+110 events). The whole block is stored as JSON in
   `resistance_model`; panel 9 and the methods note lead with the recalibrated cumulative
   incidence. No threshold changed, no trigger added, Φ untouched.
+
+## 2026-09-26 — Work order 10: post-mortem of the 15–21 September BTC run
+Motivating case: BTC ran +7.3% in five sessions (75,644→81,178) into its 82.3k 90-day-high, Φ rose
+0.51→1.28, and the resistance model said break 67% / reject 30% over 20 days. The analyst's stated
+leans on **13 and 19 September were downside-skewed from the crowding mechanism** (high OI
+percentile, funding, liquidation mass). The BTC test **broke** on the 21 Sep close (logged in the
+scorecard, predicted P(break) 0.68). The model was right; the mechanism-driven read was wrong.
+These two mechanism-only leans are the case that motivated the discipline rule below. Diagnosis: the
+system measured how much leverage sits on the market and had no representation of which way it is
+going, so a trend being bought read as a fragility warning.
+
+* **§6 freshness debt (done first).** `positioning_history.BTC` had frozen at 2026-09-08 and
+  `oi_history` at 09-06 — they were seed-only (written by the backfill, never rolled forward). The
+  hourly job now rolls the live positioning/OI snapshot into both (gap-free), re-owns them in the
+  freshness contract with the live tables as parents, and **fails before publishing** if the OI
+  history lags the live OI by more than a day (WO6 A3, fail-not-publish). Φ is 5/5 components again
+  (the 3/5 on 16 Sep was the downstream symptom of the leverage staleness).
+* **§1 trend state** on panel 3: UPTREND / DOWNTREND / RANGE from a frozen rule (close above a
+  rising 50d and 200d with 20d > 50d; mirror; else range), for BTC/ETH/Tier-1, with the continuation
+  base rate P(next-20d return > 0 | state) walk-forward and week-clustered (UPTREND 52%, RANGE 47%,
+  DOWNTREND 51%). The leverage reading is conditional on it. Backtest (methods): conditioned on
+  trend, Φ's correlation to the forward 20d return is **+0.17 in an UPTREND**, not negative — Φ is
+  not tuned to this. State and base rate, not a trigger.
+* **§2 demand-side flows** beside stablecoin growth: Coinbase premium (US-demand proxy, z-scored)
+  and exchange net flow (CoinMetrics FlowOut−FlowIn; BTC showed a multi-billion net *outflow* =
+  accumulation while stablecoin supply was flat — the buyer the proxy missed). US spot ETF net
+  creations and exchange stablecoin inflow (SIF) are named as covariates but marked **unavailable**
+  (no reliable free source / not in the community tier) rather than scraped.
+* **§3 convexity framing** on the vol reading is two-sided and names the cheap side given the trend
+  state (cheap implied is cheap in both directions; UPTREND → upside/call convexity); the 25Δ
+  risk-reversal tile now frames the call-vs-put cost. A reading, not a trade rule.
+* **§4 reconciliation.** The reading incorporates the resistance model's active-test cumulative
+  incidence, never emits a fragility sentence that implies direction, annotates "Φ carries no
+  directional information (see validation)" whenever Φ > 1, and logs a `reading_conflict` row
+  (shown on the methods page) whenever the leverage state and the test model point opposite ways.
+* **§5 analyst discipline** encoded in the runbook and here: no directional lean may contradict the
+  tested base rate unless labelled "mechanism-only judgment; not supported by the system's tests";
+  every price statement says daily CLOSE or INTRADAY; a level is cleared on a close only.
+* **§7 scorecard and post-mortem.** The 82.3k BTC test and the AVAX/ETH/LTC/ADA/LINK/XRP breaks are
+  in the live scorecard (15 resolved, forward Brier 0.144 vs base-rate 0.160, skill +10%);
+  `docs/notes/postmortem_2026-09-run.md` records the facts, the model-vs-analyst split, the outcome
+  and the changes. No threshold changed, Φ's definition unchanged, no trigger added.

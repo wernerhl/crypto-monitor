@@ -613,8 +613,66 @@ def compute_derived(as_of: date | None = None) -> dict[str, int]:
     vs = _vol_state(prices, now, sha)
     if vs:
         counts["vol_state"] = 1
+    # work order 10 §6 — roll the live leverage snapshot into the history tables so they never
+    # drift (they were seed-only and froze at 2026-09-08), and FAIL before publishing if the OI
+    # history still lags the live OI by more than a day (WO6 A3, fail-not-publish).
+    counts.update(_roll_forward_leverage_history(now, sha))
     write_hourly_json()
     return counts
+
+
+def _roll_forward_leverage_history(now: datetime, sha: str) -> dict[str, int]:
+    """Append today's live positioning and OI into positioning_history / oi_history (upsert by the
+    daily key, so re-running within a day just refreshes the row), then assert both are current."""
+    counts: dict[str, int] = {}
+    pos = archive.read("positioning")
+    if pos is not None and pos.height:
+        # reduce the hourly snapshots to one row per (base, day) at that day's last ts, and upsert
+        # the whole live window — this fills any gap since the last roll-forward, not just today
+        ph = (
+            pos.with_columns(pl.col("ts").dt.date().alias("date"))
+            .sort("ts")
+            .group_by("base", "date", maintain_order=True)
+            .last()
+            .select("date", "base", "funding_ann", "z_fr", "oi_usd", "oi_change_5d")
+            .with_columns(
+                pl.lit("positioning.rollforward").alias("source"), pl.lit(now).alias("fetched_at"),
+                pl.lit(sha).alias("git_sha"),
+            )
+        )
+        archive.upsert("positioning_history", ph)
+        counts["positioning_history"] = ph.height
+    oid = archive.read("oi_daily")
+    if oid is not None and oid.height:
+        oh = oid.select(
+            "date", pl.lit("aggregate").alias("venue"), "base", "oi_usd",
+        ).with_columns(
+            pl.lit("oi_daily.rollforward").alias("source"), pl.lit(now).alias("fetched_at"),
+            pl.lit(sha).alias("git_sha"),
+        )
+        archive.upsert("oi_history", oh)
+        counts["oi_history"] = oh.height
+    _assert_history_current()
+    return counts
+
+
+def _assert_history_current() -> None:
+    """WO10 §6 / WO6 A3: refuse to publish when a leverage-history table lags its live parent by
+    more than one day. The roll-forward above writes from the live tables, so this only fires on a
+    genuine live-OI outage or a roll-forward regression — exactly the silent debt that let
+    positioning_history freeze for two weeks."""
+    for hist, parent, col in (("positioning_history", "positioning", "ts"), ("oi_history", "oi_daily", "date")):
+        h, live = archive.read(hist), archive.read(parent)
+        if h is None or not h.height or live is None or not live.height:
+            continue
+        hmax = h["date"].max()
+        lmax = live[col].max().date() if col == "ts" else live[col].max()
+        lag = (lmax - hmax).days
+        if lag > 1:
+            raise RuntimeError(
+                f"freshness (WO10 §6): {hist} lags {parent} by {lag} days (history {hmax} vs live "
+                f"{lmax}) — refusing to publish a stale grid"
+            )
 
 
 def _daily_venue_volume() -> pl.DataFrame:
@@ -1360,7 +1418,24 @@ def _reading(payload: dict, out: Path) -> list[dict]:
     if frag and frag.get("component_gaps"):
         with contextlib.suppress(ValueError, TypeError):
             gaps = json.loads(frag["component_gaps"])
-    return state_reading(
+    # WO10 §1/§4 — trend state and the resistance active tests come from the daily block on disk
+    trend_btc = trend_cont = None
+    active = []
+    dj = out / "daily.json"
+    if dj.exists():
+        try:
+            dd = json.loads(dj.read_text())
+            tz = dd.get("trend") or {}
+            trend_btc = next((s for s in tz.get("states", []) if s.get("base") == "BTC"), None)
+            trend_cont = tz.get("continuation")
+            active = (dd.get("resistance") or {}).get("active") or []
+            demand_block = dd.get("demand")
+        except (OSError, ValueError):
+            demand_block = None
+    else:
+        demand_block = None
+    conflicts: list[dict] = []
+    seg = state_reading(
         utc_now().date(),
         frag,
         payload["options"],
@@ -1374,7 +1449,19 @@ def _reading(payload: dict, out: Path) -> list[dict]:
         low,
         gaps,
         payload.get("calendar"),
+        trend_btc=trend_btc,
+        trend_continuation=trend_cont,
+        active_tests=active,
+        conflicts=conflicts,
+        demand=demand_block,
     )
+    payload["reading_conflicts"] = conflicts
+    if conflicts:  # persist the running list (WO10 §4c)
+        now, sha = utc_now(), git_sha()
+        cdf = pl.DataFrame([{**cf, "as_of": now.date(), "source": "reading",
+                             "fetched_at": now, "git_sha": sha} for cf in conflicts])
+        archive.upsert("reading_conflict", cdf)
+    return seg
 
 
 def tiered_symbols() -> list[str]:
