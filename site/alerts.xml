@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Tue, 29 Sep 2026 20:43:21 +0000</lastBuildDate>
+<lastBuildDate>Wed, 30 Sep 2026 00:22:07 +0000</lastBuildDate>
+<item><title>Freshness: 2 table(s) stale in the weekly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:weekly@202609300022</guid><pubDate>Wed, 30 Sep 2026 00:22:07 +0000</pubDate><description>Tables owned by the weekly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
+
+- factor_betas: stale — last data 2026-09-22 00:00 UTC, 192 h old against a 192 h budget (weekly)
+- factor_returns: stale — last data 2026-09-22 00:00 UTC, 192 h old against a 192 h budget (weekly)
+
+The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Freshness: 1 table(s) stale in the daily job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:daily@202609251340</guid><pubDate>Fri, 25 Sep 2026 13:40:55 +0000</pubDate><description>Tables owned by the daily job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
-- proposals: stale — last data 2026-09-24 06:20 UTC, 134 h old against a 30 h budget (daily)
+- proposals: stale — last data 2026-09-24 06:20 UTC, 138 h old against a 30 h budget (daily)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Collector silent: no binance coverage row for 7 h [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-triggers</link><guid isPermaLink="false">collector:binance@202609171325</guid><pubDate>Thu, 17 Sep 2026 13:25:09 +0000</pubDate><description>Last liq_coverage hour for binance: 2026-09-17 06:00 UTC. The Mac collector (launchd agents, docs/runbook.md) has not committed a websocket envelope for this venue in more than three hours: the machine slept, the agent died, or its clone is stuck on a rebase. Coverage holes are shown, never interpolated.</description></item>
@@ -34,12 +40,6 @@ The site still publishes the freshest available data; this names what is behind.
 <item><title>Freshness: 1 table(s) stale in the hourly job [cleared 2026-09-28 15:20 UTC]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:hourly@202609280642</guid><pubDate>Mon, 28 Sep 2026 06:42:23 +0000</pubDate><description>Tables owned by the hourly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
 - vol_state: stale — last data 2026-09-27 00:00 UTC, 31 h old against a 30 h budget (daily)
-
-The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
-<item><title>Freshness: 2 table(s) stale in the weekly job [cleared 2026-09-27 13:53 UTC]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:weekly@202609230020</guid><pubDate>Wed, 23 Sep 2026 00:20:51 +0000</pubDate><description>Tables owned by the weekly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
-
-- factor_betas: stale — last data 2026-09-15 00:00 UTC, 296 h old against a 192 h budget (weekly)
-- factor_returns: stale — last data 2026-09-15 00:00 UTC, 296 h old against a 192 h budget (weekly)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Rule 4.1 firing on ETH [cleared 2026-09-19 05:46 UTC]</title><link>https://wernerhl.github.io/crypto-monitor/#p-triggers</link><guid isPermaLink="false">rule:4.1:ETH@202609190012</guid><pubDate>Sat, 19 Sep 2026 00:12:29 +0000</pubDate><description>Evaluated 2026-09-19 00:12 UTC. Inputs: {"z_fr": 2.1533133695943243, "oi_rel_pctile": 0.9888888888888889, "lambda_minus_2": 434709472.2525589, "depth_2pct": 86488450.33421928, "lambda_over_depth": 5.026214142728898}. Thresholds: {"z_fr_min": 2.0, "oi_rel_percentile_min": 0.9, "lambda_over_depth_min": 1.0}. Pre-committed action per docs/indicators.md; nothing here is a forecast.</description></item>
