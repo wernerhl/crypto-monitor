@@ -1,27 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Tue, 06 Oct 2026 02:56:21 +0000</lastBuildDate>
+<lastBuildDate>Tue, 06 Oct 2026 10:08:10 +0000</lastBuildDate>
 <item><title>Freshness: 13 table(s) stale in the weekly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:weekly@202609300022</guid><pubDate>Wed, 30 Sep 2026 00:22:07 +0000</pubDate><description>Tables owned by the weekly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
-- cliff_study: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- cliff_study_events: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- factor_betas: stale — last data 2026-09-22 00:00 UTC, 339 h old against a 192 h budget (weekly)
-- factor_returns: stale — last data 2026-09-22 00:00 UTC, 339 h old against a 192 h budget (weekly)
-- phi_shock_events: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- phi_shock_placebo: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- phi_shock_regressions: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- phi_shock_terciles: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- rule43_drivers: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- rule43_flags: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- screen_ic: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- screens: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
-- universe: stale — last data 2026-09-28 00:00 UTC, 195 h old against a 192 h budget (weekly)
+- cliff_study: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- cliff_study_events: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- factor_betas: stale — last data 2026-09-22 00:00 UTC, 346 h old against a 192 h budget (weekly)
+- factor_returns: stale — last data 2026-09-22 00:00 UTC, 346 h old against a 192 h budget (weekly)
+- phi_shock_events: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- phi_shock_placebo: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- phi_shock_regressions: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- phi_shock_terciles: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- rule43_drivers: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- rule43_flags: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- screen_ic: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- screens: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
+- universe: stale — last data 2026-09-28 00:00 UTC, 202 h old against a 192 h budget (weekly)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Freshness: 1 table(s) stale in the daily job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:daily@202609251340</guid><pubDate>Fri, 25 Sep 2026 13:40:55 +0000</pubDate><description>Tables owned by the daily job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
-- proposals: stale — last data 2026-09-24 06:20 UTC, 285 h old against a 30 h budget (daily)
+- proposals: stale — last data 2026-09-24 06:20 UTC, 292 h old against a 30 h budget (daily)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Collector silent: no binance coverage row for 7 h [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-triggers</link><guid isPermaLink="false">collector:binance@202609171325</guid><pubDate>Thu, 17 Sep 2026 13:25:09 +0000</pubDate><description>Last liq_coverage hour for binance: 2026-09-17 06:00 UTC. The Mac collector (launchd agents, docs/runbook.md) has not committed a websocket envelope for this venue in more than three hours: the machine slept, the agent died, or its clone is stuck on a rebase. Coverage holes are shown, never interpolated.</description></item>
@@ -30,21 +30,21 @@ The site still publishes the freshest available data; this names what is behind.
 
 | token | cliff date | share of float | days of volume | USD |
 |---|---|---:|---:|---:|
-| STABLE | 2026-10-08 | 3.3 % | 97.0 |  |
+| STABLE | 2026-10-08 | 3.3 % | 101.8 |  |
 | APT | 2026-10-11 | 1.3 % | 0.5 |  |
-| PUMP | 2026-10-12 | 1.5 % | 0.7 |  |
-| SEI | 2026-10-13 | 1.8 % | 0.9 |  |
-| STRK | 2026-10-14 | 3.0 % | 1.0 |  |
+| PUMP | 2026-10-12 | 1.5 % | 0.6 |  |
+| SEI | 2026-10-13 | 1.8 % | 0.8 |  |
+| STRK | 2026-10-14 | 3.0 % | 0.9 |  |
 | ARB | 2026-10-15 | 1.4 % | 0.3 |  |
-| DBR | 2026-10-17 | 10.4 % | 76.1 |  |
+| DBR | 2026-10-17 | 10.4 % | 73.0 |  |
 | ZK | 2026-10-17 | 1.6 % | 0.5 |  |
-| ZRO | 2026-10-20 | 3.2 % | 2.2 |  |
-| GRAM | 2026-10-23 | 1.3 % | 3.3 |  |
-| H | 2026-10-23 | 13.8 % | 26.4 |  |
+| ZRO | 2026-10-20 | 5.9 % | 2.4 |  |
+| GRAM | 2026-10-23 | 1.3 % | 3.4 |  |
+| H | 2026-10-23 | 13.8 % | 26.7 |  |
 | XPL | 2026-10-25 | 5.0 % | 0.8 |  |
-| GRASS | 2026-10-28 | 1.5 % | 4.5 |  |
-| FF | 2026-10-29 | 6.1 % | 4.0 |  |
-| EIGEN | 2026-10-31 | 3.8 % | 1.9 |  |
+| GRASS | 2026-10-28 | 1.5 % | 4.6 |  |
+| FF | 2026-10-29 | 6.1 % | 3.8 |  |
+| EIGEN | 2026-10-31 | 3.8 % | 1.8 |  |
 | M | 2026-11-01 | 2.5 % |  |  |</description></item>
 <item><title>Venue limit breached on the example book: binance [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-venue</link><guid isPermaLink="false">venue:binance@202609080715</guid><pubDate>Tue, 08 Sep 2026 07:15:32 +0000</pubDate><description>Exposure 35.0% of NAV against a limit of 10.0% (grade C). The book is the illustrative one in config/book.yaml.</description></item>
 <item><title>Low-score venue aggregate above its limit (example book) [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-venue</link><guid isPermaLink="false">venue:low-score-aggregate@202609080715</guid><pubDate>Tue, 08 Sep 2026 07:15:32 +0000</pubDate><description>Low-score venues hold 40.0% of NAV against a limit of 15.0%.</description></item>
