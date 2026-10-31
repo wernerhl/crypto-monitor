@@ -1,22 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <title>crypto-monitor alerts</title><link>https://wernerhl.github.io/crypto-monitor/</link><description>Rule firings, venue-limit breaches and datasets unavailable for more than one run. Each item is a condition, opened when it appears and closed when it clears.</description>
-<lastBuildDate>Sat, 31 Oct 2026 00:43:24 +0000</lastBuildDate>
+<lastBuildDate>Sat, 31 Oct 2026 06:57:15 +0000</lastBuildDate>
+<item><title>Freshness: 1 table(s) stale in the hourly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:hourly@202610310657</guid><pubDate>Sat, 31 Oct 2026 06:57:15 +0000</pubDate><description>Tables owned by the hourly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
+
+- vol_state: stale — last data 2026-10-30 00:00 UTC, 31 h old against a 30 h budget (daily)
+
+The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Freshness: 13 table(s) stale in the weekly job [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:weekly@202609300022</guid><pubDate>Wed, 30 Sep 2026 00:22:07 +0000</pubDate><description>Tables owned by the weekly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
-- cliff_study: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- cliff_study_events: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- factor_betas: stale — last data 2026-09-22 00:00 UTC, 937 h old against a 192 h budget (weekly)
-- factor_returns: stale — last data 2026-09-22 00:00 UTC, 937 h old against a 192 h budget (weekly)
-- phi_shock_events: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- phi_shock_placebo: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- phi_shock_regressions: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- phi_shock_terciles: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- rule43_drivers: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- rule43_flags: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- screen_ic: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- screens: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
-- universe: stale — last data 2026-09-28 00:00 UTC, 793 h old against a 192 h budget (weekly)
+- cliff_study: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- cliff_study_events: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- factor_betas: stale — last data 2026-09-22 00:00 UTC, 943 h old against a 192 h budget (weekly)
+- factor_returns: stale — last data 2026-09-22 00:00 UTC, 943 h old against a 192 h budget (weekly)
+- phi_shock_events: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- phi_shock_placebo: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- phi_shock_regressions: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- phi_shock_terciles: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- rule43_drivers: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- rule43_flags: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- screen_ic: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- screens: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
+- universe: stale — last data 2026-09-28 00:00 UTC, 799 h old against a 192 h budget (weekly)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Collector silent: no binance coverage row for 7 h [ACTIVE]</title><link>https://wernerhl.github.io/crypto-monitor/#p-triggers</link><guid isPermaLink="false">collector:binance@202609171325</guid><pubDate>Thu, 17 Sep 2026 13:25:09 +0000</pubDate><description>Last liq_coverage hour for binance: 2026-09-17 06:00 UTC. The Mac collector (launchd agents, docs/runbook.md) has not committed a websocket envelope for this venue in more than three hours: the machine slept, the agent died, or its clone is stuck on a rebase. Coverage holes are shown, never interpolated.</description></item>
@@ -44,11 +49,6 @@ The site still publishes the freshest available data; this names what is behind.
 <item><title>Freshness: 1 table(s) stale in the daily job [cleared 2026-10-30 08:33 UTC]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:daily@202610231322</guid><pubDate>Fri, 23 Oct 2026 13:22:36 +0000</pubDate><description>Tables owned by the daily job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
 
 - proposals: stale — last data 2026-10-22 06:16 UTC, 188 h old against a 30 h budget (daily)
-
-The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
-<item><title>Freshness: 1 table(s) stale in the hourly job [cleared 2026-10-19 12:58 UTC]</title><link>https://wernerhl.github.io/crypto-monitor/status.html</link><guid isPermaLink="false">freshness:hourly@202610190604</guid><pubDate>Mon, 19 Oct 2026 06:04:32 +0000</pubDate><description>Tables owned by the hourly job that breach config/freshness.yaml (age over budget, or a derived table lagging its parent):
-
-- vol_state: stale — last data 2026-10-18 00:00 UTC, 30 h old against a 30 h budget (daily)
 
 The site still publishes the freshest available data; this names what is behind. Status page: the per-job status_*.json.</description></item>
 <item><title>Rule 4.1 firing on ETH [cleared 2026-10-07 08:35 UTC]</title><link>https://wernerhl.github.io/crypto-monitor/#p-triggers</link><guid isPermaLink="false">rule:4.1:ETH@202610070127</guid><pubDate>Wed, 07 Oct 2026 01:27:54 +0000</pubDate><description>Evaluated 2026-10-07 01:27 UTC. Inputs: {"z_fr": 2.7536149051898873, "oi_rel_pctile": 0.9888888888888889, "lambda_minus_2": 147644846.39386556, "depth_2pct": 139959644.37038103, "lambda_over_depth": 1.0549101282591635}. Thresholds: {"z_fr_min": 2.0, "oi_rel_percentile_min": 0.9, "lambda_over_depth_min": 1.0}. Pre-committed action per docs/indicators.md; nothing here is a forecast.</description></item>
