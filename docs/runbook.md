@@ -116,7 +116,19 @@ rows in the window; Binance rows appear once the restarted collector has run an 
 parent. Every job ends by writing `site/data/status_<job>.json` and running
 `freshness.assert_job`, which fails the job when a table it owns is over budget or lags its
 parent by more than one period; a failed job is the signal, never a silently frozen grid.
-Ages are measured on the data's time column. The status page merges the per-job views and
+Ages are measured on the data's time column.
+
+**`upstream_stale` (2026-11-04).** A source table can name the fetch step that feeds it
+(`fetch_dataset`) and grant `upstream_grace_hours`. When such a table is over budget but its
+latest fetch record is `ok` and within the budget, the source has not published anything new:
+the row reads `upstream_stale` on the status page and on the tiles, and the job does not fail,
+until the data is older than budget + grace, when it is `stale` (fatal) again. A failed or
+missing fetch is never excused. In use for `btc_chain` (blockchain.info's charts froze for
+about a week on 28 Sep, 14 Oct and 28 Oct 2026 while every fetch returned 200; grace 240 h) and
+`proposals` (the Snapshot query returns no rows when no tracked space has an active proposal;
+grace 720 h). Before this, those two tables reddened 24 of 30 daily runs in October.
+
+The status page merges the per-job views and
 lists every fetch record; datasets in `config/sources.yaml: runner_blocked` are a footnote
 there, not a front-page banner. To add a table: register it in `archive.KEYS`, then in the
 contract (the test suite fails when a table has no entry). The daily workflow also loads the
@@ -202,9 +214,15 @@ GitHub intervenes near 5 GB, so 2000 MB keeps the check meaningful in the meanti
 ## Raw retention and rotation
 Daily raw files stay in the repo for 90 days; hourly raw files (books, trades, perps,
 liquidations, options) stay for 14 days — at ≈ 0.7 MB per hourly bucket that is ≈ 240 MB,
-which keeps the repo under the 800 MB check. Older files are moved by the weekly job into
-monthly tarballs on the `data-archive` orphan branch (phase 7), so every processed row stays
-traceable to its raw file. Processed parquet keeps a rolling 90–120-day window for hourly
+which keeps the repo under the 800 MB check. Older files are moved by the weekly job onto
+the `data-archive` orphan branch (phase 7), so every processed row stays traceable to its raw
+file. Since 2026-11-04 each rotation writes new parts, `raw-YYYY-MM/rot-YYYYMMDD-NN.tar`, each
+at most 90 MB (`MAX_PART_MB`), and never rewrites a tar: the earlier single `raw-YYYY-MM.tar`
+per month was appended to weekly, `raw-2026-09.tar` passed GitHub's 100 MB file limit, and the
+push was rejected for five weeks. The legacy `raw-2026-09.tar` stays as it is. Restore with
+`for t in raw-*.tar raw-*/*.tar; do tar -xf "$t" -C data/raw; done` in a checkout of the branch.
+A failed rotation puts every raw file back, the weekly outputs are still committed and
+deployed, and the `checks` job reddens the run afterwards (as it does for the size check). Processed parquet keeps a rolling 90–120-day window for hourly
 tables and everything for daily tables; the monthly archive partitions keep everything.
 
 ## Adding a venue

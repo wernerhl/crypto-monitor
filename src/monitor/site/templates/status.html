@@ -14,7 +14,7 @@
   if(!views.length){ document.getElementById('st-meta').textContent='no status file available'; return; }
   views.sort((a,b)=>(a.generated_at<b.generated_at?1:-1));
   const byTable={}; for(const v of views){ for(const t of (v.tables||[])){ if(!byTable[t.table]) byTable[t.table]={...t, _view:(v.job||'daily')+' '+v.generated_at.slice(0,16)}; } }
-  const rows=Object.values(byTable).sort((a,b)=>{const o={stale:0,lagging:1,unavailable:2,fresh:3}; return (o[a.status]??9)-(o[b.status]??9)||a.table.localeCompare(b.table);});
+  const rows=Object.values(byTable).sort((a,b)=>{const o={stale:0,lagging:1,upstream_stale:2,unavailable:3,fresh:4}; return (o[a.status]??9)-(o[b.status]??9)||a.table.localeCompare(b.table);});
   document.getElementById('st-meta').textContent=views.map(v=>(v.job||'daily')+' view '+v.generated_at.slice(0,16)+' UTC').join(' · ')+' · '+rows.length+' tables';
   const cols=['table','cadence','job','kind','parent','rows','latest','age_hours','budget_hours','status','reason','_view'];
   const tb=document.createElement('table');

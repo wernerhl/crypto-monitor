@@ -234,7 +234,9 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
     if not events.height:
         return {"resistance_model": 0}
     events = rz.attach_state(
-        events, archive.read("positioning_history"), archive.read("fragility_series"),
+        events,
+        archive.read("positioning_history"),
+        archive.read("fragility_series"),
         archive.read("positioning"),
     )
     calibrated_on = date.fromisoformat(str(c["calibrated_on"]))
@@ -243,7 +245,8 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
     def _stamp(df: pl.DataFrame) -> pl.DataFrame:
         return df.with_columns(
             pl.lit("compute.resistance").alias("source"),
-            pl.lit(now).alias("fetched_at"), pl.lit(sha).alias("git_sha"),
+            pl.lit(now).alias("fetched_at"),
+            pl.lit(sha).alias("git_sha"),
         )
 
     model = rz.run_model(events, c, as_of, calibrated_on)
@@ -252,9 +255,11 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
 
     hist_start = str(events["date"].min()) if events.height else "2018-06-21"
     block = {
-        "as_of": str(as_of), "calibrated_on": str(calibrated_on), "history_start": hist_start,
+        "as_of": str(as_of),
+        "calibrated_on": str(calibrated_on),
+        "history_start": hist_start,
         "method": "competing-risks cumulative incidence (Aalen-Johansen), pooled hazard, "
-                  "walk-forward isotonic recalibration, block-bootstrap bands",
+        "walk-forward isotonic recalibration, block-bootstrap bands",
         "params": {
             "cif_horizons": c["competing_risks"]["cif_horizons"],
             "max_window_days": c["competing_risks"]["max_window_days"],
@@ -266,8 +271,10 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
         },
         "headline_def": model["headline_def"],
         "cells": model["cells"],
-        "recalibration": {k: model["recal"][k] for k in
-                          ("brier", "reliability", "n_oos", "primary_horizon", "brier_by_def")},
+        "recalibration": {
+            k: model["recal"][k]
+            for k in ("brier", "reliability", "n_oos", "primary_horizon", "brier_by_def")
+        },
         "active": active,
         "overlay": overlay,
     }
@@ -276,8 +283,16 @@ def compute_resistance(as_of: date | None = None) -> dict[str, int]:
     counts["resistance_model"] = 1
 
     if active:
-        arows = [{"as_of": as_of, "base": a["base"], "side": a["side"], "r_def": a["r_def"],
-                  "payload": json.dumps(a, default=str)} for a in active]
+        arows = [
+            {
+                "as_of": as_of,
+                "base": a["base"],
+                "side": a["side"],
+                "r_def": a["r_def"],
+                "payload": json.dumps(a, default=str),
+            }
+            for a in active
+        ]
         archive.replace_slice("resistance_active", "as_of", as_of, _stamp(pl.DataFrame(arows)))
         counts["resistance_active"] = len(arows)
 
@@ -304,8 +319,10 @@ def compute_trend(as_of: date | None = None) -> dict[str, int]:
     if not st:
         return {"trend_state": 0}
     df = pl.DataFrame(st).with_columns(
-        pl.lit(as_of).alias("as_of"), pl.lit("compute.trend").alias("source"),
-        pl.lit(now).alias("fetched_at"), pl.lit(sha).alias("git_sha"),
+        pl.lit(as_of).alias("as_of"),
+        pl.lit("compute.trend").alias("source"),
+        pl.lit(now).alias("fetched_at"),
+        pl.lit(sha).alias("git_sha"),
     )
     archive.replace_slice("trend_state", "as_of", as_of, df)
     return {"trend_state": df.height}
@@ -681,15 +698,27 @@ def _resistance() -> dict:
             if pb is not None:
                 briers.append((pb - y) ** 2)
                 ybar.append(y)
-            out_rows.append({"base": r["base"], "date": str(r["date"]),
-                             "resolve_date": str(r["resolve_date"]), "side": r["side"],
-                             "r_def": r["r_def"], "p_break": pb, "realized": r["realized"]})
+            out_rows.append(
+                {
+                    "base": r["base"],
+                    "date": str(r["date"]),
+                    "resolve_date": str(r["resolve_date"]),
+                    "side": r["side"],
+                    "r_def": r["r_def"],
+                    "p_break": pb,
+                    "realized": r["realized"],
+                }
+            )
         base = sum(ybar) / len(ybar) if ybar else None
         model_brier = round(sum(briers) / len(briers), 4) if briers else None
         base_brier = round(sum((base - y) ** 2 for y in ybar) / len(ybar), 4) if ybar else None
         scoreboard = {
-            "n": len(out_rows), "brier": model_brier, "base_rate_brier": base_brier,
-            "skill": round(1 - model_brier / base_brier, 3) if (model_brier and base_brier) else None,
+            "n": len(out_rows),
+            "brier": model_brier,
+            "base_rate_brier": base_brier,
+            "skill": round(1 - model_brier / base_brier, 3)
+            if (model_brier and base_brier)
+            else None,
             "rows": out_rows[-40:],
         }
     block["scorecard"] = scoreboard

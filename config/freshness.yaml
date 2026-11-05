@@ -38,6 +38,11 @@ tables:
     job: daily
     kind: source
     time_col: date
+    # blockchain.info's charts froze for ~7 days three times in Sep-Nov 2026 (28 Sep, 14 Oct, 28 Oct)
+    # while every daily fetch returned 200: upstream_stale (shown, not fatal) while the fetch is ok,
+    # fatal again after budget + 240 h (12 days) — a source that stops for good still reddens the run
+    fetch_dataset: btc_chain
+    upstream_grace_hours: 240
   category_members:
     cadence: daily
     budget_hours: 30
@@ -391,6 +396,12 @@ tables:
     job: daily
     kind: source
     time_col: fetched_at
+    # the query returns only active/pending proposals; on a day the tracked spaces have none nothing is
+    # upserted and fetched_at stops (25 Sep-15 Oct and 23-29 Oct 2026: 15 red daily runs, every fetch ok).
+    # A successful fetch is the freshness then, up to budget + 720 h (a month with no proposal at all
+    # in every tracked space more likely means a broken space list or query)
+    fetch_dataset: snapshot
+    upstream_grace_hours: 720
   rule43_drivers:
     cadence: weekly
     budget_hours: 192
@@ -514,7 +525,10 @@ tables:
     parent: wash_filters
   vol_state:
     cadence: daily
-    budget_hours: 30
+    # 54 h, its parent prices_daily's budget: it cannot be fresher than the daily job that feeds it,
+    # which GitHub starts 4-6.5 h after its 01:25 UTC cron — the 30 h budget expired at 06:00 UTC, before
+    # that run, and reddened an hourly run on 14 of the mornings between 20 Sep and 4 Nov 2026
+    budget_hours: 54
     job: hourly
     kind: derived
     time_col: date

@@ -47,9 +47,54 @@ def _is_date_col(spec: dict) -> bool:
     return spec.get("time_col", "fetched_at") in ("date", "as_of", "week", "hour_date")
 
 
+def _last_fetches() -> dict[str, dict]:
+    """The latest fetch record per dataset (fetch_status_*.parquet): {dataset: {ts, ok, reason}}."""
+    fs = archive.read_fetch_status()
+    if fs is None or not fs.height or not {"dataset", "ts", "ok"} <= set(fs.columns):
+        return {}
+    out: dict[str, dict] = {}
+    for r in (
+        fs.sort("ts")
+        .group_by("dataset")
+        .agg(pl.col("ts").last(), pl.col("ok").last(), pl.col("reason").last())
+        .to_dicts()
+    ):
+        ts = r["ts"]
+        if isinstance(ts, datetime) and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        out[r["dataset"]] = {"ts": ts, "ok": bool(r["ok"]), "reason": r.get("reason")}
+    return out
+
+
+def _upstream_stale(spec: dict, row: dict, fetches: dict[str, dict], now: datetime) -> str | None:
+    """Work order 2026-11-04: a source table whose data stopped advancing although its own fetch
+    keeps succeeding is behind UPSTREAM, not broken here — blockchain.info's charts froze for about
+    a week three times in Sep-Nov 2026 while every daily fetch returned 200, and a Snapshot query
+    returns no rows when the tracked spaces have no active proposal (21 quiet days in Sep-Oct).
+    When the table names its fetch (`fetch_dataset`) and grants `upstream_grace_hours`, a stale
+    table whose latest fetch record is ok and within the table's budget reads `upstream_stale`
+    (shown, not fatal) until its age passes budget + grace. Returns the reason, or None."""
+    ds, grace = spec.get("fetch_dataset"), spec.get("upstream_grace_hours")
+    if not ds or not grace:
+        return None
+    f = fetches.get(ds)
+    if not f or not f["ok"] or not isinstance(f["ts"], datetime):
+        return None  # the fetch itself failed or never ran: a pipeline problem, stays stale
+    fetch_age = (now - f["ts"]).total_seconds() / 3600
+    if fetch_age > row["budget_hours"]:
+        return None  # no successful fetch within the budget either
+    if row["age_hours"] > row["budget_hours"] + float(grace):
+        return None  # upstream silent for longer than the grace: fatal again
+    return (
+        f"{row['reason']}; the source has not advanced — the last {ds} fetch succeeded "
+        f"{fetch_age:.0f} h ago (upstream, tolerated up to {row['budget_hours'] + float(grace):.0f} h)"
+    )
+
+
 def table_rows(now: datetime | None = None) -> list[dict]:
     """One row per table in the contract: latest data time, age, budget, parent lag, status,
-    reason. `status` ∈ {fresh, stale, lagging, unavailable}."""
+    reason. `status` ∈ {fresh, stale, upstream_stale, lagging, unavailable}; only
+    `upstream_stale` among the non-fresh states is not a violation (see `_upstream_stale`)."""
     now = now or utc_now()
     c = contract()
     latest: dict[str, datetime | None] = {}
@@ -58,6 +103,7 @@ def table_rows(now: datetime | None = None) -> list[dict]:
         df = archive.read(t)
         rows_n[t] = int(df.height) if df is not None else 0
         latest[t] = _latest_dt(df, spec.get("time_col", "fetched_at")) if df is not None else None
+    fetches = _last_fetches() if any(s.get("fetch_dataset") for s in c["tables"].values()) else {}
     out = []
     for t, spec in c["tables"].items():
         lt = latest.get(t)
@@ -86,6 +132,9 @@ def table_rows(now: datetime | None = None) -> list[dict]:
                 row["reason"] = (
                     f"last data {lt:%Y-%m-%d %H:%M} UTC, {row['age_hours']:.0f} h old against a {budget:.0f} h budget ({spec['cadence']})"
                 )
+                up = _upstream_stale(spec, row, fetches, now)
+                if up:
+                    row["status"], row["reason"] = "upstream_stale", up
             parent = spec.get("parent")
             if parent and latest.get(parent) is not None:
                 # compare on the coarser of the two clocks: a date-keyed table counts as its
@@ -116,12 +165,18 @@ def table_rows(now: datetime | None = None) -> list[dict]:
     return out
 
 
+NOT_VIOLATIONS = {"fresh", "upstream_stale"}
+
+
 def violations(job: str, now: datetime | None = None) -> list[str]:
-    """Tables owned by `job` that are stale, lagging, or (non-optional) unavailable."""
+    """Tables owned by `job` that are stale, lagging, or (non-optional) unavailable.
+    `upstream_stale` is reported in status_<job>.json and on the tiles, never fatal."""
     return [
         f"{r['table']}: {r['status']} — {r['reason']}"
         for r in table_rows(now)
-        if r["job"] == job and r["status"] != "fresh" and not r["optional"]  # optional: never fatal
+        if r["job"] == job
+        and r["status"] not in NOT_VIOLATIONS
+        and not r["optional"]  # optional: never fatal
     ]
 
 

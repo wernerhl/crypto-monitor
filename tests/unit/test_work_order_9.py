@@ -51,7 +51,9 @@ def test_chop_is_replaced_by_censoring(events):
     # the competing-risks outcome is only break / reject / censored — never a "chop" resolution
     assert set(ev["cause"].unique().to_list()) <= {"break", "reject", "censored"}
     assert {"cause", "ttr", "cens"} <= set(ev.columns)
-    cif = rz.cif_empirical(ev.filter((pl.col("side") == "resistance") & (pl.col("r_def") == "hi")), c)
+    cif = rz.cif_empirical(
+        ev.filter((pl.col("side") == "resistance") & (pl.col("r_def") == "hi")), c
+    )
     assert set(cif["break"].keys()) == {5, 10, 20, 40}
     assert "chop" not in cif
     assert cif["median_ttr"]["break"] is not None
@@ -60,13 +62,15 @@ def test_chop_is_replaced_by_censoring(events):
 def test_time_to_event_is_causal_and_censors_end_of_data():
     # a test that never clears R*(1.005) nor falls below R*(0.995) is censored, not resolved
     c = np.array([100.0, 100.1, 100.2, 100.3, 100.4])
-    cause, _ttr, cens = rz._time_to_events(rz.SIDE_RESISTANCE, 0, 100.0, c, c * 0.999, c * 1.001,
-                                           99.8, 0.005, 2, 40)
+    cause, _ttr, cens = rz._time_to_events(
+        rz.SIDE_RESISTANCE, 0, 100.0, c, c * 0.999, c * 1.001, 99.8, 0.005, 2, 40
+    )
     assert cens and cause == "censored"
     # and a clean break resolves with a finite time-to-event
     cb = np.array([100.0, 101.0, 101.2, 101.4, 101.6])
-    cause2, ttr2, cens2 = rz._time_to_events(rz.SIDE_RESISTANCE, 0, 100.0, cb, cb * 0.99, cb * 1.01,
-                                             98.0, 0.005, 2, 40)
+    cause2, ttr2, cens2 = rz._time_to_events(
+        rz.SIDE_RESISTANCE, 0, 100.0, cb, cb * 0.99, cb * 1.01, 98.0, 0.005, 2, 40
+    )
     assert (not cens2) and cause2 == "break" and ttr2 >= 0
 
 
@@ -85,8 +89,17 @@ def test_consensus_needs_two_definitions(events):
 def test_pooled_hazard_single_model_and_cif_coherent(model):
     m, c = model
     assert m["pack"] is not None  # ONE partially-pooled model over all cells
-    t = {"side": "resistance", "r_def": "hi", "dist": -0.01, "level_age_log": 3.0,
-         "range_width": 0.3, "rv": 0.6, "close_cleared": 1, "btc_ret20": 0.05, "btc_dd90": -0.02}
+    t = {
+        "side": "resistance",
+        "r_def": "hi",
+        "dist": -0.01,
+        "level_age_log": 3.0,
+        "range_width": 0.3,
+        "rv": 0.6,
+        "close_cleared": 1,
+        "btc_ret20": 0.05,
+        "btc_dd90": -0.02,
+    }
     pr = rz.predict_cif_tests(m["pack"], [t], c)[0]
     hs = c["competing_risks"]["cif_horizons"]
     # cumulative incidence is non-decreasing in horizon and the two causes never exceed 1

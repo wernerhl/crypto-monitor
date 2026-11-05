@@ -137,6 +137,9 @@ def test_history_json_fragility_equals_live_series_on_the_last_five_days(tmp_pat
         ),
     )
     out = tmp_path / "site"
+    # write_history_json cuts at utc_now() - days: freeze the clock at the fixture's `now`, or the
+    # test fails once the calendar passes 2026-10-01 (it did, on CI)
+    monkeypatch.setattr(jobs_daily_ctx, "utc_now", lambda: now)
     jobs_daily_ctx.write_history_json(out, days=30)
     h = json.loads((out / "history.json").read_text())["fragility"]
     assert h[-1]["date"] == str(days[-2])  # live date minus one

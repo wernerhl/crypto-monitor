@@ -49,12 +49,19 @@ def coinbase_premium(prices: pl.DataFrame) -> list[dict]:
             sd = win.std()
             z = float((prem[-1] - win.mean()) / sd) if sd > 0 else 0.0
         dates = w["date"].to_list()
-        out.append({
-            "base": base, "date": str(dates[-1]), "premium_bp": round(float(prem[-1]), 2),
-            "premium_z": round(z, 2) if np.isfinite(z) else None,
-            "premium_z_window": PREMIUM_Z_WINDOW,
-            "series": [{"date": str(dates[i]), "bp": round(float(prem[i]), 2)} for i in range(max(0, n - 120), n)],
-        })
+        out.append(
+            {
+                "base": base,
+                "date": str(dates[-1]),
+                "premium_bp": round(float(prem[-1]), 2),
+                "premium_z": round(z, 2) if np.isfinite(z) else None,
+                "premium_z_window": PREMIUM_Z_WINDOW,
+                "series": [
+                    {"date": str(dates[i]), "bp": round(float(prem[i]), 2)}
+                    for i in range(max(0, n - 120), n)
+                ],
+            }
+        )
     return out
 
 
@@ -74,7 +81,7 @@ def exchange_net_flow(onchain: pl.DataFrame) -> list[dict]:
         )
         if o.height < max(FLOW_SUMS) + 1:
             continue
-        net = (o["FlowOutExUSD"].to_numpy() - o["FlowInExUSD"].to_numpy())
+        net = o["FlowOutExUSD"].to_numpy() - o["FlowInExUSD"].to_numpy()
         row = {"base": base, "date": str(o["date"].to_list()[-1])}
         for s in FLOW_SUMS:
             row[f"net_flow_{s}d_usd"] = round(float(net[-s:].sum()), 0)
@@ -88,12 +95,16 @@ def block(prices: pl.DataFrame, onchain: pl.DataFrame) -> dict:
     return {
         "coinbase_premium": coinbase_premium(prices),
         "exchange_net_flow": exchange_net_flow(onchain),
-        "etf_flow": {"available": False,
-                     "note": "US spot ETF net creations: named as a demand covariate but not fetched "
-                             "— no reliable free daily source and the notes forbid scraping fragile "
-                             "issuer pages. Candidate regressor for the resistance model once a "
-                             "source clears."},
-        "stablecoin_inflow_sif": {"available": False,
-                                  "note": "exchange stablecoin inflow (SIF): not in the CoinMetrics "
-                                          "community tier; exchange BTC/ETH net flow is shown instead."},
+        "etf_flow": {
+            "available": False,
+            "note": "US spot ETF net creations: named as a demand covariate but not fetched "
+            "— no reliable free daily source and the notes forbid scraping fragile "
+            "issuer pages. Candidate regressor for the resistance model once a "
+            "source clears.",
+        },
+        "stablecoin_inflow_sif": {
+            "available": False,
+            "note": "exchange stablecoin inflow (SIF): not in the CoinMetrics "
+            "community tier; exchange BTC/ETH net flow is shown instead.",
+        },
     }
