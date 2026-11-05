@@ -175,6 +175,9 @@ def test_liq_coverage_parser_and_covered_hours(tmp_path, monkeypatch):
     )
     kept = jobs_hourly._covered_liquidations(liqs, hour + timedelta(hours=2))
     assert sorted(kept["notional_usd"].to_list()) == [2.0, 4.0]
+    # _liq_source keeps the trailing 30 days of the wall clock: freeze it at the fixture's hour, or the
+    # test fails once the calendar passes 2026-10-08 (it did, on CI)
+    monkeypatch.setattr(jobs_hourly, "utc_now", lambda: hour + timedelta(hours=2))
     assert jobs_hourly._liq_source(liqs) == "bybit+okx (multi-venue)"
     share = jobs_hourly._liq_coverage_share(liqs, hour + timedelta(hours=2))
     assert share == 0.0  # the one recorded hour is under-covered

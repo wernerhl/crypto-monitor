@@ -17,6 +17,9 @@ jobs:
   weekly:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      rotate: ${{ steps.rotate.outcome }}
+      size: ${{ steps.size.outcome }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,6 +33,11 @@ jobs:
       - name: universe, tier freeze, factor model, screens, risk panels, studies
         run: uv run monitor compute weekly
       - name: rotate raw files older than the retention windows to the data-archive branch
+        id: rotate
+        # non-fatal here: a failed archive push used to skip the commit below and discard the
+        # weekly outputs (5 weeks, 27 Sep-1 Nov 2026). The script puts every raw file back on
+        # failure; the run is reddened at the end, after the outputs are committed and deployed.
+        continue-on-error: true
         run: bash scripts/rotate_raw.sh
       - name: commit data as the bot
         run: |
@@ -55,7 +63,11 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
-      - name: repo-size check (last, so the weekly outputs are committed and deployed first; a breach still fails the run)
+      - name: repo-size check (non-fatal in this job; the checks job reddens the run after deploy)
+        id: size
+        # a failure here used to fail this job, and `deploy` and `freshness-gate` (needs: weekly) were
+        # then skipped: the 27-Sep-2026 outputs were committed but never published
+        continue-on-error: true
         run: bash scripts/check_repo_size.sh
   deploy:
     needs: weekly
@@ -81,3 +93,18 @@ jobs:
       - run: uv sync --frozen
       - name: freshness gate (reddens the run if a weekly-owned table is stale; does NOT block deploy, which already ran)
         run: uv run monitor freshness-gate weekly
+  checks:
+    # runs after deploy so a rotation or size failure reddens the run without blocking publication
+    needs: [weekly, deploy]
+    if: ${{ always() && needs.weekly.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: raw rotation and repo size (reported by the weekly job)
+        env:
+          ROTATE: ${{ needs.weekly.outputs.rotate }}
+          SIZE: ${{ needs.weekly.outputs.size }}
+        run: |
+          rc=0
+          if [ "$ROTATE" = failure ]; then echo "::error::raw rotation to data-archive failed; raw files were kept on main (weekly job, rotate step)"; rc=1; fi
+          if [ "$SIZE" = failure ]; then echo "::error::repository size over the limit (weekly job, repo-size step; docs/runbook.md 'Repository size')"; rc=1; fi
+          exit $rc
