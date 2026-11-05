@@ -41,21 +41,37 @@ def _series(close: np.ndarray, c: dict) -> dict:
     n = len(close)
     mas = {w: _sma(close, w) for w in c["ma_windows"]}
     sl = c["slope_lookback"]
-    rising = {w: np.array([mas[w][i] > mas[w][i - sl] if i >= sl and np.isfinite(mas[w][i]) and np.isfinite(mas[w][i - sl]) else False for i in range(n)]) for w in c["ma_windows"]}
+    rising = {
+        w: np.array(
+            [
+                mas[w][i] > mas[w][i - sl]
+                if i >= sl and np.isfinite(mas[w][i]) and np.isfinite(mas[w][i - sl])
+                else False
+                for i in range(n)
+            ]
+        )
+        for w in c["ma_windows"]
+    }
     r = c["rule"]
     state = np.array(["RANGE"] * n, dtype=object)
     for i in range(n):
         up = (
-            np.isfinite(mas[50][i]) and np.isfinite(mas[200][i]) and np.isfinite(mas[20][i])
+            np.isfinite(mas[50][i])
+            and np.isfinite(mas[200][i])
+            and np.isfinite(mas[20][i])
             and close[i] > mas[r["uptrend"]["close_above"]][i]
             and all(rising[w][i] for w in r["uptrend"]["rising"])
-            and mas[r["uptrend"]["fast_above_slow"][0]][i] > mas[r["uptrend"]["fast_above_slow"][1]][i]
+            and mas[r["uptrend"]["fast_above_slow"][0]][i]
+            > mas[r["uptrend"]["fast_above_slow"][1]][i]
         )
         dn = (
-            np.isfinite(mas[50][i]) and np.isfinite(mas[200][i]) and np.isfinite(mas[20][i])
+            np.isfinite(mas[50][i])
+            and np.isfinite(mas[200][i])
+            and np.isfinite(mas[20][i])
             and close[i] < mas[r["downtrend"]["close_below"]][i]
             and all(not rising[w][i] for w in r["downtrend"]["falling"])
-            and mas[r["downtrend"]["fast_below_slow"][0]][i] < mas[r["downtrend"]["fast_below_slow"][1]][i]
+            and mas[r["downtrend"]["fast_below_slow"][0]][i]
+            < mas[r["downtrend"]["fast_below_slow"][1]][i]
         )
         if up:
             state[i] = "UPTREND"
@@ -95,18 +111,23 @@ def states(prices: pl.DataFrame, c: dict) -> list[dict]:
         t = g.height - 1
         r1 = c["ret_windows"]["1m"]
         r3 = c["ret_windows"]["3m"]
-        out.append({
-            "base": base, "date": str(dates[t]), "state": str(s["state"][t]),
-            "close": float(close[t]),
-            "ma20": float(s["ma"][20][t]) if np.isfinite(s["ma"][20][t]) else None,
-            "ma50": float(s["ma"][50][t]) if np.isfinite(s["ma"][50][t]) else None,
-            "ma200": float(s["ma"][200][t]) if np.isfinite(s["ma"][200][t]) else None,
-            "ma50_rising": bool(s["rising"][50][t]), "ma200_rising": bool(s["rising"][200][t]),
-            "ret_1m": float(close[t] / close[t - r1] - 1.0) if t >= r1 else None,
-            "ret_3m": float(close[t] / close[t - r3] - 1.0) if t >= r3 else None,
-            "donchian_20": _donchian(high, low, close, c["donchian"][0], t),
-            "donchian_55": _donchian(high, low, close, c["donchian"][1], t),
-        })
+        out.append(
+            {
+                "base": base,
+                "date": str(dates[t]),
+                "state": str(s["state"][t]),
+                "close": float(close[t]),
+                "ma20": float(s["ma"][20][t]) if np.isfinite(s["ma"][20][t]) else None,
+                "ma50": float(s["ma"][50][t]) if np.isfinite(s["ma"][50][t]) else None,
+                "ma200": float(s["ma"][200][t]) if np.isfinite(s["ma"][200][t]) else None,
+                "ma50_rising": bool(s["rising"][50][t]),
+                "ma200_rising": bool(s["rising"][200][t]),
+                "ret_1m": float(close[t] / close[t - r1] - 1.0) if t >= r1 else None,
+                "ret_3m": float(close[t] / close[t - r3] - 1.0) if t >= r3 else None,
+                "donchian_20": _donchian(high, low, close, c["donchian"][0], t),
+                "donchian_55": _donchian(high, low, close, c["donchian"][1], t),
+            }
+        )
     return out
 
 
@@ -191,7 +212,10 @@ def phi_by_trend(prices: pl.DataFrame, fragility_series: pl.DataFrame | None, c:
         p = np.array([x[0] for x in sub])
         r = np.array([x[1] for x in sub])
         corr = float(np.corrcoef(p, r)[0, 1]) if p.std() > 0 and r.std() > 0 else None
-        out["by_state"][s] = {"n": len(sub), "mean_phi": round(float(p.mean()), 3),
-                              "mean_fwd_ret": round(float(r.mean()), 4),
-                              "corr_phi_fwd": round(corr, 3) if corr is not None else None}
+        out["by_state"][s] = {
+            "n": len(sub),
+            "mean_phi": round(float(p.mean()), 3),
+            "mean_fwd_ret": round(float(r.mean()), 4),
+            "corr_phi_fwd": round(corr, 3) if corr is not None else None,
+        }
     return out

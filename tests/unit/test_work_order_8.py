@@ -17,18 +17,25 @@ from monitor.compute import resistance as rz
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _synth(base: str, closes: list[float], highs=None, lows=None, vols=None, start=date(2020, 1, 1)):
+def _synth(
+    base: str, closes: list[float], highs=None, lows=None, vols=None, start=date(2020, 1, 1)
+):
     n = len(closes)
     highs = highs or [c * 1.01 for c in closes]
     lows = lows or [c * 0.99 for c in closes]
     vols = vols or [1_000_000.0] * n
-    return pl.DataFrame({
-        "base": [base] * n,
-        "date": [start + timedelta(days=i) for i in range(n)],
-        "venue": ["binance"] * n,
-        "open": closes, "high": highs, "low": lows, "close": closes,
-        "volume_quote": vols,
-    })
+    return pl.DataFrame(
+        {
+            "base": [base] * n,
+            "date": [start + timedelta(days=i) for i in range(n)],
+            "venue": ["binance"] * n,
+            "open": closes,
+            "high": highs,
+            "low": lows,
+            "close": closes,
+            "volume_quote": vols,
+        }
+    )
 
 
 def test_params_frozen_and_have_calibrated_on():
@@ -57,11 +64,15 @@ def test_break_and_reject_labels():
     R = 100.0
     # break: pop above 100.5 and hold two closes above 99.5 (length > react+hold to resolve)
     c = np.array([100.0, 101.0, 101.2, 101.5, 101.6, 101.7, 101.8, 102.0, 102.1, 102.2])
-    lab, resolved = rz._label_side(rz.SIDE_RESISTANCE, 0, R, c, c * 0.99, c * 1.01, 98.0, m, hold, react)
+    lab, resolved = rz._label_side(
+        rz.SIDE_RESISTANCE, 0, R, c, c * 0.99, c * 1.01, 98.0, m, hold, react
+    )
     assert resolved and lab == "break"
     # rejection: fall back below 99.5 and print a lower low than the pre-test swing (98)
     c2 = np.array([100.0, 99.0, 96.0, 95.0, 94.0, 93.0, 92.0, 91.0, 90.0, 89.0])
-    lab2, _ = rz._label_side(rz.SIDE_RESISTANCE, 0, R, c2, c2 * 0.97, c2 * 1.01, 98.0, m, hold, react)
+    lab2, _ = rz._label_side(
+        rz.SIDE_RESISTANCE, 0, R, c2, c2 * 0.97, c2 * 1.01, 98.0, m, hold, react
+    )
     assert lab2 == "reject"
 
 

@@ -636,7 +636,8 @@ def _roll_forward_leverage_history(now: datetime, sha: str) -> dict[str, int]:
             .last()
             .select("date", "base", "funding_ann", "z_fr", "oi_usd", "oi_change_5d")
             .with_columns(
-                pl.lit("positioning.rollforward").alias("source"), pl.lit(now).alias("fetched_at"),
+                pl.lit("positioning.rollforward").alias("source"),
+                pl.lit(now).alias("fetched_at"),
                 pl.lit(sha).alias("git_sha"),
             )
         )
@@ -645,9 +646,13 @@ def _roll_forward_leverage_history(now: datetime, sha: str) -> dict[str, int]:
     oid = archive.read("oi_daily")
     if oid is not None and oid.height:
         oh = oid.select(
-            "date", pl.lit("aggregate").alias("venue"), "base", "oi_usd",
+            "date",
+            pl.lit("aggregate").alias("venue"),
+            "base",
+            "oi_usd",
         ).with_columns(
-            pl.lit("oi_daily.rollforward").alias("source"), pl.lit(now).alias("fetched_at"),
+            pl.lit("oi_daily.rollforward").alias("source"),
+            pl.lit(now).alias("fetched_at"),
             pl.lit(sha).alias("git_sha"),
         )
         archive.upsert("oi_history", oh)
@@ -661,7 +666,10 @@ def _assert_history_current() -> None:
     more than one day. The roll-forward above writes from the live tables, so this only fires on a
     genuine live-OI outage or a roll-forward regression — exactly the silent debt that let
     positioning_history freeze for two weeks."""
-    for hist, parent, col in (("positioning_history", "positioning", "ts"), ("oi_history", "oi_daily", "date")):
+    for hist, parent, col in (
+        ("positioning_history", "positioning", "ts"),
+        ("oi_history", "oi_daily", "date"),
+    ):
         h, live = archive.read(hist), archive.read(parent)
         if h is None or not h.height or live is None or not live.height:
             continue
@@ -1458,8 +1466,12 @@ def _reading(payload: dict, out: Path) -> list[dict]:
     payload["reading_conflicts"] = conflicts
     if conflicts:  # persist the running list (WO10 §4c)
         now, sha = utc_now(), git_sha()
-        cdf = pl.DataFrame([{**cf, "as_of": now.date(), "source": "reading",
-                             "fetched_at": now, "git_sha": sha} for cf in conflicts])
+        cdf = pl.DataFrame(
+            [
+                {**cf, "as_of": now.date(), "source": "reading", "fetched_at": now, "git_sha": sha}
+                for cf in conflicts
+            ]
+        )
         archive.upsert("reading_conflict", cdf)
     return seg
 

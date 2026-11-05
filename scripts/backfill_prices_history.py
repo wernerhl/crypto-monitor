@@ -25,9 +25,19 @@ from monitor.meta import git_sha, utc_now
 BASE = "https://api.exchange.coinbase.com"
 # Tier-1 bases mapped to their Coinbase USD product (BNB is not listed on Coinbase — skipped)
 PRODUCTS = {
-    "BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD", "XRP": "XRP-USD", "ADA": "ADA-USD",
-    "AVAX": "AVAX-USD", "LINK": "LINK-USD", "LTC": "LTC-USD", "DOT": "DOT-USD", "DOGE": "DOGE-USD",
-    "APT": "APT-USD", "ARB": "ARB-USD", "SUI": "SUI-USD",
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "SOL": "SOL-USD",
+    "XRP": "XRP-USD",
+    "ADA": "ADA-USD",
+    "AVAX": "AVAX-USD",
+    "LINK": "LINK-USD",
+    "LTC": "LTC-USD",
+    "DOT": "DOT-USD",
+    "DOGE": "DOGE-USD",
+    "APT": "APT-USD",
+    "ARB": "ARB-USD",
+    "SUI": "SUI-USD",
 }
 MAX_MEDIAN_DIFF = 0.02  # overlap sanity: median |coinbase/binance - 1| must be under 2%
 
@@ -41,7 +51,9 @@ def _candles(client: httpx.Client, product: str, start: date, end: date) -> list
     return r.json()  # [[time, low, high, open, close, volume], ...], newest first
 
 
-def fetch_series(client: httpx.Client, base: str, product: str, floor: date, today: date) -> pl.DataFrame:
+def fetch_series(
+    client: httpx.Client, base: str, product: str, floor: date, today: date
+) -> pl.DataFrame:
     rows = []
     win_start = floor
     while win_start < today:
@@ -54,8 +66,16 @@ def fetch_series(client: httpx.Client, base: str, product: str, floor: date, tod
             raise
         for k in data:
             d = datetime.fromtimestamp(k[0], tz=UTC).date()
-            rows.append({"date": d, "open": float(k[3]), "high": float(k[2]), "low": float(k[1]),
-                         "close": float(k[4]), "volume_base": float(k[5])})
+            rows.append(
+                {
+                    "date": d,
+                    "open": float(k[3]),
+                    "high": float(k[2]),
+                    "low": float(k[1]),
+                    "close": float(k[4]),
+                    "volume_base": float(k[5]),
+                }
+            )
         win_start = win_end
         time.sleep(0.35)
     if not rows:
@@ -75,11 +95,17 @@ def main() -> None:
     existing = archive.read("prices_daily")
     bstart = {}  # earliest binance date per base (the overlap anchor)
     if existing is not None:
-        b = existing.filter(pl.col("venue") == "binance").group_by("base").agg(pl.col("date").min().alias("m"))
+        b = (
+            existing.filter(pl.col("venue") == "binance")
+            .group_by("base")
+            .agg(pl.col("date").min().alias("m"))
+        )
         bstart = {r["base"]: r["m"] for r in b.to_dicts()}
 
     added = []
-    with httpx.Client(base_url=BASE, timeout=30, headers={"User-Agent": "crypto-monitor/backfill"}) as client:
+    with httpx.Client(
+        base_url=BASE, timeout=30, headers={"User-Agent": "crypto-monitor/backfill"}
+    ) as client:
         for base, product in PRODUCTS.items():
             cb = fetch_series(client, base, product, floor, today)
             if not cb.height:
@@ -89,7 +115,9 @@ def main() -> None:
             anchor = bstart.get(base)
             verdict = "no binance overlap"
             if anchor is not None and existing is not None:
-                bo = existing.filter((pl.col("base") == base) & (pl.col("venue") == "binance")).select("date", "close")
+                bo = existing.filter(
+                    (pl.col("base") == base) & (pl.col("venue") == "binance")
+                ).select("date", "close")
                 j = cb.select("date", pl.col("close").alias("cb")).join(bo, on="date", how="inner")
                 if j.height >= 30:
                     md = float((j["cb"] / j["close"] - 1.0).abs().median())
@@ -100,16 +128,23 @@ def main() -> None:
             # keep only pre-Binance rows (canonical series prefers Binance where both exist)
             pre = cb.filter(pl.col("date") < anchor) if anchor is not None else cb
             if not pre.height:
-                print(f"{base}: coinbase {cb['date'].min()}..{cb['date'].max()}, {verdict}; no pre-binance rows to add")
+                print(
+                    f"{base}: coinbase {cb['date'].min()}..{cb['date'].max()}, {verdict}; no pre-binance rows to add"
+                )
                 continue
             df = pre.with_columns(
-                pl.lit("coinbase").alias("venue"), pl.lit(product).alias("symbol"), pl.lit(base).alias("base"),
+                pl.lit("coinbase").alias("venue"),
+                pl.lit(product).alias("symbol"),
+                pl.lit(base).alias("base"),
                 pl.lit(None, dtype=pl.Float64).alias("volume_quote"),
-                pl.lit("coinbase.backfill").alias("source"), pl.lit(now).alias("fetched_at"),
+                pl.lit("coinbase.backfill").alias("source"),
+                pl.lit(now).alias("fetched_at"),
                 pl.lit(sha).alias("git_sha"),
             )
             added.append(df)
-            print(f"{base}: +{pre.height} pre-binance days ({pre['date'].min()}..{pre['date'].max()}), {verdict}")
+            print(
+                f"{base}: +{pre.height} pre-binance days ({pre['date'].min()}..{pre['date'].max()}), {verdict}"
+            )
 
     if not added:
         print("nothing to add")

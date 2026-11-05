@@ -37,7 +37,15 @@ LABELS = ("break", "reject", "chop")
 
 # regressors for the base-rate model (7a): price/structure + market context ONLY (§7a). Phi and the
 # leverage state are deliberately excluded here — they belong to the overlay (7b) and the §4 answer.
-BASE_REGRESSORS = ("dist", "level_age_log", "range_width", "rv", "close_cleared", "btc_ret20", "btc_dd90")
+BASE_REGRESSORS = (
+    "dist",
+    "level_age_log",
+    "range_width",
+    "rv",
+    "close_cleared",
+    "btc_ret20",
+    "btc_dd90",
+)
 # added by the overlay (7b), each on its own shorter sample:
 OVERLAY_REGRESSORS = ("oi_pctile", "funding_z", "oi_change_5d", "lambda_over_depth", "phi")
 
@@ -50,7 +58,10 @@ def cfg() -> dict:
 
 # --------------------------------------------------------------------------- price series
 
-def canonical_ohlc(prices: pl.DataFrame, assets: list[str], venue_priority: list[str]) -> pl.DataFrame:
+
+def canonical_ohlc(
+    prices: pl.DataFrame, assets: list[str], venue_priority: list[str]
+) -> pl.DataFrame:
     """One OHLCV row per (base, date), choosing the first venue present per day by priority so we
     never double-count bars across venues. Returns base, date, open, high, low, close, volume."""
     if prices is None or not prices.height:
@@ -59,9 +70,7 @@ def canonical_ohlc(prices: pl.DataFrame, assets: list[str], venue_priority: list
         "base", "date", "venue", "open", "high", "low", "close", "volume_quote"
     )
     rank = {v: i for i, v in enumerate(venue_priority)}
-    pr = pr.with_columns(
-        pl.col("venue").replace_strict(rank, default=len(rank)).alias("_vr")
-    )
+    pr = pr.with_columns(pl.col("venue").replace_strict(rank, default=len(rank)).alias("_vr"))
     pr = (
         pr.sort(["base", "date", "_vr"])
         .unique(subset=["base", "date"], keep="first")
@@ -74,7 +83,10 @@ def canonical_ohlc(prices: pl.DataFrame, assets: list[str], venue_priority: list
 
 # --------------------------------------------------------------------------- causal levels
 
-def _swing_levels(high: np.ndarray, low: np.ndarray, w: int, lookback: int) -> tuple[np.ndarray, np.ndarray]:
+
+def _swing_levels(
+    high: np.ndarray, low: np.ndarray, w: int, lookback: int
+) -> tuple[np.ndarray, np.ndarray]:
     """Most recent CONFIRMED swing high / swing low as of t-1 (causal). A swing high at bar j is a
     strict local max over [j-w, j+w] and is only knowable at j+w, so for day t we use the latest j
     with j+w <= t-1. Returns arrays r_swing_hi[t], r_swing_lo[t] (nan until one exists)."""
@@ -113,8 +125,13 @@ def _swing_levels(high: np.ndarray, low: np.ndarray, w: int, lookback: int) -> t
 
 
 def _vp_levels(
-    high: np.ndarray, low: np.ndarray, close: np.ndarray, vol: np.ndarray,
-    window: int, bins: int, min_share: float,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    vol: np.ndarray,
+    window: int,
+    bins: int,
+    min_share: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Nearest high-volume node above / below price from a causal 90-day volume-by-price profile
     (the 'shelf' a technician calls resistance). Uses bars [t-window, t-1] only. Returns
@@ -131,7 +148,9 @@ def _vp_levels(
             continue
         edges = np.linspace(pmin, pmax, bins + 1)
         centres = 0.5 * (edges[:-1] + edges[1:])
-        typ = (hi + lo + close[t - window : t]) / 3.0  # each bar's volume dropped at its typical price
+        typ = (
+            hi + lo + close[t - window : t]
+        ) / 3.0  # each bar's volume dropped at its typical price
         idx = np.clip(np.digitize(typ, edges) - 1, 0, bins - 1)
         prof = np.zeros(bins)
         vsum = np.nansum(vv)
@@ -175,9 +194,18 @@ def _rolling_min_shift(a: np.ndarray, window: int) -> np.ndarray:
 
 # --------------------------------------------------------------------------- events + labels
 
+
 def _label_side(
-    side: str, t: int, R: float, c: np.ndarray, low: np.ndarray, high: np.ndarray,
-    pre_ref: float, m: float, hold_h: int, react_h: int,
+    side: str,
+    t: int,
+    R: float,
+    c: np.ndarray,
+    low: np.ndarray,
+    high: np.ndarray,
+    pre_ref: float,
+    m: float,
+    hold_h: int,
+    react_h: int,
 ) -> tuple[str | None, bool]:
     """Return (label, resolved) for one test at index t over a react window of react_h days.
     resistance: break = pop above R*(1+m) that holds hold_h closes above R*(1-m); reject = close
@@ -209,7 +237,9 @@ def _label_side(
     return "chop", True
 
 
-def _magnitude(side: str, direction: str, t: int, H: int, c: np.ndarray, low: np.ndarray, high: np.ndarray) -> float | None:
+def _magnitude(
+    side: str, direction: str, t: int, H: int, c: np.ndarray, low: np.ndarray, high: np.ndarray
+) -> float | None:
     """§3b realised magnitude for the resolved direction. reject -> max adverse excursion from P_t
     over H days (drawdown for resistance, run-up for support); break -> continuation return."""
     n = len(c)
@@ -232,8 +262,16 @@ def _magnitude(side: str, direction: str, t: int, H: int, c: np.ndarray, low: np
 
 
 def _time_to_events(
-    side: str, t: int, R: float, c: np.ndarray, low: np.ndarray, high: np.ndarray,
-    pre_ref: float, m: float, hold_h: int, W: int,
+    side: str,
+    t: int,
+    R: float,
+    c: np.ndarray,
+    low: np.ndarray,
+    high: np.ndarray,
+    pre_ref: float,
+    m: float,
+    hold_h: int,
+    W: int,
 ) -> tuple[str, int, bool]:
     """Competing-risks outcome for one test (work order 9, §2.1): the first day a break confirms and
     the first day a rejection confirms, whichever comes first, with end-of-window and end-of-data as
@@ -245,12 +283,22 @@ def _time_to_events(
     bd = rd = None
     for d in range(t, min(t + W, n - 1) + 1):
         if up:
-            if bd is None and c[d] > R * (1 + m) and d + hold_h <= n and np.min(c[d : d + hold_h]) > R * (1 - m):
+            if (
+                bd is None
+                and c[d] > R * (1 + m)
+                and d + hold_h <= n
+                and np.min(c[d : d + hold_h]) > R * (1 - m)
+            ):
                 bd = d
             if rd is None and c[d] < R * (1 - m) and np.min(low[t : d + 1]) < pre_ref:
                 rd = d
         else:
-            if bd is None and c[d] < R * (1 - m) and d + hold_h <= n and np.max(c[d : d + hold_h]) < R * (1 + m):
+            if (
+                bd is None
+                and c[d] < R * (1 - m)
+                and d + hold_h <= n
+                and np.max(c[d : d + hold_h]) < R * (1 + m)
+            ):
                 bd = d
             if rd is None and c[d] > R * (1 + m) and np.max(high[t : d + 1]) > pre_ref:
                 rd = d
@@ -310,7 +358,9 @@ def build_events(prices: pl.DataFrame, c: dict) -> pl.DataFrame:
             rv[t] = float(np.std(logret[t - 20 : t]) * np.sqrt(365))
         r_hi = _rolling_max_shift(h, rl["hi"]["window_days"])
         r_lo90 = _rolling_min_shift(low, rl["hi"]["window_days"])
-        r_sw_hi, r_sw_lo = _swing_levels(h, low, rl["swing"]["fractal_w"], rl["swing"]["lookback_days"])
+        r_sw_hi, r_sw_lo = _swing_levels(
+            h, low, rl["swing"]["fractal_w"], rl["swing"]["lookback_days"]
+        )
         r_vp_up, r_vp_dn = _vp_levels(
             h, low, cl, v, rl["vp"]["window_days"], rl["vp"]["bins"], rl["vp"]["min_node_share"]
         )
@@ -354,14 +404,23 @@ def build_events(prices: pl.DataFrame, c: dict) -> pl.DataFrame:
                         if not up and low[a] <= Rt:
                             break
                         level_age += 1
-                    rng = (r_hi[t] - r_lo90[t]) / cl[t - 1] if (np.isfinite(r_hi[t]) and np.isfinite(r_lo90[t])) else None
+                    rng = (
+                        (r_hi[t] - r_lo90[t]) / cl[t - 1]
+                        if (np.isfinite(r_hi[t]) and np.isfinite(r_lo90[t]))
+                        else None
+                    )
                     r20, dd = btc_ctx.get(dates[t], (None, None))
                     pre_ref = float(np.min(low[t - 5 : t])) if up else float(np.max(h[t - 5 : t]))
                     close_cleared = (cl[t] > Rt) if up else (cl[t] < Rt)
                     row = {
-                        "base": base, "date": dates[t], "side": side, "r_def": r_def,
-                        "R": float(Rt), "dist": float(cl[t - 1] / Rt - 1.0),
-                        "level_age": int(level_age), "level_age_log": float(np.log1p(level_age)),
+                        "base": base,
+                        "date": dates[t],
+                        "side": side,
+                        "r_def": r_def,
+                        "R": float(Rt),
+                        "dist": float(cl[t - 1] / Rt - 1.0),
+                        "level_age": int(level_age),
+                        "level_age_log": float(np.log1p(level_age)),
                         "range_width": float(rng) if rng is not None else None,
                         "rv": float(rv[t]) if np.isfinite(rv[t]) else None,
                         "close_cleared": int(close_cleared),
@@ -372,14 +431,22 @@ def build_events(prices: pl.DataFrame, c: dict) -> pl.DataFrame:
                         lab, resolved = _label_side(side, t, Rt, cl, low, h, pre_ref, m, hold_h, H)
                         row[f"label_{H}"] = lab
                         row[f"resolved_{H}"] = resolved
-                        row[f"mag_{H}"] = _magnitude(side, lab, t, H, cl, low, h) if (resolved and lab in ("break", "reject")) else None
+                        row[f"mag_{H}"] = (
+                            _magnitude(side, lab, t, H, cl, low, h)
+                            if (resolved and lab in ("break", "reject"))
+                            else None
+                        )
                     # work order 9 §2.1: competing-risks time-to-event over the max window
-                    cause, ttr, cens = _time_to_events(side, t, Rt, cl, low, h, pre_ref, m, hold_h, W)
+                    cause, ttr, cens = _time_to_events(
+                        side, t, Rt, cl, low, h, pre_ref, m, hold_h, W
+                    )
                     row["cause"], row["ttr"], row["cens"] = cause, int(ttr), bool(cens)
                     # magnitude at each CIF horizon, for the resolved cause (drawdown/continuation)
                     for H in cif_horizons:
                         row[f"mag_cif_{H}"] = (
-                            _magnitude(side, cause, t, H, cl, low, h) if cause in ("break", "reject") else None
+                            _magnitude(side, cause, t, H, cl, low, h)
+                            if cause in ("break", "reject")
+                            else None
                         )
                     rows.append(row)
     if not rows:
@@ -388,6 +455,7 @@ def build_events(prices: pl.DataFrame, c: dict) -> pl.DataFrame:
 
 
 # --------------------------------------------------------------------------- overlay state (7b)
+
 
 def attach_state(
     events: pl.DataFrame,
@@ -409,41 +477,65 @@ def attach_state(
             ev = ev.with_columns(pl.lit(None, dtype=pl.Float64).alias(col))
     if positioning_history is not None and positioning_history.height:
         ph = positioning_history.select(
-            pl.col("base"), pl.col("date").alias("_d1"),
-            pl.col("z_fr").alias("_funding_z"), pl.col("oi_change_5d").alias("_oi_change_5d"),
+            pl.col("base"),
+            pl.col("date").alias("_d1"),
+            pl.col("z_fr").alias("_funding_z"),
+            pl.col("oi_change_5d").alias("_oi_change_5d"),
         ).unique(subset=["base", "_d1"], keep="last")
-        ev = ev.join(ph, on=["base", "_d1"], how="left").with_columns(
-            pl.coalesce("_funding_z", "funding_z").alias("funding_z"),
-            pl.coalesce("_oi_change_5d", "oi_change_5d").alias("oi_change_5d"),
-        ).drop("_funding_z", "_oi_change_5d")
+        ev = (
+            ev.join(ph, on=["base", "_d1"], how="left")
+            .with_columns(
+                pl.coalesce("_funding_z", "funding_z").alias("funding_z"),
+                pl.coalesce("_oi_change_5d", "oi_change_5d").alias("oi_change_5d"),
+            )
+            .drop("_funding_z", "_oi_change_5d")
+        )
     if fragility_series is not None and fragility_series.height:
         fs = fragility_series.select(
             pl.col("date").alias("_d1"), pl.col("phi").alias("_phi")
         ).unique(subset=["_d1"], keep="last")
-        ev = ev.join(fs, on="_d1", how="left").with_columns(
-            pl.coalesce("_phi", "phi").alias("phi")
-        ).drop("_phi")
-    if positioning_live is not None and positioning_live.height and "ts" in positioning_live.columns:
-        pl_live = positioning_live.with_columns(pl.col("ts").dt.date().alias("_d1")).select(
-            pl.col("base"), pl.col("_d1"),
-            pl.col("oi_rel_pctile").alias("_oi_pctile"),
-            pl.col("lambda_over_depth").alias("_lod"),
-        ).unique(subset=["base", "_d1"], keep="last")
-        ev = ev.join(pl_live, on=["base", "_d1"], how="left").with_columns(
-            pl.coalesce("_oi_pctile", "oi_pctile").alias("oi_pctile"),
-            pl.coalesce("_lod", "lambda_over_depth").alias("lambda_over_depth"),
-        ).drop("_oi_pctile", "_lod")
+        ev = (
+            ev.join(fs, on="_d1", how="left")
+            .with_columns(pl.coalesce("_phi", "phi").alias("phi"))
+            .drop("_phi")
+        )
+    if (
+        positioning_live is not None
+        and positioning_live.height
+        and "ts" in positioning_live.columns
+    ):
+        pl_live = (
+            positioning_live.with_columns(pl.col("ts").dt.date().alias("_d1"))
+            .select(
+                pl.col("base"),
+                pl.col("_d1"),
+                pl.col("oi_rel_pctile").alias("_oi_pctile"),
+                pl.col("lambda_over_depth").alias("_lod"),
+            )
+            .unique(subset=["base", "_d1"], keep="last")
+        )
+        ev = (
+            ev.join(pl_live, on=["base", "_d1"], how="left")
+            .with_columns(
+                pl.coalesce("_oi_pctile", "oi_pctile").alias("oi_pctile"),
+                pl.coalesce("_lod", "lambda_over_depth").alias("lambda_over_depth"),
+            )
+            .drop("_oi_pctile", "_lod")
+        )
     return ev.drop("_d1")
 
 
 # --------------------------------------------------------------------------- fitting (7a / 7b)
+
 
 def _iso_week(d: date) -> int:
     iso = d.isocalendar()
     return iso[0] * 100 + iso[1]
 
 
-def _design(events: pl.DataFrame, regressors: tuple[str, ...]) -> tuple[np.ndarray, list[str], np.ndarray]:
+def _design(
+    events: pl.DataFrame, regressors: tuple[str, ...]
+) -> tuple[np.ndarray, list[str], np.ndarray]:
     """Standardised design matrix (mean 0, sd 1 per column) for the given regressors, dropping rows
     with any null. Returns X (with intercept col), kept-row mask indices, and the standardisation is
     internal (coefficients are reported as marginal effects, not raw betas)."""
@@ -458,7 +550,9 @@ def _design(events: pl.DataFrame, regressors: tuple[str, ...]) -> tuple[np.ndarr
     return np.column_stack(mats) if mats else np.empty((events.height, 0)), cols, mask
 
 
-def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressors: tuple[str, ...], c: dict) -> dict:
+def fit_direction(
+    events: pl.DataFrame, side: str, r_def: str, H: int, regressors: tuple[str, ...], c: dict
+) -> dict:
     """Multinomial break/reject/chop for one (side, r_def, horizon). Walk-forward out-of-sample
     calibration on an expanding window (refit every refit_cadence_days), plus a full-sample fit for
     week-clustered coefficient standard errors. Returns a descriptive dict; publishes nothing on its
@@ -470,13 +564,21 @@ def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressor
     s = c["samples"]
     lab = f"label_{H}"
     df = events.filter(
-        (pl.col("side") == side) & (pl.col("r_def") == r_def)
-        & pl.col(f"resolved_{H}") & pl.col(lab).is_not_null()
+        (pl.col("side") == side)
+        & (pl.col("r_def") == r_def)
+        & pl.col(f"resolved_{H}")
+        & pl.col(lab).is_not_null()
     ).sort("date")
     n_all = df.height
     out: dict = {
-        "side": side, "r_def": r_def, "horizon": H, "n_events": n_all,
-        "base_rate": {}, "published": False, "reason": "", "regressors": [r for r in regressors],
+        "side": side,
+        "r_def": r_def,
+        "horizon": H,
+        "n_events": n_all,
+        "base_rate": {},
+        "published": False,
+        "reason": "",
+        "regressors": [r for r in regressors],
     }
     if n_all == 0:
         out["reason"] = "no resolved events"
@@ -508,8 +610,10 @@ def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressor
     last_fit_date = None
     for pos in range(len(y)):
         if pos >= s["min_train_events"]:
-            need_fit = model is None or last_fit_date is None or (
-                (dts[pos] - last_fit_date).days >= s["refit_cadence_days"]
+            need_fit = (
+                model is None
+                or last_fit_date is None
+                or ((dts[pos] - last_fit_date).days >= s["refit_cadence_days"])
             )
             if need_fit:
                 ytr = y[:pos]
@@ -518,9 +622,10 @@ def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressor
                         cats = pl.Series(ytr).cast(pl.Categorical)
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            model = sm.MNLogit(cats.to_physical().to_numpy(),
-                                               sm.add_constant(Xz[:pos], has_constant="add")).fit(
-                                disp=0, method="lbfgs", maxiter=2000)
+                            model = sm.MNLogit(
+                                cats.to_physical().to_numpy(),
+                                sm.add_constant(Xz[:pos], has_constant="add"),
+                            ).fit(disp=0, method="lbfgs", maxiter=2000)
                         cls_order = list(cats.cat.get_categories())
                         last_fit_date = dts[pos]
                     except Exception:
@@ -529,7 +634,9 @@ def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressor
                 try:
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
-                        p = np.asarray(model.predict(sm.add_constant(Xz[pos:pos + 1], has_constant="add")))[0]
+                        p = np.asarray(
+                            model.predict(sm.add_constant(Xz[pos : pos + 1], has_constant="add"))
+                        )[0]
                     if not np.all(np.isfinite(p)):
                         continue
                     pmap = {cls_order[j]: float(p[j]) for j in range(len(cls_order))}
@@ -550,8 +657,9 @@ def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressor
         mod = sm.MNLogit(ycat.to_physical().to_numpy(), Xfull)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            res = mod.fit(disp=0, method="lbfgs", maxiter=2000,
-                          cov_type="cluster", cov_kwds={"groups": wk})
+            res = mod.fit(
+                disp=0, method="lbfgs", maxiter=2000, cov_type="cluster", cov_kwds={"groups": wk}
+            )
         conv = bool(getattr(res, "mle_retvals", {}).get("converged", True))
         cats = list(ycat.cat.get_categories())
         # coefficient of each regressor on P(reject) relative to baseline, with clustered SE
@@ -562,8 +670,11 @@ def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressor
                 params = np.asarray(res.params)[:, jr]
                 bse = np.asarray(res.bse)[:, jr]
                 for ci, cname in enumerate(["const", *cols]):
-                    eff[cname] = {"beta": float(params[ci]), "se": float(bse[ci]),
-                                  "z": float(params[ci] / bse[ci]) if bse[ci] else None}
+                    eff[cname] = {
+                        "beta": float(params[ci]),
+                        "se": float(bse[ci]),
+                        "z": float(params[ci] / bse[ci]) if bse[ci] else None,
+                    }
         out["reject_effects"] = eff
         out["converged"] = conv
     except Exception as e:
@@ -577,7 +688,9 @@ def fit_direction(events: pl.DataFrame, side: str, r_def: str, H: int, regressor
     )
     out["published"] = bool(published)
     if not published and not out["reason"]:
-        out["reason"] = f"n={n_all}, weeks={out['n_weeks']} — below publish floor {s['min_events_publish']}"
+        out["reason"] = (
+            f"n={n_all}, weeks={out['n_weeks']} — below publish floor {s['min_events_publish']}"
+        )
     return out
 
 
@@ -591,9 +704,14 @@ def _reliability(pred: list[float], hit: list[float], bins: int) -> list[dict]:
     for b in range(bins):
         sel = (p >= edges[b]) & (p < edges[b + 1] if b < bins - 1 else p <= edges[b + 1])
         if sel.sum() >= 5:
-            out.append({"bin": round((edges[b] + edges[b + 1]) / 2, 3),
-                        "predicted": round(float(p[sel].mean()), 4),
-                        "observed": round(float(y[sel].mean()), 4), "n": int(sel.sum())})
+            out.append(
+                {
+                    "bin": round((edges[b] + edges[b + 1]) / 2, 3),
+                    "predicted": round(float(p[sel].mean()), 4),
+                    "observed": round(float(y[sel].mean()), 4),
+                    "n": int(sel.sum()),
+                }
+            )
     return out
 
 
@@ -603,8 +721,10 @@ def magnitude_summary(events: pl.DataFrame, side: str, r_def: str, H: int) -> di
     import statsmodels.api as sm
 
     df = events.filter(
-        (pl.col("side") == side) & (pl.col("r_def") == r_def)
-        & pl.col(f"resolved_{H}") & pl.col(f"mag_{H}").is_not_null()
+        (pl.col("side") == side)
+        & (pl.col("r_def") == r_def)
+        & pl.col(f"resolved_{H}")
+        & pl.col(f"mag_{H}").is_not_null()
     )
     out: dict = {"side": side, "r_def": r_def, "horizon": H, "by_direction": {}}
     for direction in ("break", "reject"):
@@ -636,7 +756,9 @@ def model_cells(events: pl.DataFrame, c: dict) -> list[dict]:
                 base = fit_direction(events, side, r_def, H, BASE_REGRESSORS, c)
                 base["magnitude"] = magnitude_summary(events, side, r_def, H)["by_direction"]
                 # 7b overlay for the Phi-on-reject headline, on the sample Phi+funding support
-                ov = fit_direction(events, side, r_def, H, (*BASE_REGRESSORS, "phi", "funding_z"), c)
+                ov = fit_direction(
+                    events, side, r_def, H, (*BASE_REGRESSORS, "phi", "funding_z"), c
+                )
                 base["overlay"] = {
                     "regressors": ov.get("regressors"),
                     "n_events": ov.get("n_events"),
@@ -645,7 +767,9 @@ def model_cells(events: pl.DataFrame, c: dict) -> list[dict]:
                     "phi_on_reject": ov.get("reject_effects", {}).get("phi"),
                     "funding_z_on_reject": ov.get("reject_effects", {}).get("funding_z"),
                 }
-                base["lambda_over_depth_magnitude"] = overlay_magnitude_reject(events, side, r_def, H, c)
+                base["lambda_over_depth_magnitude"] = overlay_magnitude_reject(
+                    events, side, r_def, H, c
+                )
                 cells.append(base)
     return cells
 
@@ -658,8 +782,10 @@ def _base_model(events: pl.DataFrame, side: str, r_def: str, H: int, c: dict):
     import statsmodels.api as sm
 
     df = events.filter(
-        (pl.col("side") == side) & (pl.col("r_def") == r_def)
-        & pl.col(f"resolved_{H}") & pl.col(f"label_{H}").is_not_null()
+        (pl.col("side") == side)
+        & (pl.col("r_def") == r_def)
+        & pl.col(f"resolved_{H}")
+        & pl.col(f"label_{H}").is_not_null()
     )
     X, cols, mask = _design(df, BASE_REGRESSORS)
     if X.shape[1] == 0 or mask.sum() < c["samples"]["min_train_events"]:
@@ -674,9 +800,10 @@ def _base_model(events: pl.DataFrame, side: str, r_def: str, H: int, c: dict):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            model = sm.MNLogit(cats.to_physical().to_numpy(),
-                               sm.add_constant(np.clip((Xm - mu) / sd, -8.0, 8.0), has_constant="add")).fit(
-                disp=0, method="lbfgs", maxiter=2000)
+            model = sm.MNLogit(
+                cats.to_physical().to_numpy(),
+                sm.add_constant(np.clip((Xm - mu) / sd, -8.0, 8.0), has_constant="add"),
+            ).fit(disp=0, method="lbfgs", maxiter=2000)
     except Exception:
         return None
     return model, list(cats.cat.get_categories()), cols, mu, sd
@@ -721,8 +848,23 @@ def active_tests(events: pl.DataFrame, as_of: date, c: dict) -> pl.DataFrame:
     rows = []
     for r in recent.to_dicts():
         side, rd = r["side"], r["r_def"]
-        rec = {k: r[k] for k in ("base", "date", "side", "r_def", "R", "dist", "level_age",
-                                 "range_width", "rv", "close_cleared", "btc_ret20", "btc_dd90")}
+        rec = {
+            k: r[k]
+            for k in (
+                "base",
+                "date",
+                "side",
+                "r_def",
+                "R",
+                "dist",
+                "level_age",
+                "range_width",
+                "rv",
+                "close_cleared",
+                "btc_ret20",
+                "btc_dd90",
+            )
+        }
         rec["probs"] = {}
         for H in horizons:
             key = (side, rd, H)
@@ -734,6 +876,7 @@ def active_tests(events: pl.DataFrame, as_of: date, c: dict) -> pl.DataFrame:
             now = _predict_row(pack, r)
             clr = _predict_row(pack, r, force_close_cleared=1)
             mag = magnitude_summary(events, side, rd, H)["by_direction"]
+
             def _exp(pp, mag=mag):
                 if not pp:
                     return None
@@ -743,10 +886,12 @@ def active_tests(events: pl.DataFrame, as_of: date, c: dict) -> pl.DataFrame:
                     if md is not None:
                         em += pp.get(d, 0.0) * md
                 return round(em, 4)
+
             rec["probs"][str(H)] = {
                 "now": {k: round(v, 4) for k, v in now.items()},
                 "if_clear": {k: round(v, 4) for k, v in clr.items()},
-                "exp_move_now": _exp(now), "exp_move_if_clear": _exp(clr),
+                "exp_move_now": _exp(now),
+                "exp_move_if_clear": _exp(clr),
                 "mag": {d: mag.get(d, {}).get("mean") for d in ("break", "reject")},
             }
         rows.append(rec)
@@ -763,7 +908,10 @@ def scorecard(events: pl.DataFrame, as_of: date, calibrated_on: date, c: dict) -
     df = events.filter(pl.col(f"resolved_{H}") & pl.col(f"label_{H}").is_not_null())
     # resolution date ~ test date + H; keep those resolved since go-live and already in the past
     df = df.with_columns((pl.col("date") + pl.duration(days=H)).alias("resolve_date"))
-    df = df.filter((pl.col("resolve_date") >= pl.lit(calibrated_on)) & (pl.col("resolve_date") <= pl.lit(as_of)))
+    df = df.filter(
+        (pl.col("resolve_date") >= pl.lit(calibrated_on))
+        & (pl.col("resolve_date") <= pl.lit(as_of))
+    )
     if not df.height:
         return pl.DataFrame()
     packs = {}
@@ -773,13 +921,19 @@ def scorecard(events: pl.DataFrame, as_of: date, calibrated_on: date, c: dict) -
         if key not in packs:
             packs[key] = _base_model(events, r["side"], r["r_def"], H, c)
         pred = _predict_row(packs[key], r) if packs[key] else {}
-        rows.append({
-            "base": r["base"], "date": r["date"], "resolve_date": r["resolve_date"],
-            "side": r["side"], "r_def": r["r_def"], "horizon": H,
-            "predicted": {k: round(v, 4) for k, v in pred.items()},
-            "p_break": round(pred.get("break", float("nan")), 4) if pred else None,
-            "realized": r[f"label_{H}"],
-        })
+        rows.append(
+            {
+                "base": r["base"],
+                "date": r["date"],
+                "resolve_date": r["resolve_date"],
+                "side": r["side"],
+                "r_def": r["r_def"],
+                "horizon": H,
+                "predicted": {k: round(v, 4) for k, v in pred.items()},
+                "p_break": round(pred.get("break", float("nan")), 4) if pred else None,
+                "realized": r[f"label_{H}"],
+            }
+        )
     return pl.DataFrame(rows).sort(["resolve_date", "base"])
 
 
@@ -790,9 +944,12 @@ def overlay_magnitude_reject(events: pl.DataFrame, side: str, r_def: str, H: int
     import statsmodels.api as sm
 
     d = events.filter(
-        (pl.col("side") == side) & (pl.col("r_def") == r_def)
-        & (pl.col(f"label_{H}") == "reject") & pl.col(f"mag_{H}").is_not_null()
-        & pl.col("lambda_over_depth").is_not_null() & pl.col("oi_pctile").is_not_null()
+        (pl.col("side") == side)
+        & (pl.col("r_def") == r_def)
+        & (pl.col(f"label_{H}") == "reject")
+        & pl.col(f"mag_{H}").is_not_null()
+        & pl.col("lambda_over_depth").is_not_null()
+        & pl.col("oi_pctile").is_not_null()
     )
     n = d.height
     out = {"side": side, "r_def": r_def, "horizon": H, "n": n, "preliminary": True, "drivers": {}}
@@ -805,8 +962,11 @@ def overlay_magnitude_reject(events: pl.DataFrame, side: str, r_def: str, H: int
         xz = (x - x.mean()) / (x.std() or 1.0)
         try:
             res = sm.OLS(y, sm.add_constant(xz)).fit(cov_type="HAC", cov_kwds={"maxlags": 5})
-            out["drivers"][drv] = {"beta": round(float(res.params[1]), 5), "se": round(float(res.bse[1]), 5),
-                                   "z": round(float(res.params[1] / res.bse[1]), 2) if res.bse[1] else None}
+            out["drivers"][drv] = {
+                "beta": round(float(res.params[1]), 5),
+                "se": round(float(res.bse[1]), 5),
+                "z": round(float(res.params[1] / res.bse[1]), 2) if res.bse[1] else None,
+            }
         except Exception as e:
             out["drivers"][drv] = {"error": str(e)[:80]}
     out["published"] = n >= c["samples"]["min_events_publish"]
@@ -820,7 +980,15 @@ def overlay_magnitude_reject(events: pl.DataFrame, side: str, r_def: str, H: int
 # number is recalibrated walk-forward and carries a block-bootstrap band. No new indicator.
 # =========================================================================================
 
-CIF_FEATURES = ("dist", "level_age_log", "range_width", "rv", "close_cleared", "btc_ret20", "btc_dd90")
+CIF_FEATURES = (
+    "dist",
+    "level_age_log",
+    "range_width",
+    "rv",
+    "close_cleared",
+    "btc_ret20",
+    "btc_dd90",
+)
 CIF_CELLS = (*R_DEFS, "consensus")
 
 
@@ -860,9 +1028,16 @@ def consensus_events(events: pl.DataFrame, c: dict) -> pl.DataFrame:
             cause = winners[0]
         same = [r for r in gd if r["cause"] == cause]
         cens = cause == "censored"
-        ttr = (min(r["ttr"] for r in same) if not cens else max(r["ttr"] for r in gd))
-        row = {"base": base, "date": dt, "side": side, "r_def": "consensus",
-               "cause": cause, "ttr": int(ttr), "cens": bool(cens)}
+        ttr = min(r["ttr"] for r in same) if not cens else max(r["ttr"] for r in gd)
+        row = {
+            "base": base,
+            "date": dt,
+            "side": side,
+            "r_def": "consensus",
+            "cause": cause,
+            "ttr": int(ttr),
+            "cens": bool(cens),
+        }
         for col in num_cols:
             vals = [r[col] for r in gd if r[col] is not None]
             row[col] = float(np.mean(vals)) if vals else None
@@ -933,11 +1108,16 @@ def _cif_bootstrap(df: pl.DataFrame, c: dict) -> dict:
         band[ca] = {}
         for h in horizons:
             arr = np.array([x for x in samples[ca][h] if x is not None], dtype=float)
-            band[ca][h] = [round(float(np.percentile(arr, lo)), 4), round(float(np.percentile(arr, hi)), 4)] if len(arr) else None
+            band[ca][h] = (
+                [round(float(np.percentile(arr, lo)), 4), round(float(np.percentile(arr, hi)), 4)]
+                if len(arr)
+                else None
+            )
     return band
 
 
 # --------------------------------------------------------------------------- pooled hazard (1.2)
+
 
 def _person_period(df: pl.DataFrame, c: dict) -> pl.DataFrame:
     """Expand each test into one row per day at risk (day 0..ttr) with a discrete-time competing-
@@ -946,7 +1126,9 @@ def _person_period(df: pl.DataFrame, c: dict) -> pl.DataFrame:
     pp = df.with_columns(pl.int_ranges(0, pl.col("ttr") + 1).alias("d")).explode("d")
     pp = pp.with_columns(
         pl.when((pl.col("d") == pl.col("ttr")) & (~pl.col("cens")))
-        .then(pl.col("cause")).otherwise(pl.lit("survive")).alias("y"),
+        .then(pl.col("cause"))
+        .otherwise(pl.lit("survive"))
+        .alias("y"),
         pl.col("d").cast(pl.Float64).alias("day"),
         (pl.col("d").cast(pl.Float64) + 1.0).log().alias("day_log"),
         (pl.col("side") + ":" + pl.col("r_def")).alias("cell"),
@@ -954,11 +1136,22 @@ def _person_period(df: pl.DataFrame, c: dict) -> pl.DataFrame:
     return pp
 
 
-def _featurize(pp: pl.DataFrame, cont_cols: list[str], med: dict, mu: np.ndarray, sd: np.ndarray, cells: list[str]) -> np.ndarray:
-    cont = np.column_stack([
-        pl.Series([med[cc] if v is None else v for v in pp[cc].to_list()]).to_numpy().astype(float)
-        for cc in cont_cols
-    ])
+def _featurize(
+    pp: pl.DataFrame,
+    cont_cols: list[str],
+    med: dict,
+    mu: np.ndarray,
+    sd: np.ndarray,
+    cells: list[str],
+) -> np.ndarray:
+    cont = np.column_stack(
+        [
+            pl.Series([med[cc] if v is None else v for v in pp[cc].to_list()])
+            .to_numpy()
+            .astype(float)
+            for cc in cont_cols
+        ]
+    )
     cont = (cont - mu) / sd
     cellv = pp["cell"].to_list()
     onehot = np.zeros((pp.height, len(cells)))
@@ -983,10 +1176,14 @@ def fit_pooled_hazard(df_single: pl.DataFrame, c: dict):
         return None
     cont_cols = [*CIF_FEATURES, "day", "day_log"]
     med = {cc: float(np.nanmedian(pp[cc].to_numpy().astype(float))) for cc in cont_cols}
-    raw = np.column_stack([
-        pl.Series([med[cc] if v is None else v for v in pp[cc].to_list()]).to_numpy().astype(float)
-        for cc in cont_cols
-    ])
+    raw = np.column_stack(
+        [
+            pl.Series([med[cc] if v is None else v for v in pp[cc].to_list()])
+            .to_numpy()
+            .astype(float)
+            for cc in cont_cols
+        ]
+    )
     mu, sd = raw.mean(0), raw.std(0)
     sd[sd == 0] = 1.0
     cells = sorted(pp["cell"].unique().to_list())
@@ -997,8 +1194,15 @@ def fit_pooled_hazard(df_single: pl.DataFrame, c: dict):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         model = LogisticRegression(C=c["pooling"]["ridge_C"], max_iter=2000).fit(X, y)
-    return {"model": model, "cont_cols": cont_cols, "med": med, "mu": mu, "sd": sd,
-            "cells": cells, "classes": list(model.classes_)}
+    return {
+        "model": model,
+        "cont_cols": cont_cols,
+        "med": med,
+        "mu": mu,
+        "sd": sd,
+        "cells": cells,
+        "classes": list(model.classes_),
+    }
 
 
 def _cif_from_hazards(hb: np.ndarray, hr: np.ndarray, horizons: list[int]) -> tuple[dict, dict]:
@@ -1030,20 +1234,33 @@ def predict_cif_tests(pack, tests: list[dict], c: dict) -> list[dict]:
         defs = R_DEFS if rd == "consensus" else (rd,)
         cbs, crs = [], []
         for dd in defs:
-            rows = [{"cell": f"{side}:{dd}", "day": float(d), "day_log": float(np.log(d + 1)),
-                     **{cc: (None if trow.get(cc) is None else float(trow.get(cc))) for cc in CIF_FEATURES}}
-                    for d in range(hmax + 1)]
+            rows = [
+                {
+                    "cell": f"{side}:{dd}",
+                    "day": float(d),
+                    "day_log": float(np.log(d + 1)),
+                    **{
+                        cc: (None if trow.get(cc) is None else float(trow.get(cc)))
+                        for cc in CIF_FEATURES
+                    },
+                }
+                for d in range(hmax + 1)
+            ]
             pp = pl.DataFrame(rows, infer_schema_length=None)
-            X = _featurize(pp, pack["cont_cols"], pack["med"], pack["mu"], pack["sd"], pack["cells"])
+            X = _featurize(
+                pp, pack["cont_cols"], pack["med"], pack["mu"], pack["sd"], pack["cells"]
+            )
             P = pack["model"].predict_proba(X)
             hb, hr = P[:, bi], P[:, ri]
             cb, cr = _cif_from_hazards(hb, hr, horizons)
             cbs.append(cb)
             crs.append(cr)
-        out.append({
-            "break": {h: float(np.mean([x[h] for x in cbs])) for h in horizons},
-            "reject": {h: float(np.mean([x[h] for x in crs])) for h in horizons},
-        })
+        out.append(
+            {
+                "break": {h: float(np.mean([x[h] for x in cbs])) for h in horizons},
+                "reject": {h: float(np.mean([x[h] for x in crs])) for h in horizons},
+            }
+        )
     return out
 
 
@@ -1069,14 +1286,18 @@ def walkforward_recalibrate(df_single: pl.DataFrame, c: dict) -> dict:
     rows = df.to_dicts()
     n = len(rows)
     oos = {ca: {h: {"pred": [], "real": []} for h in horizons} for ca in ("break", "reject")}
-    by_def: dict[str, list] = {}     # primary-horizon (pred, real) tagged by r_def
+    by_def: dict[str, list] = {}  # primary-horizon (pred, real) tagged by r_def
     by_consensus: dict[bool, list] = {True: [], False: []}
     pack = None
     last_fit = None
     for i in range(n):
         r = rows[i]
         if i >= s["min_train_events"]:
-            need = pack is None or last_fit is None or (r["date"] - last_fit).days >= s["refit_cadence_days"]
+            need = (
+                pack is None
+                or last_fit is None
+                or (r["date"] - last_fit).days >= s["refit_cadence_days"]
+            )
             if need:
                 pack = fit_pooled_hazard(df.slice(0, i), c)  # polars slice keeps the schema
                 last_fit = r["date"]
@@ -1108,32 +1329,47 @@ def walkforward_recalibrate(df_single: pl.DataFrame, c: dict) -> dict:
                 if ca == "break":
                     recal = iso.predict(pred)
                     base = float(real.mean())
-                    brier[h] = {"raw": round(float(np.mean((pred - real) ** 2)), 4),
-                                "recal": round(float(np.mean((recal - real) ** 2)), 4),
-                                "base_rate": round(float(np.mean((base - real) ** 2)), 4), "n": len(pred)}
-                    reliability[h] = {"raw": _reliability(list(pred), list(real), s["calibration_bins"]),
-                                      "recal": _reliability(list(recal), list(real), s["calibration_bins"])}
+                    brier[h] = {
+                        "raw": round(float(np.mean((pred - real) ** 2)), 4),
+                        "recal": round(float(np.mean((recal - real) ** 2)), 4),
+                        "base_rate": round(float(np.mean((base - real) ** 2)), 4),
+                        "n": len(pred),
+                    }
+                    reliability[h] = {
+                        "raw": _reliability(list(pred), list(real), s["calibration_bins"]),
+                        "recal": _reliability(list(recal), list(real), s["calibration_bins"]),
+                    }
             else:
                 calibrators[ca][h] = None
                 if ca == "break":
                     brier[h] = {"n": len(pred), "raw": None, "recal": None, "base_rate": None}
+
     def _brier(pairs):
         if len(pairs) < c["recalibration"]["min_pairs"]:
             return {"n": len(pairs), "brier": None}
         p = np.array([a for a, _ in pairs])
         y = np.array([b for _, b in pairs], dtype=float)
-        return {"n": len(pairs), "brier": round(float(np.mean((p - y) ** 2)), 4),
-                "base_rate": round(float(np.mean((y.mean() - y) ** 2)), 4)}
+        return {
+            "n": len(pairs),
+            "brier": round(float(np.mean((p - y) ** 2)), 4),
+            "base_rate": round(float(np.mean((y.mean() - y) ** 2)), 4),
+        }
 
     brier_by_def = {k: _brier(v) for k, v in by_def.items()}
     brier_by_def["consensus_days"] = _brier(by_consensus[True])
     brier_by_def["non_consensus_days"] = _brier(by_consensus[False])
-    return {"calibrators": calibrators, "reliability": reliability, "brier": brier,
-            "n_oos": {h: len(oos["break"][h]["pred"]) for h in horizons},
-            "primary_horizon": prim, "brier_by_def": brier_by_def}
+    return {
+        "calibrators": calibrators,
+        "reliability": reliability,
+        "brier": brier,
+        "n_oos": {h: len(oos["break"][h]["pred"]) for h in horizons},
+        "primary_horizon": prim,
+        "brier_by_def": brier_by_def,
+    }
 
 
 # --------------------------------------------------------------------------- orchestration (WO9)
+
 
 def _apply_calibrators(cif: dict, calibrators: dict) -> dict:
     out = {}
@@ -1143,7 +1379,9 @@ def _apply_calibrators(cif: dict, calibrators: dict) -> dict:
     return out
 
 
-def _active_bands(df_single: pl.DataFrame, tests: list[dict], c: dict, calibrators: dict) -> list[dict]:
+def _active_bands(
+    df_single: pl.DataFrame, tests: list[dict], c: dict, calibrators: dict
+) -> list[dict]:
     """§1.3 — block-bootstrap the pooled hazard over weeks and re-predict each open test, applying the
     same recalibration as the point estimate, so the band is on the published (recalibrated) scale.
     Refits are the cost, so this runs only when tests are open."""
@@ -1175,7 +1413,14 @@ def _active_bands(df_single: pl.DataFrame, tests: list[dict], c: dict, calibrato
         for ca in ("break", "reject"):
             for h in horizons:
                 arr = np.array(a[ca][h], dtype=float)
-                b[ca][h] = [round(float(np.percentile(arr, lo)), 4), round(float(np.percentile(arr, hi)), 4)] if len(arr) else None
+                b[ca][h] = (
+                    [
+                        round(float(np.percentile(arr, lo)), 4),
+                        round(float(np.percentile(arr, hi)), 4),
+                    ]
+                    if len(arr)
+                    else None
+                )
         bands.append(b)
     return bands
 
@@ -1190,7 +1435,11 @@ def _cell_magnitude(df: pl.DataFrame, c: dict) -> dict:
         for h in horizons:
             x = sub[f"mag_cif_{h}"].to_numpy()
             x = x[np.isfinite(x)]
-            out[ca][h] = {"mean": round(float(x.mean()), 4), "n": len(x)} if len(x) >= 5 else {"mean": None, "n": len(x)}
+            out[ca][h] = (
+                {"mean": round(float(x.mean()), 4), "n": len(x)}
+                if len(x) >= 5
+                else {"mean": None, "n": len(x)}
+            )
     return out
 
 
@@ -1216,32 +1465,58 @@ def run_model(events: pl.DataFrame, c: dict, as_of: date, calibrated_on: date) -
     cells = []
     for side in SIDES:
         for rd in CIF_CELLS:
-            sub = cons.filter(pl.col("side") == side) if rd == "consensus" else \
-                single.filter((pl.col("side") == side) & (pl.col("r_def") == rd))
+            sub = (
+                cons.filter(pl.col("side") == side)
+                if rd == "consensus"
+                else single.filter((pl.col("side") == side) & (pl.col("r_def") == rd))
+            )
             if not sub.height:
                 continue
             emp = cif_empirical(sub, c)
             band = _cif_bootstrap(sub, c)
-            cell = {"side": side, "r_def": rd, "n": emp["n"], "n_resolved": emp["n_resolved"],
-                    "cif_break": emp["break"], "cif_reject": emp["reject"],
-                    "band_break": band.get("break"), "band_reject": band.get("reject"),
-                    "median_ttr": emp["median_ttr"], "magnitude": _cell_magnitude(sub, c)}
+            cell = {
+                "side": side,
+                "r_def": rd,
+                "n": emp["n"],
+                "n_resolved": emp["n_resolved"],
+                "cif_break": emp["break"],
+                "cif_reject": emp["reject"],
+                "band_break": band.get("break"),
+                "band_reject": band.get("reject"),
+                "median_ttr": emp["median_ttr"],
+                "magnitude": _cell_magnitude(sub, c),
+            }
             # raw WO8 multinomial retained one release (single defs only)
             if rd in R_DEFS:
                 raw = fit_direction(single, side, rd, 5, BASE_REGRESSORS, c)
-                cell["raw_multinomial"] = {"base_rate": raw.get("base_rate"), "n": raw.get("n_events"),
-                                           "published": raw.get("published")}
+                cell["raw_multinomial"] = {
+                    "base_rate": raw.get("base_rate"),
+                    "n": raw.get("n_events"),
+                    "published": raw.get("published"),
+                }
             cells.append(cell)
 
     # choose the headline definition by out-of-sample Brier: consensus vs single (per §2.2)
     bbd = recal.get("brier_by_def", {})
-    scored = {k: v.get("brier") for k, v in bbd.items() if k in R_DEFS and v.get("brier") is not None}
+    scored = {
+        k: v.get("brier") for k, v in bbd.items() if k in R_DEFS and v.get("brier") is not None
+    }
     cons_b = bbd.get("consensus_days", {}).get("brier")
-    headline = "consensus" if (cons_b is not None and (not scored or cons_b <= min(scored.values()))) else \
-        (min(scored, key=scored.get) if scored else "vp")
+    headline = (
+        "consensus"
+        if (cons_b is not None and (not scored or cons_b <= min(scored.values())))
+        else (min(scored, key=scored.get) if scored else "vp")
+    )
 
-    return {"single": single, "cons": cons, "pack": pack, "recal": recal, "cells": cells,
-            "headline_def": headline, "horizons": horizons}
+    return {
+        "single": single,
+        "cons": cons,
+        "pack": pack,
+        "recal": recal,
+        "cells": cells,
+        "headline_def": headline,
+        "horizons": horizons,
+    }
 
 
 def active_block(model: dict, c: dict, as_of: date) -> list[dict]:
@@ -1250,11 +1525,15 @@ def active_block(model: dict, c: dict, as_of: date) -> list[dict]:
     single, cons, pack, recal = model["single"], model["cons"], model["pack"], model["recal"]
     horizons = c["competing_risks"]["cif_horizons"]
     window = max(horizons)
-    open_single = single.filter((pl.col("date") >= pl.lit(as_of) - pl.duration(days=window)) & pl.col("cens"))
+    open_single = single.filter(
+        (pl.col("date") >= pl.lit(as_of) - pl.duration(days=window)) & pl.col("cens")
+    )
     if not open_single.height:
         return []
     # dedupe to the most recent open test per (base, side, r_def)
-    open_single = open_single.sort("date").group_by(["base", "side", "r_def"], maintain_order=True).last()
+    open_single = (
+        open_single.sort("date").group_by(["base", "side", "r_def"], maintain_order=True).last()
+    )
     # promote to consensus rows where the day agrees
     cons_keys = set()
     if cons.height:
@@ -1280,15 +1559,23 @@ def active_block(model: dict, c: dict, as_of: date) -> list[dict]:
             continue
         recal_break = _apply_calibrators(raw["break"], recal["calibrators"]["break"])
         recal_reject = _apply_calibrators(raw["reject"], recal["calibrators"]["reject"])
-        out.append({
-            "base": r["base"], "side": r["side"], "r_def": t["r_def"], "date": str(r["date"]),
-            "R": r.get("R"), "dist": r.get("dist"), "close_cleared": r.get("close_cleared"),
-            "level_age": r.get("level_age"),
-            "cif_break": recal_break, "cif_reject": recal_reject,
-            "cif_break_raw": {h: round(raw["break"][h], 4) for h in horizons},
-            "band_break": bands[i]["break"] if i < len(bands) else None,
-            "band_reject": bands[i]["reject"] if i < len(bands) else None,
-        })
+        out.append(
+            {
+                "base": r["base"],
+                "side": r["side"],
+                "r_def": t["r_def"],
+                "date": str(r["date"]),
+                "R": r.get("R"),
+                "dist": r.get("dist"),
+                "close_cleared": r.get("close_cleared"),
+                "level_age": r.get("level_age"),
+                "cif_break": recal_break,
+                "cif_reject": recal_reject,
+                "cif_break_raw": {h: round(raw["break"][h], 4) for h in horizons},
+                "band_break": bands[i]["break"] if i < len(bands) else None,
+                "band_reject": bands[i]["reject"] if i < len(bands) else None,
+            }
+        )
     return out
 
 
@@ -1301,27 +1588,38 @@ def tier3_overlay(single: pl.DataFrame, c: dict) -> dict:
     phi = {}
     for rd in R_DEFS:
         try:
-            fit = fit_direction(single, "resistance", rd, H, (*BASE_REGRESSORS, "phi", "funding_z"), c)
+            fit = fit_direction(
+                single, "resistance", rd, H, (*BASE_REGRESSORS, "phi", "funding_z"), c
+            )
             phi[rd] = (fit.get("reject_effects", {}) or {}).get("phi")
         except Exception:
             phi[rd] = None
     lam = overlay_magnitude_reject(single, "resistance", "vp", H, c)
-    counts = {rd: int(single.filter((pl.col("r_def") == rd) & pl.col("funding_z").is_not_null()).height)
-              for rd in R_DEFS}
+    counts = {
+        rd: int(single.filter((pl.col("r_def") == rd) & pl.col("funding_z").is_not_null()).height)
+        for rd in R_DEFS
+    }
     return {
-        "preliminary": True, "horizon": H, "phi_on_reject": phi,
-        "lambda_over_depth_magnitude": {"n": lam.get("n"), "published": lam.get("published"),
-                                        "reason": lam.get("reason")},
+        "preliminary": True,
+        "horizon": H,
+        "phi_on_reject": phi,
+        "lambda_over_depth_magnitude": {
+            "n": lam.get("n"),
+            "published": lam.get("published"),
+            "reason": lam.get("reason"),
+        },
         "overlay_event_counts": counts,
         "review_note": "6 October review: report the crowding overlay's independent-event count per "
-                       "cell and whether any cell has crossed the publish threshold; only then "
-                       "revisit whether Phi shifts direction or magnitude at a test. The accelerants "
-                       "are collector coverage (WO6-B) and the TradingView leverage backfill (WO5), "
-                       "not the model.",
+        "cell and whether any cell has crossed the publish threshold; only then "
+        "revisit whether Phi shifts direction or magnitude at a test. The accelerants "
+        "are collector coverage (WO6-B) and the TradingView leverage backfill (WO5), "
+        "not the model.",
     }
 
 
-def scorecard_cif(events: pl.DataFrame, model: dict, c: dict, as_of: date, calibrated_on: date) -> pl.DataFrame:
+def scorecard_cif(
+    events: pl.DataFrame, model: dict, c: dict, as_of: date, calibrated_on: date
+) -> pl.DataFrame:
     """§1.4 — every test that RESOLVED since go-live, with the recalibrated predicted P(break by the
     primary horizon) and the realised cause, so the forward Brier (vs the base-rate Brier) accrues in
     public."""
@@ -1330,18 +1628,33 @@ def scorecard_cif(events: pl.DataFrame, model: dict, c: dict, as_of: date, calib
     df = single.filter(~pl.col("cens")).with_columns(
         (pl.col("date") + pl.duration(days=pl.col("ttr"))).alias("resolve_date")
     )
-    df = df.filter((pl.col("resolve_date") >= pl.lit(calibrated_on)) & (pl.col("resolve_date") <= pl.lit(as_of)))
+    df = df.filter(
+        (pl.col("resolve_date") >= pl.lit(calibrated_on))
+        & (pl.col("resolve_date") <= pl.lit(as_of))
+    )
     if not df.height:
         return pl.DataFrame()
     rows = df.to_dicts()
-    tests = [{"side": r["side"], "r_def": r["r_def"], **{k: r.get(k) for k in CIF_FEATURES}} for r in rows]
+    tests = [
+        {"side": r["side"], "r_def": r["r_def"], **{k: r.get(k) for k in CIF_FEATURES}}
+        for r in rows
+    ]
     preds = predict_cif_tests(pack, tests, c)
     out = []
     for r, pr in zip(rows, preds):
         if not pr:
             continue
         pb = _apply_calibrators(pr["break"], recal["calibrators"]["break"]).get(prim)
-        out.append({"base": r["base"], "date": r["date"], "resolve_date": r["resolve_date"],
-                    "side": r["side"], "r_def": r["r_def"], "horizon": prim,
-                    "p_break": pb, "realized": r["cause"]})
+        out.append(
+            {
+                "base": r["base"],
+                "date": r["date"],
+                "resolve_date": r["resolve_date"],
+                "side": r["side"],
+                "r_def": r["r_def"],
+                "horizon": prim,
+                "p_break": pb,
+                "realized": r["cause"],
+            }
+        )
     return pl.DataFrame(out).sort(["resolve_date", "base"]) if out else pl.DataFrame()

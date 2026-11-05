@@ -36,16 +36,18 @@ def test_continuation_base_rate_and_phi_interaction():
     for s in tr.STATES:
         cell = br["by_state"][s]
         assert cell["n"] > 0 and 0.0 <= cell["p_up"] <= 1.0 and cell["se"] is not None
-    pt = tr.phi_by_trend(prices, pl.read_parquet(ROOT / "data" / "processed" / "fragility_series.parquet"), c)
+    pt = tr.phi_by_trend(
+        prices, pl.read_parquet(ROOT / "data" / "processed" / "fragility_series.parquet"), c
+    )
     # the interaction is reported (Φ conditioned on trend), descriptive
     assert "UPTREND" in pt["by_state"]
 
 
 def test_trend_state_uptrend_downtrend_rule():
     c = tr.cfg()
-    up = np.linspace(100, 300, 400)          # steady rise → uptrend
+    up = np.linspace(100, 300, 400)  # steady rise → uptrend
     s_up = tr._series(up, c)["state"][-1]
-    dn = np.linspace(300, 100, 400)          # steady fall → downtrend
+    dn = np.linspace(300, 100, 400)  # steady fall → downtrend
     s_dn = tr._series(dn, c)["state"][-1]
     assert s_up == "UPTREND" and s_dn == "DOWNTREND"
 
@@ -66,10 +68,22 @@ def test_demand_block_computes_premium_and_flow_and_marks_unavailable():
 def _phi_reading(phi, trend_state="UPTREND", active=None, conflicts=None, demand=None):
     frag = {"phi": phi, "n_components": 5, "z_vrp_neg": 1.0, "z_dd": 0.5}
     return state_reading(
-        date(2026, 9, 19), frag, [{"currency": "BTC", "vrp": -0.05}], [], {"oi_rel_pctile": 0.99, "oi_rel_pctile_n": 250},
-        -0.03, -0.3, 0.01, [], [], False,
-        trend_btc={"state": trend_state}, trend_continuation={"by_state": {"UPTREND": {"p_up": 0.52}}},
-        active_tests=active or [], conflicts=conflicts, demand=demand,
+        date(2026, 9, 19),
+        frag,
+        [{"currency": "BTC", "vrp": -0.05}],
+        [],
+        {"oi_rel_pctile": 0.99, "oi_rel_pctile_n": 250},
+        -0.03,
+        -0.3,
+        0.01,
+        [],
+        [],
+        False,
+        trend_btc={"state": trend_state},
+        trend_continuation={"by_state": {"UPTREND": {"p_up": 0.52}}},
+        active_tests=active or [],
+        conflicts=conflicts,
+        demand=demand,
     )
 
 
@@ -94,15 +108,25 @@ def test_leverage_reading_conditional_on_trend():
 
 def test_reading_conflict_logged_when_levered_vs_break():
     conflicts: list = []
-    active = [{"base": "BTC", "side": "resistance", "r_def": "hi", "close_cleared": False,
-               "cif_break": {"20": 0.67}, "cif_reject": {"20": 0.20}}]
+    active = [
+        {
+            "base": "BTC",
+            "side": "resistance",
+            "r_def": "hi",
+            "close_cleared": False,
+            "cif_break": {"20": 0.67},
+            "cif_reject": {"20": 0.20},
+        }
+    ]
     reading_text(_phi_reading(1.3, "UPTREND", active=active, conflicts=conflicts))
     assert conflicts and conflicts[0]["base"] == "BTC"  # levered Φ vs break-leaning model
 
 
 def test_demand_appears_in_reading():
-    demand = {"coinbase_premium": [{"base": "BTC", "premium_z": 1.5}],
-              "exchange_net_flow": [{"base": "BTC", "net_flow_7d_usd": 4e9}]}
+    demand = {
+        "coinbase_premium": [{"base": "BTC", "premium_z": 1.5}],
+        "exchange_net_flow": [{"base": "BTC", "net_flow_7d_usd": 4e9}],
+    }
     txt = reading_text(_phi_reading(0.5, demand=demand))
     assert "Demand:" in txt and "outflow" in txt
 
@@ -120,7 +144,9 @@ def test_history_tables_are_owned_by_hourly_with_a_parent():
         assert fr[t]["job"] == "hourly" and fr[t]["parent"] == parent
         assert not fr[t].get("optional")  # a real lag must be fatal now
     jw = yaml.safe_load((ROOT / "config" / "job_writes.yaml").read_text())
-    assert "positioning_history" in jw["hourly"]["tables"] and "oi_history" in jw["hourly"]["tables"]
+    assert (
+        "positioning_history" in jw["hourly"]["tables"] and "oi_history" in jw["hourly"]["tables"]
+    )
 
 
 def test_lag_guard_raises_when_history_lags_live(tmp_path, monkeypatch):
@@ -132,10 +158,30 @@ def test_lag_guard_raises_when_history_lags_live(tmp_path, monkeypatch):
     now = datetime(2026, 9, 26, tzinfo=UTC)
     prov = {"source": "t", "fetched_at": now, "git_sha": "x"}
     # live OI is current, history is two days behind → the guard must refuse to publish
-    archive.upsert("oi_daily", pl.DataFrame({"date": [date(2026, 9, 26)], "base": ["BTC"],
-                                             "oi_usd": [1.0], "suspect": [False], **{k: [v] for k, v in prov.items()}}))
-    archive.upsert("oi_history", pl.DataFrame({"date": [date(2026, 9, 24)], "venue": ["aggregate"],
-                                              "base": ["BTC"], "oi_usd": [1.0], **{k: [v] for k, v in prov.items()}}))
+    archive.upsert(
+        "oi_daily",
+        pl.DataFrame(
+            {
+                "date": [date(2026, 9, 26)],
+                "base": ["BTC"],
+                "oi_usd": [1.0],
+                "suspect": [False],
+                **{k: [v] for k, v in prov.items()},
+            }
+        ),
+    )
+    archive.upsert(
+        "oi_history",
+        pl.DataFrame(
+            {
+                "date": [date(2026, 9, 24)],
+                "venue": ["aggregate"],
+                "base": ["BTC"],
+                "oi_usd": [1.0],
+                **{k: [v] for k, v in prov.items()},
+            }
+        ),
+    )
     with pytest.raises(RuntimeError, match="lags"):
         hourly._assert_history_current()
 
