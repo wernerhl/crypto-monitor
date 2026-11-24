@@ -33,8 +33,8 @@ def iso(t=None):
     return (t or now()).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def get(url, body=None, timeout=20):
-    headers = {"User-Agent": UA, "Accept": "application/json"}
+def get(url, body=None, timeout=20, ua=UA):
+    headers = {"User-Agent": ua, "Accept": "application/json"}
     data = None
     if body is not None:
         data = json.dumps(body).encode()
@@ -277,7 +277,7 @@ def cbn_official(state):
 
 def yahoo_bars(symbol, interval, rng):
     y = get("https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=%s&range=%s"
-            % (symbol, interval, rng), timeout=30)["chart"]["result"][0]
+            % (symbol, interval, rng), timeout=30, ua="Mozilla/5.0")["chart"]["result"][0]
     q = y["indicators"]["quote"][0]
     return [[t, c] for t, c in zip(y.get("timestamp") or [], q.get("close") or []) if c is not None]
 
