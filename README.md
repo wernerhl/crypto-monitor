@@ -7,16 +7,19 @@ exchanges are closed. This branch holds the collector and its data. It shares no
 
 ## What runs
 
-The workflow `.github/workflows/election-venues.yml` on `main` runs `collect.py` every ten
-minutes on a GitHub-hosted runner and commits the new files here.
+The workflow `.github/workflows/election-venues.yml` on `main` runs `collect.py` on a
+GitHub-hosted runner. Each run lasts five hours, commits every sample to this branch and
+starts the next run when it ends. GitHub fires this repository's schedules only a few times
+a day, so the schedule in the workflow serves to restart the sequence if a run is lost.
 
 | Period (UTC) | Sampling |
 |---|---|
-| Until 14 January 2027 | One sample per run. Peer-to-peer ads and slow sources every 30 minutes |
-| 14 to 21 January 2027 | One sample per minute in runs of 9 minutes that start one after another. Peer-to-peer ads every 5 minutes |
+| Until 14 January 2027 | One sample every ten minutes. Peer-to-peer ads and slow sources every 30 minutes |
+| 14 to 21 January 2027 | One sample per minute, committed every nine minutes. Peer-to-peer ads every 5 minutes |
 
-The dates and intervals are set in `config.json`. A change to `config.json` on this branch
-starts a run at once.
+The dates and intervals are set in `config.json`. A running job reads a changed
+`config.json` within ten minutes. To stop the collector, disable the workflow in the Actions
+tab. Cancelling a single run does not stop it, because the next run starts anyway.
 
 ## Sources
 
@@ -63,7 +66,7 @@ rate) and `trades.csv`.
 
 - Order books, quotes and advertisements exist only from the first run on 24 November 2026.
   Quidax one-minute candles and on-chain cNGN swaps can be pulled for earlier dates.
-- A scheduled run on GitHub can start late or be skipped, so the baseline has uneven gaps.
+- A lost runner breaks the sequence until GitHub next fires the schedule, which can take hours.
 - Luno serves trades for the last 24 hours only. A gap longer than that loses trades, and
   the sample then carries `"gap": true`.
 - The vote count of the electoral commission is not collected yet.
