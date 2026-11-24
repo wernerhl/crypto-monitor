@@ -1,0 +1,28 @@
+{
+  "event": "Nigeria presidential election, 16 January 2027",
+  "baseline_interval_note": "one sample per scheduled run (every 10 minutes)",
+  "event_windows_utc": [
+    ["2027-01-14T00:00:00Z", "2027-01-22T00:00:00Z"]
+  ],
+  "event_sample_seconds": 60,
+  "event_run_seconds": 1500,
+  "p2p_seconds_baseline": 1800,
+  "p2p_seconds_event": 300,
+  "slow_seconds": 1800,
+  "book_levels": 25,
+  "p2p_ads_per_side": 15,
+  "polymarket": {
+    "event_slug": "nigerian-presidential-election-winner-20260602162945585",
+    "yes_tokens": {
+      "tinubu": "53436724862844247057827668411672140355766194940747468720197412431149544886943",
+      "obi": "29786527927651208289535739744630806773551819305435820836007728184564904783537",
+      "atiku": "65669216081982775553252812141305516258403415384336560578037870261705395013745"
+    }
+  },
+  "kalshi_series": "KXPRESNIGERIA",
+  "cngn_pools": [
+    ["celo", "0x6519d56eb0a69fc0338657784c783b169b8f7d32"],
+    ["base", "0x84fa97768196067f0e5aa157709039a3897e219cba3002d9ad38bf44e300fe93"],
+    ["bsc", "0x2268f03a28f37f16cd3610dc669536f8c815d9d4cb2906feeeba9150fb2d8596"]
+  ]
+}

@@ -1,0 +1,45 @@
+name: election-venues
+on:
+  schedule:
+    - cron: "3-59/10 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main, election-venues]
+    paths:
+      - ".github/workflows/election-venues.yml"
+      - "config.json"
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: election-venues
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: election-venues
+          fetch-depth: 1
+      - name: collect naira and election-market quotes
+        id: collect
+        run: python3 collect.py
+      - name: commit the samples to the data branch
+        if: always()
+        run: |
+          git config user.name "election-venues-bot"
+          git config user.email "election-venues-bot@users.noreply.github.com"
+          git add data state.json latest.json
+          if git diff --cached --quiet; then
+            echo "no new samples"
+            exit 0
+          fi
+          git commit -q -m "samples $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push origin HEAD:election-venues || { git pull --rebase origin election-venues && git push origin HEAD:election-venues; }
+      - name: start the next run while an event window is open
+        if: steps.collect.outputs.event == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run election-venues.yml --repo "${{ github.repository }}" --ref main
