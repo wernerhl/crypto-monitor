@@ -13,7 +13,7 @@ minutes on a GitHub-hosted runner and commits the new files here.
 | Period (UTC) | Sampling |
 |---|---|
 | Until 14 January 2027 | One sample per run. Peer-to-peer ads and slow sources every 30 minutes |
-| 14 to 21 January 2027 | One sample per minute in runs of 25 minutes that start one after another. Peer-to-peer ads every 5 minutes |
+| 14 to 21 January 2027 | One sample per minute in runs of 9 minutes that start one after another. Peer-to-peer ads every 5 minutes |
 
 The dates and intervals are set in `config.json`. A change to `config.json` on this branch
 starts a run at once.

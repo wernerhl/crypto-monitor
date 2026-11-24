@@ -5,14 +5,10 @@
     [
       "2027-01-14T00:00:00Z",
       "2027-01-22T00:00:00Z"
-    ],
-    [
-      "2026-11-24T15:14:02Z",
-      "2026-11-24T15:23:02Z"
     ]
   ],
   "event_sample_seconds": 60,
-  "event_run_seconds": 170,
+  "event_run_seconds": 540,
   "p2p_seconds_baseline": 1800,
   "p2p_seconds_event": 300,
   "slow_seconds": 1800,
@@ -40,6 +36,5 @@
       "bsc",
       "0x2268f03a28f37f16cd3610dc669536f8c815d9d4cb2906feeeba9150fb2d8596"
     ]
-  ],
-  "event_run_seconds_saved": 1500
+  ]
 }
