@@ -1,8 +1,8 @@
 {
- "t": "2026-11-25T05:40:00.840Z",
+ "t": "2026-11-25T05:50:01.243Z",
  "event_mode": false,
  "files": [
-  "data/2026/11/25/054000.json.gz"
+  "data/2026/11/25/055001.json.gz"
  ],
  "ok": {
   "quidax_book": true,
@@ -14,12 +14,6 @@
   "busha": true,
   "binance_btc": true,
   "polymarket_books": true,
-  "kalshi": true,
-  "p2p_okx": true,
-  "p2p_bitget": true,
-  "p2p_mexc": true,
-  "p2p_htx": true,
-  "cngn_pools": true,
-  "polymarket_event": true
+  "kalshi": true
  }
 }
