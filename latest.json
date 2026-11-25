@@ -1,8 +1,8 @@
 {
- "t": "2026-11-24T23:50:01.096Z",
+ "t": "2026-11-25T00:00:01.220Z",
  "event_mode": false,
  "files": [
-  "data/2026/11/24/235001.json.gz"
+  "data/2026/11/25/000001.json.gz"
  ],
  "ok": {
   "quidax_book": true,
@@ -14,6 +14,8 @@
   "busha": true,
   "binance_btc": true,
   "polymarket_books": true,
-  "kalshi": true
+  "kalshi": true,
+  "cbn_official": true,
+  "yahoo": true
  }
 }
