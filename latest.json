@@ -1,8 +1,8 @@
 {
- "t": "2026-11-28T05:50:01.155Z",
+ "t": "2026-11-28T06:00:00.326Z",
  "event_mode": false,
  "files": [
-  "data/2026/11/28/055001.json.gz"
+  "data/2026/11/28/060000.json.gz"
  ],
  "ok": {
   "quidax_book": true,
